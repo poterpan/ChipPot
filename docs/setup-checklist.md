@@ -54,7 +54,7 @@ From the Discord Developer Portal (your existing app) + your test server:
       - Claude Standard role id: `__________________`
       - Claude Premium role id: `__________________`
       (If these roles don't exist yet, create them — or tell me to create them via API.)
-- [ ] Bot is invited to the test guild with scopes `bot` + `applications.commands` and
+- [x] Bot is invited to the test guild with scopes `bot` + `applications.commands` and
       permissions: Send Messages, Embed Links, Read Message History, Mention Roles.
       (If not, I'll generate an invite URL from the Application ID for you to click once.)
 
