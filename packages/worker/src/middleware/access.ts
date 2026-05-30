@@ -93,7 +93,10 @@ export async function verifyAccessJwt(
   if (!ok) throw new AccessDenied("bad signature");
 
   const now = opts.now ?? Math.floor(Date.now() / 1000);
-  if (typeof payload.exp === "number" && payload.exp <= now) throw new AccessDenied("expired");
+  // exp is mandatory: a token without a valid expiry must never be accepted.
+  if (typeof payload.exp !== "number") throw new AccessDenied("missing exp");
+  if (payload.exp <= now) throw new AccessDenied("expired");
+  // nbf is optional per RFC 7519; only enforced when present.
   if (typeof payload.nbf === "number" && payload.nbf > now) throw new AccessDenied("not yet valid");
   if (payload.iss !== opts.issuer) throw new AccessDenied("bad issuer");
 
@@ -111,16 +114,23 @@ export async function verifyAccessJwt(
 
 // ── JWKS fetch + cache + request-level guard ─────────────────────────────────
 
-const JWKS_TTL_MS = 60 * 60 * 1000; // 1 hour
+const JWKS_TTL_MS = 60 * 60 * 1000; // 1 hour: refresh after this
+const JWKS_MAX_STALE_MS = 24 * 60 * 60 * 1000; // serve stale at most this long if refresh fails
 const jwksCache = new Map<string, { jwks: AccessJwks; at: number }>();
 
 export async function getAccessJwks(teamDomain: string): Promise<AccessJwks> {
   const cached = jwksCache.get(teamDomain);
-  const fresh = cached && Date.now() - cached.at < JWKS_TTL_MS;
-  if (cached && fresh) return cached.jwks;
-  const res = await fetch(`https://${teamDomain}.cloudflareaccess.com/cdn-cgi/access/certs`);
+  if (cached && Date.now() - cached.at < JWKS_TTL_MS) return cached.jwks;
+  let res: Response;
+  try {
+    res = await fetch(`https://${teamDomain}.cloudflareaccess.com/cdn-cgi/access/certs`);
+  } catch {
+    res = new Response(null, { status: 599 });
+  }
   if (!res.ok) {
-    if (cached) return cached.jwks; // serve stale rather than fail if refresh breaks
+    // Serve stale only within the max-stale window; beyond it, fail closed so retired
+    // keys can't keep validating after rotation.
+    if (cached && Date.now() - cached.at < JWKS_MAX_STALE_MS) return cached.jwks;
     throw new AccessDenied("could not fetch Access certs");
   }
   const jwks = (await res.json()) as AccessJwks;

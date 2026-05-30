@@ -56,6 +56,14 @@ describe("verifyAccessJwt", () => {
     await expect(verifyAccessJwt(token, { jwks, aud: AUD, issuer: ISS, now: NOW })).rejects.toBeInstanceOf(AccessDenied);
   });
 
+  it("rejects a token with no exp claim (fail closed)", async () => {
+    const { publicKey, privateKey } = await genKey();
+    const jwks = await jwksFor("k1", publicKey);
+    const { exp, ...noExp } = goodPayload;
+    const token = await sign(privateKey, HEADER, noExp);
+    await expect(verifyAccessJwt(token, { jwks, aud: AUD, issuer: ISS, now: NOW })).rejects.toBeInstanceOf(AccessDenied);
+  });
+
   it("rejects a wrong issuer", async () => {
     const { publicKey, privateKey } = await genKey();
     const jwks = await jwksFor("k1", publicKey);
