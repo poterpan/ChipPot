@@ -1,0 +1,72 @@
+const BASE = "/api/admin";
+
+async function req<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+  const init: RequestInit = { method };
+  if (body !== undefined) {
+    init.body = JSON.stringify(body);
+    init.headers = { "content-type": "application/json" };
+  }
+  const r = await fetch(BASE + path, init);
+  if (r.status === 401 || r.status === 403) throw new Error("未授權，請重新登入後再試。");
+  const data = (await r.json().catch(() => ({}))) as any;
+  if (!r.ok) throw new Error(data?.error ?? `錯誤 ${r.status}`);
+  return data as T;
+}
+
+function qs(params?: Record<string, string | number | undefined>): string {
+  if (!params) return "";
+  const parts = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== "")
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
+export interface Payment {
+  id: number; period: string; amount: number; status: string; has_proof: number;
+  screenshot_key: string | null; proof_deleted_at: string | null; payment_note: string | null;
+  verified_channel_tag_id: number | null; channel_tag_name: string | null; source: string;
+  rejected_reason: string | null; user_name: string; plan_name: string;
+  paid_at: string | null; submitted_at: string | null; verified_by: string | null; due_date: string;
+}
+export interface Reconcile {
+  period: string;
+  status_counts: { pending: number; paid: number; verified: number; rejected: number };
+  total_amount_due: number; verified_amount: number; no_proof_count: number;
+  by_plan: { plan_id: number; plan_name: string; total: number; pending: number; paid: number; verified: number; rejected: number; amount_due: number; amount_verified: number }[];
+  by_channel_tag: { channel_tag_id: number | null; channel_tag_name: string | null; count: number; amount: number }[];
+}
+export interface ChannelTag { id: number; name: string; type: string | null; active: number; sort_order: number }
+export interface Plan { id: number; name: string; provider: string; monthly_amount: number; discord_role_id: string | null; active: number }
+export interface User { id: number; display_name: string; discord_id: string | null; email: string | null; note: string | null }
+export interface Subscription { id: number; user_name: string; plan_name: string; status: string; start_date: string; billing_day: number; custom_cycle: number; user_id: number; plan_id: number }
+
+export const api = {
+  workspace: () => req("GET", "/workspace"),
+  updateWorkspace: (b: unknown) => req("PATCH", "/workspace", b),
+  reconcile: (period: string) => req<Reconcile>("GET", `/reconcile${qs({ period })}`),
+  payments: (p?: { period?: string; status?: string }) => req<{ payments: Payment[] }>("GET", `/payments${qs(p)}`),
+  verify: (id: number, tagId: number | null) => req("POST", `/payments/${id}/verify`, { verified_channel_tag_id: tagId }),
+  reject: (id: number, reason: string) => req("POST", `/payments/${id}/reject`, { rejected_reason: reason }),
+  overrideAmount: (id: number, amount: number) => req("POST", `/payments/${id}/amount`, { amount }),
+  deleteProof: (id: number) => req("POST", `/payments/${id}/delete-proof`),
+  manualPayment: (b: unknown) => req("POST", "/payments/manual", b),
+  uploadLink: (b: unknown) => req<{ token: string; path: string; expires_at: string }>("POST", "/upload-link", b),
+  users: () => req<{ users: User[] }>("GET", "/users"),
+  createUser: (b: unknown) => req("POST", "/users", b),
+  updateUser: (id: number, b: unknown) => req("PATCH", `/users/${id}`, b),
+  subscriptions: () => req<{ subscriptions: Subscription[] }>("GET", "/subscriptions"),
+  createSubscription: (b: unknown) => req("POST", "/subscriptions", b),
+  updateSubscription: (id: number, b: unknown) => req("PATCH", `/subscriptions/${id}`, b),
+  plans: () => req<{ plans: Plan[] }>("GET", "/plans"),
+  createPlan: (b: unknown) => req("POST", "/plans", b),
+  updatePlan: (id: number, b: unknown) => req("PATCH", `/plans/${id}`, b),
+  channelTags: () => req<{ channel_tags: ChannelTag[] }>("GET", "/channel-tags"),
+  createChannelTag: (b: unknown) => req("POST", "/channel-tags", b),
+  updateChannelTag: (id: number, b: unknown) => req("PATCH", `/channel-tags/${id}`, b),
+  imageUrl: (key: string) => `${BASE}/image?key=${encodeURIComponent(key)}`,
+};
+
+export function currentPeriod(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" })
+    .format(new Date()).slice(0, 7);
+}
