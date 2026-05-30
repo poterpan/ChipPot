@@ -1,4 +1,4 @@
-# ChipPo — Inputs I need from you (fill in, then I wire it up)
+# ChipPot — Inputs I need from you (fill in, then I wire it up)
 
 You're resting; I'll keep building everything that doesn't need these. The items below are
 the things only you can provide. **Secrets** (marked 🔒) should go into a gitignored file
@@ -12,9 +12,9 @@ Legend: ⛔ = blocks finishing that phase · 🟡 = optional / has a sensible de
 ## A. Hosting URLs — choose one (🟡, default needs nothing from you)
 
 I can ship entirely on **free Cloudflare URLs** (no domain/DNS needed):
-- Worker API: `chippo.<your-workers-subdomain>.workers.dev`
-- Upload page: `chippo-web.pages.dev`
-- Admin UI: `chippo-admin.pages.dev` (still protected by Access)
+- Worker API: `chippot.<your-workers-subdomain>.workers.dev`
+- Upload page: `chippot-web.pages.dev`
+- Admin UI: `chippot-admin.pages.dev` (still protected by Access)
 
 - [x] **Use free *.pages.dev / *.workers.dev** (default — leave blank), **OR**
 - [ ] **Use my custom domain:** `__________________` (apex/zone, e.g. `club.example.org`)
@@ -70,7 +70,7 @@ So I can seed a realistic subscription and test button → upload → admin veri
 
 ## F. Confirmations (🟡 defaults already applied — change only if wrong)
 
-- [ ] Resource names `chippo-db`, `chippo-proofs` — OK? (already created)
+- [ ] Resource names `chippot-db`, `chippot-proofs` — OK? (already created)
 - [ ] billing_day = **5**, overdue_days = **3**, proof_retention_months = **24** — OK?
 - [ ] Cron time 01:00 UTC = **09:00 Asia/Taipei** daily — OK?
 

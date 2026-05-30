@@ -1,10 +1,10 @@
-# ChipPo
+# ChipPot
 
 訂閱代管收費系統 — 100% serverless on Cloudflare (Workers + D1 + R2 + Cron + Access),
 core/adapter split (Discord first, LINE/Telegram later), multi-workspace ready.
 
 > Plans & architecture: `docs/superpowers/plans/`. Conventions and deviations:
-> `2026-05-31-chippo-master-roadmap.md`.
+> `2026-05-31-chippot-master-roadmap.md`.
 
 ## Prerequisites
 
@@ -23,10 +23,10 @@ packages/admin    (Phase 6) Vite+React admin UI (Pages, behind Access)
 
 ```bash
 pnpm install                                   # installs all workspaces
-pnpm --filter @chippo/worker test              # run worker test suite (Vitest + Miniflare D1)
-pnpm --filter @chippo/worker typecheck         # tsc --noEmit
-pnpm --filter @chippo/worker migrate:local     # apply migrations to local D1
-pnpm --filter @chippo/worker dev               # wrangler dev (local)
+pnpm --filter @chippot/worker test              # run worker test suite (Vitest + Miniflare D1)
+pnpm --filter @chippot/worker typecheck         # tsc --noEmit
+pnpm --filter @chippot/worker migrate:local     # apply migrations to local D1
+pnpm --filter @chippot/worker dev               # wrangler dev (local)
 ```
 
 Tests run inside the Workers runtime via `@cloudflare/vitest-pool-workers` with a real
@@ -36,16 +36,16 @@ local D1. **Storage isolation is per test file** (see roadmap testing convention
 
 | Resource | Name | Notes |
 |---|---|---|
-| D1 database | `chippo-db` | id `9ebe144c-13d4-4a10-a050-81235307e788` (APAC); in `wrangler.toml` |
-| R2 bucket | `chippo-proofs` | private (never make public); payment screenshots |
+| D1 database | `chippot-db` | id `adf93584-5bfa-4376-b08d-b0847709ecfe` (APAC); in `wrangler.toml` |
+| R2 bucket | `chippot-proofs` | private (never make public); payment screenshots |
 
 To (re)provision from scratch:
 
 ```bash
-wrangler d1 create chippo-db                   # copy database_id into wrangler.toml
-wrangler r2 bucket create chippo-proofs        # private by default
-pnpm --filter @chippo/worker migrate:remote    # apply schema + seed to remote D1
-wrangler d1 execute chippo-db --remote --command "SELECT name, monthly_amount FROM plans"
+wrangler d1 create chippot-db                   # copy database_id into wrangler.toml
+wrangler r2 bucket create chippot-proofs        # private by default
+pnpm --filter @chippot/worker migrate:remote    # apply schema + seed to remote D1
+wrangler d1 execute chippot-db --remote --command "SELECT name, monthly_amount FROM plans"
 ```
 
 Secrets (added in later phases) go via `wrangler secret put` or a gitignored `.dev.vars`

@@ -1,9 +1,9 @@
-# ChipPo Phase 1 — Foundation Implementation Plan
+# ChipPot Phase 1 — Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 > Steps use checkbox (`- [ ]`) syntax for tracking. See the master roadmap
-> `2026-05-31-chippo-master-roadmap.md` for architecture, conventions, and deviations.
+> `2026-05-31-chippot-master-roadmap.md` for architecture, conventions, and deviations.
 
 **Goal:** Stand up the pnpm monorepo + Cloudflare Worker package with a tested data
 layer: full D1 schema + seed, and the channel-agnostic utilities `time`, `tokens`,
@@ -47,7 +47,7 @@ pnpm workspace, wrangler 4.x.
 
 ```json
 {
-  "name": "chippo",
+  "name": "chippot",
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "scripts": {
@@ -91,7 +91,7 @@ coverage/
 
 ```json
 {
-  "name": "@chippo/worker",
+  "name": "@chippot/worker",
   "private": true,
   "type": "module",
   "scripts": {
@@ -100,8 +100,8 @@ coverage/
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "migrate:local": "wrangler d1 migrations apply chippo-db --local",
-    "migrate:remote": "wrangler d1 migrations apply chippo-db --remote"
+    "migrate:local": "wrangler d1 migrations apply chippot-db --local",
+    "migrate:remote": "wrangler d1 migrations apply chippot-db --remote"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.16.10",
@@ -144,7 +144,7 @@ coverage/
 `packages/worker/wrangler.toml`:
 
 ```toml
-name = "chippo"
+name = "chippot"
 main = "src/index.ts"
 compatibility_date = "2025-11-01"
 compatibility_flags = ["nodejs_compat"]
@@ -152,13 +152,13 @@ compatibility_flags = ["nodejs_compat"]
 # database_id is a placeholder for local/test; real id is set at Phase 1 deploy.
 [[d1_databases]]
 binding = "DB"
-database_name = "chippo-db"
+database_name = "chippot-db"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "chippo-proofs"
+bucket_name = "chippot-proofs"
 
 # 01:00 UTC = 09:00 Asia/Taipei, daily.
 [triggers]
@@ -172,7 +172,7 @@ import type { Env } from "./env";
 
 export default {
   async fetch(_req: Request, _env: Env): Promise<Response> {
-    return new Response("ChipPo worker", { status: 200 });
+    return new Response("ChipPot worker", { status: 200 });
   },
   async scheduled(_event: ScheduledController, _env: Env): Promise<void> {
     // Cron handler implemented in Phase 7.
@@ -253,7 +253,7 @@ declare global {
 - [ ] **Step 6: Placeholder migration so the harness has something to read**
 
 Create `packages/worker/migrations/0001_init.sql` with a single comment line
-`-- ChipPo schema (filled in Task 2)`. (Filled with real DDL in Task 2.)
+`-- ChipPot schema (filled in Task 2)`. (Filled with real DDL in Task 2.)
 
 - [ ] **Step 7: Write the smoke test**
 
@@ -273,7 +273,7 @@ describe("test harness", () => {
 
 - [ ] **Step 8: Run the smoke test**
 
-Run: `pnpm --filter @chippo/worker test`
+Run: `pnpm --filter @chippot/worker test`
 Expected: PASS (1 test). This proves pnpm + vitest-pool-workers + wrangler.toml +
 migration reader are all wired. If `readD1Migrations` errors on the comment-only file,
 add a no-op statement `SELECT 1;` to `0001_init.sql` temporarily.
@@ -376,7 +376,7 @@ describe("schema", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter @chippo/worker test schema`
+Run: `pnpm --filter @chippot/worker test schema`
 Expected: FAIL (tables/constraints missing).
 
 - [ ] **Step 3: Write the full schema**
@@ -384,7 +384,7 @@ Expected: FAIL (tables/constraints missing).
 Replace `packages/worker/migrations/0001_init.sql` entirely with:
 
 ```sql
--- ChipPo D1 schema v2. Conventions: timestamps = UTC ISO millis TEXT;
+-- ChipPot D1 schema v2. Conventions: timestamps = UTC ISO millis TEXT;
 -- business dates = YYYY-MM-DD (Asia/Taipei); period = YYYY-MM; amounts = INTEGER TWD;
 -- booleans = INTEGER + CHECK (col IN (0,1)).
 
@@ -530,7 +530,7 @@ CREATE INDEX idx_audit_logs_entity ON audit_logs(workspace_id, entity_type, enti
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pnpm --filter @chippo/worker test schema`
+Run: `pnpm --filter @chippot/worker test schema`
 Expected: PASS (5 tests). Miniflare's D1 **does** enforce FK constraints, which is why
 the test seeds real parents (workspace `9001` → user → plan → subscription) before
 inserting payments.
@@ -594,7 +594,7 @@ describe("seed", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter @chippo/worker test seed`
+Run: `pnpm --filter @chippot/worker test seed`
 Expected: FAIL (no rows seeded).
 
 - [ ] **Step 3: Write the seed migration**
@@ -625,7 +625,7 @@ INSERT INTO channel_tags (workspace_id, name, type, sort_order, created_at) VALU
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pnpm --filter @chippo/worker test seed`
+Run: `pnpm --filter @chippot/worker test seed`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
@@ -693,7 +693,7 @@ describe("time", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter @chippo/worker test time`
+Run: `pnpm --filter @chippot/worker test time`
 Expected: FAIL ("Cannot find module ../../src/core/time").
 
 - [ ] **Step 3: Implement `core/time.ts`**
@@ -757,7 +757,7 @@ export function daysBetween(fromDate: string, toDate: string): number {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pnpm --filter @chippo/worker test time`
+Run: `pnpm --filter @chippot/worker test time`
 Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
@@ -809,7 +809,7 @@ describe("tokens", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter @chippo/worker test tokens`
+Run: `pnpm --filter @chippot/worker test tokens`
 Expected: FAIL ("Cannot find module ../../src/core/tokens").
 
 - [ ] **Step 3: Implement `core/tokens.ts`**
@@ -836,7 +836,7 @@ export async function hashToken(raw: string): Promise<string> {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pnpm --filter @chippo/worker test tokens`
+Run: `pnpm --filter @chippot/worker test tokens`
 Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
@@ -885,7 +885,7 @@ describe("db getters", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter @chippo/worker test core/db`
+Run: `pnpm --filter @chippot/worker test core/db`
 Expected: FAIL ("Cannot find module ../../src/core/db").
 
 - [ ] **Step 3: Implement `core/db.ts`**
@@ -943,7 +943,7 @@ export async function getActivePlans(
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pnpm --filter @chippo/worker test core/db`
+Run: `pnpm --filter @chippot/worker test core/db`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
@@ -1015,7 +1015,7 @@ describe("writeAudit", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter @chippo/worker test audit`
+Run: `pnpm --filter @chippot/worker test audit`
 Expected: FAIL ("Cannot find module ../../src/core/audit").
 
 - [ ] **Step 3: Implement `core/audit.ts`**
@@ -1057,7 +1057,7 @@ export async function writeAudit(db: D1Database, e: AuditEntry): Promise<void> {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pnpm --filter @chippo/worker test audit`
+Run: `pnpm --filter @chippot/worker test audit`
 Expected: PASS (2 tests).
 
 - [ ] **Step 5: Commit**
@@ -1112,7 +1112,7 @@ describe("parseSettings", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter @chippo/worker test env`
+Run: `pnpm --filter @chippot/worker test env`
 Expected: FAIL ("parseSettings is not a function" / module export missing).
 
 - [ ] **Step 3: Extend `src/env.ts`**
@@ -1172,12 +1172,12 @@ export function parseSettings(json: string): WorkspaceSettings {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pnpm --filter @chippo/worker test env`
+Run: `pnpm --filter @chippot/worker test env`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Typecheck the whole package and run the full suite**
 
-Run: `pnpm --filter @chippo/worker typecheck && pnpm --filter @chippo/worker test`
+Run: `pnpm --filter @chippot/worker typecheck && pnpm --filter @chippot/worker test`
 Expected: typecheck clean; all suites PASS.
 
 - [ ] **Step 6: Commit**
@@ -1205,25 +1205,25 @@ Ask the owner to run **`! wrangler login`** in this session, or to provide
 
 - [ ] **Step 2: Create the remote D1 database**
 
-Run: `wrangler d1 create chippo-db`
+Run: `wrangler d1 create chippot-db`
 Copy the returned `database_id` into `packages/worker/wrangler.toml`.
 
 - [ ] **Step 3: Create the R2 bucket (private)**
 
-Run: `wrangler r2 bucket create chippo-proofs`
+Run: `wrangler r2 bucket create chippot-proofs`
 (R2 buckets are private by default — do not enable public access.)
 
 - [ ] **Step 4: Apply migrations to remote D1**
 
-Run: `wrangler d1 migrations apply chippo-db --remote`
-Verify: `wrangler d1 execute chippo-db --remote --command "SELECT name, monthly_amount FROM plans"`
+Run: `wrangler d1 migrations apply chippot-db --remote`
+Verify: `wrangler d1 execute chippot-db --remote --command "SELECT name, monthly_amount FROM plans"`
 Expected: the three seeded plans.
 
 - [ ] **Step 5: Write README bootstrap section**
 
 Create `README.md` documenting: prerequisites (Node 22, pnpm), `pnpm install`,
-`pnpm --filter @chippo/worker test`, local migrate
-(`pnpm --filter @chippo/worker migrate:local`), and the remote provisioning commands
+`pnpm --filter @chippot/worker test`, local migrate
+(`pnpm --filter @chippot/worker migrate:local`), and the remote provisioning commands
 above. (Expanded into a full runbook in Phase 8.)
 
 - [ ] **Step 6: Commit**
@@ -1247,7 +1247,7 @@ git commit -m "chore: provision remote D1 + R2 and document bootstrap"
 
 ## Done criteria for Phase 1
 
-1. `pnpm --filter @chippo/worker test` — all suites green.
-2. `pnpm --filter @chippo/worker typecheck` — clean.
-3. `wrangler d1 migrations apply chippo-db --remote` — succeeds, seed verified.
+1. `pnpm --filter @chippot/worker test` — all suites green.
+2. `pnpm --filter @chippot/worker typecheck` — clean.
+3. `wrangler d1 migrations apply chippot-db --remote` — succeeds, seed verified.
 4. Clean git history of small conventional commits.

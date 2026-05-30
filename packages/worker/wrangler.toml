@@ -1,17 +1,17 @@
-name = "chippo"
+name = "chippot"
 main = "src/index.ts"
 compatibility_date = "2025-11-01"
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "chippo-db"
-database_id = "9ebe144c-13d4-4a10-a050-81235307e788"
+database_name = "chippot-db"
+database_id = "adf93584-5bfa-4376-b08d-b0847709ecfe"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "chippo-proofs"
+bucket_name = "chippot-proofs"
 
 # 01:00 UTC = 09:00 Asia/Taipei, daily.
 [triggers]

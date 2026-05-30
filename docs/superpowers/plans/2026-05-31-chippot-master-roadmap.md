@@ -1,11 +1,11 @@
-# ChipPo — Master Roadmap & Architecture
+# ChipPot — Master Roadmap & Architecture
 
 > Companion to the spec **「訂閱代管收費系統 — 需求規格文件 v2」**. This roadmap locks in
 > architecture, file structure, global conventions, phase breakdown, the credential
 > checklist, and deliberate deviations from the spec. Each phase has its own detailed
 > plan file and produces working, testable software on its own.
 
-**Product name:** ChipPo · **Repo dir:** `chippot` · **Owner:** poterpan5466@gmail.com
+**Product name:** ChipPot · **Repo dir:** `chippot` · **Owner:** poterpan5466@gmail.com
 
 **Goal:** A 100%-serverless subscription billing/reconciliation system on the Cloudflare
 stack (Pages + Workers + D1 + R2 + Cron + Access), serving a non-profit club's AI
@@ -147,7 +147,7 @@ If any of these are not acceptable, say so and I'll adjust before/at the relevan
 | **7 — Cron & notifications** | scheduled: idempotent billing + billing_opened/overdue notify (dedup) + retention delete; Discord role/personal tags (§8.1, §9, §13) | scheduled handler tested; dry-run + live in test guild |
 | **8 — Deploy & wire** | real bindings, Pages deploys, Access config, R2 private, Cron schedule, Discord app registration, README runbook (§17.11) | end-to-end live smoke test |
 
-Plan files: `2026-05-31-chippo-phaseN-<name>.md`, written at the start of each phase
+Plan files: `2026-05-31-chippot-phaseN-<name>.md`, written at the start of each phase
 after the previous phase's review.
 
 ## 6. Credentials & resources checklist (owner provides; I request per phase)
@@ -155,7 +155,7 @@ after the previous phase's review.
 | When | What I need from you | Why |
 |---|---|---|
 | Phase 1 deploy | `wrangler login` in this session (`! wrangler login`) **or** `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` | create/apply remote D1, deploy worker |
-| Phase 1 | confirm D1 database name + R2 bucket name (defaults `chippo-db`, `chippo-proofs`) | wrangler.toml bindings |
+| Phase 1 | confirm D1 database name + R2 bucket name (defaults `chippot-db`, `chippot-proofs`) | wrangler.toml bindings |
 | Phase 3/6 | Access team domain + the 2 admin emails; confirm admin subdomain | Access JWT audience + allowed identities |
 | Phase 4 | Discord **Application ID**, **Public Key**, **Bot Token**, a **test guild id**, the **#ai-訂閱 channel id**, plan **role ids** | sign verify, register commands, send messages, tag roles |
 | Phase 5/6 | the custom domain + desired subdomains (`pay.`, `admin.`) | Pages custom domains + CORS allowlist |

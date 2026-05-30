@@ -1,4 +1,4 @@
--- ChipPo D1 schema v2. Conventions: timestamps = UTC ISO millis TEXT;
+-- ChipPot D1 schema v2. Conventions: timestamps = UTC ISO millis TEXT;
 -- business dates = YYYY-MM-DD (Asia/Taipei); period = YYYY-MM; amounts = INTEGER TWD;
 -- booleans = INTEGER + CHECK (col IN (0,1)).
 
