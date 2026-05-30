@@ -3,11 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2025-11-01"
 compatibility_flags = ["nodejs_compat"]
 
-# database_id is a placeholder for local/test; real id is set at Phase 1 deploy.
 [[d1_databases]]
 binding = "DB"
 database_name = "chippo-db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "9ebe144c-13d4-4a10-a050-81235307e788"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
