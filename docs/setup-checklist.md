@@ -16,7 +16,7 @@ I can ship entirely on **free Cloudflare URLs** (no domain/DNS needed):
 - Upload page: `chippo-web.pages.dev`
 - Admin UI: `chippo-admin.pages.dev` (still protected by Access)
 
-- [ ] **Use free *.pages.dev / *.workers.dev** (default — leave blank), **OR**
+- [x] **Use free *.pages.dev / *.workers.dev** (default — leave blank), **OR**
 - [ ] **Use my custom domain:** `__________________` (apex/zone, e.g. `club.example.org`)
       - desired upload subdomain: `pay.____________`  · admin subdomain: `admin.____________`
 
