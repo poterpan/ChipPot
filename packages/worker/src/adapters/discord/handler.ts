@@ -81,39 +81,56 @@ async function handleAutocomplete(i: DiscordInteraction, env: Env): Promise<Resp
   return json({ type: RT_AUTOCOMPLETE, data: { choices } });
 }
 
+function isDiscordCdnUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" &&
+      (u.hostname === "cdn.discordapp.com" || u.hostname === "media.discordapp.net");
+  } catch {
+    return false;
+  }
+}
+
 function handleCommand(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Response {
   if (i.data?.name !== "繳費") return ephemeral("未知指令。");
-  // Defer immediately (ephemeral), do all work in the background, then edit the reply.
-  ctx.waitUntil(processPayCommand(i, env));
+  // Defer immediately (ephemeral); do all work in the background, then edit the reply.
+  ctx.waitUntil(deferredReply(i, env));
   return json({ type: RT_DEFERRED, data: { flags: FLAG_EPHEMERAL } });
 }
 
-async function processPayCommand(i: DiscordInteraction, env: Env): Promise<void> {
-  const appId = env.DISCORD_APPLICATION_ID ?? "";
-  const followup = (content: string) => editOriginalResponse(appId, i.token, { content });
+/** Guarantees exactly one followup edit — never leaves the deferred reply hanging. */
+async function deferredReply(i: DiscordInteraction, env: Env): Promise<void> {
+  let content: string;
+  try {
+    content = await computePayResult(i, env);
+  } catch {
+    content = "處理失敗，請改用上傳連結再試一次。";
+  }
+  await editOriginalResponse(env.DISCORD_APPLICATION_ID ?? "", i.token, { content }).catch(() => {});
+}
 
-  if (!i.guild_id) return void followup("此互動需在伺服器內使用。");
+/** Resolve the member + subscription, record the payment, and return the reply text. */
+async function computePayResult(i: DiscordInteraction, env: Env): Promise<string> {
+  if (!i.guild_id) return "此互動需在伺服器內使用。";
   const ws = await getWorkspaceIdByGuild(env.DB, i.guild_id);
-  if (!ws) return void followup("此伺服器尚未設定繳費系統。");
+  if (!ws) return "此伺服器尚未設定繳費系統。";
   const did = discordUserId(i);
-  if (!did) return void followup("無法辨識你的 Discord 帳號。");
+  if (!did) return "無法辨識你的 Discord 帳號。";
   const user = await getUserByDiscordId(env.DB, ws, did);
-  if (!user) return void followup("你還不是登記的成員，請聯絡管理員新增。");
+  if (!user) return "你還不是登記的成員，請聯絡管理員新增。";
 
   const subs = await listActiveSubscriptions(env.DB, ws, user.id);
-  if (subs.length === 0) return void followup("你目前沒有有效訂閱。");
+  if (subs.length === 0) return "你目前沒有有效訂閱。";
 
   const planOpt = getOption(i, "方案");
   let subscriptionId: number;
   if (planOpt?.value) {
     subscriptionId = Number(planOpt.value);
-    if (!subs.some((s) => s.id === subscriptionId)) {
-      return void followup("選擇的方案無效，請重新選擇。");
-    }
+    if (!subs.some((s) => s.id === subscriptionId)) return "選擇的方案無效，請重新選擇。";
   } else if (subs.length === 1) {
     subscriptionId = subs[0]!.id;
   } else {
-    return void followup("你有多筆訂閱，請用 `方案` 參數選擇，或使用上傳頁。");
+    return "你有多筆訂閱，請用 `方案` 參數選擇，或使用上傳頁。";
   }
 
   const period = taipeiPeriod();
@@ -130,23 +147,27 @@ async function processPayCommand(i: DiscordInteraction, env: Env): Promise<void>
     try {
       assertImageOk(ct, attachment.size ?? 0);
     } catch (e) {
-      if (e instanceof InvalidImage) {
-        return void followup("截圖格式不支援或檔案過大，請改用上傳連結。");
-      }
+      if (e instanceof InvalidImage) return "截圖格式不支援或檔案過大，請改用上傳連結。";
       throw e;
     }
+    if (!isDiscordCdnUrl(attachment.url)) return "截圖來源無效，請改用上傳連結。";
+    const res = await fetch(attachment.url, { redirect: "error" });
+    if (!res.ok) return "下載截圖失敗，請改用上傳連結。";
+    const body = await res.arrayBuffer();
     try {
-      const res = await fetch(attachment.url);
-      if (!res.ok) return void followup("下載截圖失敗，請改用上傳連結。");
-      const body = await res.arrayBuffer();
+      assertImageOk(ct, body.byteLength); // re-validate the actual downloaded size
+    } catch {
+      return "截圖檔案過大，請改用上傳連結。";
+    }
+    try {
       await recordProof(env, {
         subscriptionId, workspaceId: ws, userId: user.id, period,
         body, ext: extForContentType(ct), contentType: ct, source: "user_slash", paymentNote: note,
       });
-      return void followup(`✅ 已收到截圖，本期（${period}）已登記繳費。`);
+      return `✅ 已收到截圖，本期（${period}）已登記繳費。`;
     } catch (e) {
-      if (e instanceof NoEligiblePayment) return void followup(`本期（${period}）已是繳費或已驗證狀態。`);
-      return void followup("處理失敗，請改用上傳連結再試一次。");
+      if (e instanceof NoEligiblePayment) return `本期（${period}）已是繳費或已驗證狀態。`;
+      throw e;
     }
   }
 
@@ -154,9 +175,9 @@ async function processPayCommand(i: DiscordInteraction, env: Env): Promise<void>
   const { paymentId } = await ensurePeriodPayment(env.DB, subscriptionId, period);
   try {
     await markPaid(env.DB, paymentId, { hasProof: false, paymentNote: note, source: "user_slash" });
-    return void followup(`✅ 已登記本期（${period}）繳費（無憑證）。審核時將以你的備註與帳戶核對。`);
+    return `✅ 已登記本期（${period}）繳費（無憑證）。審核時將以你的備註與帳戶核對。`;
   } catch (e) {
-    if (e instanceof InvalidPaymentTransition) return void followup(`本期（${period}）已是繳費或已驗證狀態。`);
+    if (e instanceof InvalidPaymentTransition) return `本期（${period}）已是繳費或已驗證狀態。`;
     throw e;
   }
 }

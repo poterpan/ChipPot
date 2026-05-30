@@ -25,7 +25,7 @@ async function signHex(pair: CryptoKeyPair, message: string): Promise<string> {
   return toHex(new Uint8Array(sig));
 }
 
-const TIMESTAMP = "1700000000";
+const TIMESTAMP = String(Math.floor(Date.now() / 1000)); // fresh, passes replay window
 const BODY = '{"type":1}';
 
 describe("verifyDiscordSignature", () => {
@@ -85,5 +85,14 @@ describe("handleInteractions", () => {
   it("503s when no public key is configured", async () => {
     const res = await handleInteractions(interactionReq("00", TIMESTAMP, BODY), {} as Env, CTX);
     expect(res.status).toBe(503);
+  });
+
+  it("401s a stale (replayed) timestamp even with a valid signature", async () => {
+    const pair = await genEd25519();
+    const env = { DISCORD_PUBLIC_KEY: await pubHexOf(pair) } as Env;
+    const old = String(Math.floor(Date.now() / 1000) - 3600); // 1h ago
+    const sig = await signHex(pair, old + BODY);
+    const res = await handleInteractions(interactionReq(sig, old, BODY), env, CTX);
+    expect(res.status).toBe(401);
   });
 });
