@@ -6,6 +6,7 @@ import {
 import { handleUploadInfo, handleUpload } from "./routes/upload";
 import { handleImage } from "./routes/images";
 import { buildAdminRouter } from "./routes/admin";
+import { handleInteractions } from "./routes/interactions";
 import { requireAccess, AccessDenied } from "./middleware/access";
 
 const publicRouter = new Router<Env>()
@@ -34,6 +35,12 @@ export default {
     try {
       if (url.pathname === "/" || url.pathname === "/health") {
         return json({ ok: true, service: "chippot" });
+      }
+
+      // Discord interactions (server-to-server; signature-verified, no CORS).
+      if (url.pathname === "/interactions") {
+        if (req.method !== "POST") return errorResponse(405, "method not allowed");
+        return handleInteractions(req, env);
       }
 
       const pub = await publicRouter.handle(req, env);

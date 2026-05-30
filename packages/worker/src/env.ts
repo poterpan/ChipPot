@@ -8,6 +8,10 @@ export interface Env {
   // Allowed browser origins for CORS (comma-separated; e.g. the Pages URLs).
   WEB_ORIGIN?: string;
   ADMIN_ORIGIN?: string;
+  // Discord (secrets / vars; set via wrangler secret put or .dev.vars).
+  DISCORD_PUBLIC_KEY?: string; // Ed25519 public key (hex) for interaction signatures
+  DISCORD_BOT_TOKEN?: string;
+  DISCORD_APPLICATION_ID?: string;
 }
 
 export interface WorkspaceSettings {
