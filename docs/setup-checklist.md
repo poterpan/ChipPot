@@ -26,7 +26,7 @@ wrangler is already logged in (works for Workers/D1/R2). But configuring **Acces
 possibly **Pages/DNS** unattended may exceed the interactive login's scopes. To let me do
 it all without prompts, create a token and put it in `.dev.vars`:
 
-- [ ] 🔒 `CLOUDFLARE_API_TOKEN=...` — scopes: Account → *Workers Scripts:Edit, D1:Edit,
+- [x] 🔒 `CLOUDFLARE_API_TOKEN=...` — scopes: Account → *Workers Scripts:Edit, D1:Edit,
       Workers R2 Storage:Edit, Cloudflare Pages:Edit, Access: Apps and Policies:Edit,
       Account Settings:Read*; Zone → *DNS:Edit, Zone:Read* (only if using a custom domain).
 - (If you skip this, I'll use the current login and tell you exactly what it couldn't do —
@@ -34,21 +34,21 @@ it all without prompts, create a token and put it in `.dev.vars`:
 
 ## C. Cloudflare Access (admin UI protection) — ⛔ for Phase 6
 
-- [ ] Zero Trust is enabled on the account? (free plan is fine) — yes / no: `____`
-- [ ] Team/org domain: `__________________.cloudflareaccess.com`
-- [ ] Admin emails allowed into the admin UI (owner + 網管):
-      1. `__________________` (owner — is it poterpan5466@gmail.com?)
+- [x] Zero Trust is enabled on the account? (free plan is fine) — yes / no: `yes free`
+- [x] Team/org domain: `panspace.cloudflareaccess.com`
+- [x] Admin emails allowed into the admin UI (owner + 網管):
+      1. `poterpan5466@gmail.com` (owner)
       2. `__________________` (網管)
 
 ## D. Discord — ⛔ for Phase 4 (the big one)
 
 From the Discord Developer Portal (your existing app) + your test server:
 
-- [ ] Application ID (public): `__________________`
-- [ ] Public Key (public): `__________________`
-- [ ] 🔒 Bot Token → `.dev.vars` as `DISCORD_BOT_TOKEN=...`
-- [ ] Test Guild (server) ID: `__________________`
-- [ ] #ai-訂閱 (billing) channel ID — where the persistent 「繳費」 button message lives: `__________________`
+- [x] Application ID (public): `1510355256498978917`
+- [x] Public Key (public): `f322b974d23880e58e830ed8ac9b587ee48d1beb16887efb0bad6617b914e2de`
+- [x] 🔒 Bot Token → `.dev.vars` as `DISCORD_BOT_TOKEN=...`
+- [x] Test Guild (server) ID: `1305872150015639623`
+- [x] #ai-訂閱 (billing) channel ID — where the persistent 「繳費」 button message lives: `1510368202541236335`
 - [ ] Per-plan role IDs (for tagging 身分組 in 開繳 notifications):
       - ChatGPT role id: `__________________`
       - Claude Standard role id: `__________________`

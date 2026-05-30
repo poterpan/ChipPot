@@ -96,7 +96,6 @@ export interface SubmitProofInput {
   ext: string;
   contentType: string;
   source: string; // e.g. "user_web"
-  stamp: string; // deterministic key component (e.g. Date.now())
   paymentNote?: string | null;
 }
 
@@ -110,9 +109,15 @@ export interface SubmitProofResult {
  * payment paid+proof. Order (spec §7.7): build key → R2 put → guarded D1 batch → on
  * failure, delete the R2 object (compensation).
  *
- * The D1 batch is double-gated: the payment UPDATE only fires while the token is still
- * unused, and the token UPDATE only fires once the payment carries our screenshot_key —
- * so the two either both apply or neither does, and a token can never be spent twice.
+ * Safety properties:
+ *  - The object key carries server-generated randomness, so two uploads never collide
+ *    and a compensating delete can only ever remove this call's own object.
+ *  - The D1 batch is double-gated: the payment UPDATE only fires while the token is
+ *    still unused (and matches workspace + this subscription), and the token UPDATE only
+ *    fires once the payment carries our unique screenshot_key — so both apply or neither.
+ *  - Only `pending`/`rejected` payments accept a proof (spec state graph; no paid->paid).
+ *  - On an ambiguous batch rejection we read back by the unique key before deleting, so a
+ *    committed-but-lost-ACK never leaves D1 pointing at a deleted object.
  */
 export async function submitProofWithToken(
   env: Env,
@@ -124,9 +129,10 @@ export async function submitProofWithToken(
   // Ensure the period's payment row exists (idempotent; no-op if cron already made it).
   await ensurePeriodPayment(env.DB, subscriptionId, period);
 
-  const key = buildScreenshotKey(workspaceId, period, userId, input.ext, input.stamp);
+  const key = buildScreenshotKey(workspaceId, period, userId, input.ext, crypto.randomUUID());
   await putObject(env.BUCKET, key, input.body, input.contentType);
 
+  let committed = false;
   try {
     const results = await env.DB.batch([
       env.DB
@@ -136,48 +142,66 @@ export async function submitProofWithToken(
                  payment_note = COALESCE(?, payment_note),
                  source = ?, submitted_at = ?, paid_at = ?, updated_at = ?
            WHERE subscription_id = ? AND period = ? AND workspace_id = ?
-             AND status IN ('pending','paid','rejected')
+             AND status IN ('pending','rejected')
              AND EXISTS (SELECT 1 FROM upload_tokens t
                          WHERE t.token_hash = ? AND t.user_id = ? AND t.period = ?
-                           AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > ?)`
+                           AND t.workspace_id = ?
+                           AND (t.subscription_id IS NULL OR t.subscription_id = ?)
+                           AND t.used_at IS NULL AND t.revoked_at IS NULL
+                           AND t.expires_at > ?)`
         )
         .bind(
           key, input.paymentNote ?? null, input.source, now, now, now,
           subscriptionId, period, workspaceId,
-          tokenHash, userId, period, now
+          tokenHash, userId, period, workspaceId, subscriptionId, now
         ),
       env.DB
         .prepare(
           `UPDATE upload_tokens
              SET used_at = ?, used_by_source = ?
-           WHERE token_hash = ? AND user_id = ? AND period = ?
+           WHERE token_hash = ? AND user_id = ? AND period = ? AND workspace_id = ?
+             AND (subscription_id IS NULL OR subscription_id = ?)
              AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
              AND EXISTS (SELECT 1 FROM payments
-                         WHERE subscription_id = ? AND period = ? AND screenshot_key = ?)`
+                         WHERE subscription_id = ? AND period = ? AND workspace_id = ?
+                           AND screenshot_key = ?)`
         )
         .bind(
           now, input.source,
-          tokenHash, userId, period, now,
-          subscriptionId, period, key
+          tokenHash, userId, period, workspaceId, subscriptionId, now,
+          subscriptionId, period, workspaceId, key
         ),
     ]);
 
     const payChanges = results[0]?.meta.changes ?? 0;
     const tokChanges = results[1]?.meta.changes ?? 0;
-    const ok = payChanges === 1 && tokChanges === 1;
-    if (!ok) {
-      await deleteObject(env.BUCKET, key); // compensation
-      await throwSubmitError(env, tokenHash, userId, period, subscriptionId, now);
-    }
+    committed = payChanges === 1 && tokChanges === 1;
   } catch (err) {
-    // SQL error → roll back the R2 object too, then rethrow.
-    await deleteObject(env.BUCKET, key).catch(() => {});
-    throw err;
+    // Ambiguous: the batch may have committed before the failure surfaced. The key is
+    // unique, so a read-back tells us definitively whether D1 landed our write.
+    const landed = await env.DB
+      .prepare(
+        "SELECT 1 AS ok FROM payments WHERE subscription_id = ? AND period = ? AND screenshot_key = ?"
+      )
+      .bind(subscriptionId, period, key)
+      .first<{ ok: number }>()
+      .catch(() => null);
+    if (landed) {
+      committed = true; // D1 committed; keep the object.
+    } else {
+      await deleteObject(env.BUCKET, key).catch(() => {});
+      throw err;
+    }
+  }
+
+  if (!committed) {
+    await deleteObject(env.BUCKET, key); // compensation
+    await throwSubmitError(env, tokenHash, userId, period, workspaceId, subscriptionId, now);
   }
 
   const row = await env.DB
-    .prepare("SELECT id FROM payments WHERE subscription_id = ? AND period = ?")
-    .bind(subscriptionId, period)
+    .prepare("SELECT id FROM payments WHERE subscription_id = ? AND period = ? AND screenshot_key = ?")
+    .bind(subscriptionId, period, key)
     .first<{ id: number }>();
   return { paymentId: row!.id, screenshotKey: key };
 }
@@ -188,16 +212,18 @@ async function throwSubmitError(
   tokenHash: string,
   userId: number,
   period: string,
+  workspaceId: number,
   subscriptionId: number,
   now: string
 ): Promise<never> {
   const tok = await env.DB
     .prepare(
       `SELECT 1 AS ok FROM upload_tokens
-       WHERE token_hash = ? AND user_id = ? AND period = ?
+       WHERE token_hash = ? AND user_id = ? AND period = ? AND workspace_id = ?
+         AND (subscription_id IS NULL OR subscription_id = ?)
          AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?`
     )
-    .bind(tokenHash, userId, period, now)
+    .bind(tokenHash, userId, period, workspaceId, subscriptionId, now)
     .first<{ ok: number }>();
   if (!tok) throw new TokenUnusable(tokenHash);
   throw new NoEligiblePayment(subscriptionId, period);
