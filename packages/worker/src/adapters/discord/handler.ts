@@ -103,7 +103,8 @@ async function deferredReply(i: DiscordInteraction, env: Env): Promise<void> {
   let content: string;
   try {
     content = await computePayResult(i, env);
-  } catch {
+  } catch (err) {
+    console.error("pay command failed", err);
     content = "處理失敗，請改用上傳連結再試一次。";
   }
   await editOriginalResponse(env.DISCORD_APPLICATION_ID ?? "", i.token, { content }).catch(() => {});
@@ -151,7 +152,8 @@ async function computePayResult(i: DiscordInteraction, env: Env): Promise<string
       throw e;
     }
     if (!isDiscordCdnUrl(attachment.url)) return "截圖來源無效，請改用上傳連結。";
-    const res = await fetch(attachment.url, { redirect: "error" });
+    // Follow Discord's own CDN redirects; the host allowlist above is the guard.
+    const res = await fetch(attachment.url);
     if (!res.ok) return "下載截圖失敗，請改用上傳連結。";
     const body = await res.arrayBuffer();
     try {
@@ -171,7 +173,10 @@ async function computePayResult(i: DiscordInteraction, env: Env): Promise<string
     }
   }
 
-  // No attachment: register paid without proof.
+  // No attachment: require at least a note (don't register a bare /繳費).
+  if (!note) {
+    return "請至少附上截圖，或填寫「備註」說明繳費方式（兩者擇一即可）。";
+  }
   const { paymentId } = await ensurePeriodPayment(env.DB, subscriptionId, period);
   try {
     await markPaid(env.DB, paymentId, { hasProof: false, paymentNote: note, source: "user_slash" });

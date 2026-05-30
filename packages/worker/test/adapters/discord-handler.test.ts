@@ -59,6 +59,23 @@ describe("Discord interaction routing", () => {
     expect(p?.source).toBe("user_slash");
   });
 
+  it("/繳費 with neither screenshot nor note is rejected (not registered)", async () => {
+    const captured: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_u: unknown, init: RequestInit | undefined) => {
+      if (typeof init?.body === "string") captured.push(JSON.parse(init.body).content);
+      return new Response("{}", { status: 200 });
+    }));
+    const i: DiscordInteraction = {
+      type: 2, id: "1", token: "tok2", guild_id: GUILD, ...member(DISC),
+      data: { name: "繳費", options: [] },
+    };
+    const res = await routeInteraction(i, env, CTX);
+    expect((await res.json() as any).type).toBe(5);
+    await Promise.all(tasks.splice(0));
+    vi.unstubAllGlobals();
+    expect(captured.some((c) => c.includes("至少"))).toBe(true);
+  });
+
   it("button issues a one-time upload link for the member", async () => {
     const i: DiscordInteraction = {
       type: 3, id: "1", token: "t", guild_id: GUILD, ...member(DISC),
