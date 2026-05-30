@@ -17,6 +17,7 @@ bucket_name = "chippot-proofs"
 [vars]
 DISCORD_APPLICATION_ID = "1510355256498978917"
 DISCORD_PUBLIC_KEY = "f322b974d23880e58e830ed8ac9b587ee48d1beb16887efb0bad6617b914e2de"
+WEB_ORIGIN = "https://pay.panspace.dev"
 
 # 01:00 UTC = 09:00 Asia/Taipei, daily.
 [triggers]
