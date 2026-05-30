@@ -583,13 +583,14 @@ describe("seed", () => {
   });
 
   it("seeds example channel_tags", async () => {
-    const { results } = await env.DB.prepare(
+    const row = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM channel_tags WHERE workspace_id = 1"
-    ).all<{ n: number }>();
-    expect(results[0]!.n).toBeGreaterThanOrEqual(1);
+    ).first<{ n: number }>();
+    expect(row!.n).toBeGreaterThanOrEqual(1);
   });
 });
 ```
+(Also assert `settings.delete_discord_original_message === false`.)
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -603,19 +604,12 @@ Expected: FAIL (no rows seeded).
 ```sql
 -- Bootstrap one workspace, its plans, and example channel tags.
 -- created_at uses SQLite strftime millis (acceptable for fixtures).
+-- settings is a literal JSON string (unambiguous boolean handling).
 
 INSERT INTO workspaces (id, name, owner_id, channel_type, billing_day, settings, created_at, updated_at)
 VALUES (
   1, '社團 AI 訂閱', 'poterpan5466@gmail.com', 'discord', 5,
-  json_object(
-    'timezone', 'Asia/Taipei',
-    'discord_guild_id', '',
-    'discord_billing_channel_id', '',
-    'discord_payment_message_id', '',
-    'overdue_days', 3,
-    'delete_discord_original_message', json('false'),
-    'proof_retention_months', 24
-  ),
+  '{"timezone":"Asia/Taipei","discord_guild_id":"","discord_billing_channel_id":"","discord_payment_message_id":"","overdue_days":3,"delete_discord_original_message":false,"proof_retention_months":24}',
   strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')
 );
 
