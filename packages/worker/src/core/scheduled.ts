@@ -34,6 +34,9 @@ export async function runDailyTasks(
   for (const ws of workspaces.results) {
     const settings = parseSettings(ws.settings);
     const channelId = settings.discord_billing_channel_id;
+    // Only attempt notifications when we can actually send — otherwise don't consume the
+    // dedup slot, so they fire once the bot token / channel is configured.
+    const canNotify = !!channelId && !!env.DISCORD_BOT_TOKEN;
 
     // 1. Create this period's payment for any subscription billing today.
     const subs = await env.DB
@@ -49,7 +52,7 @@ export async function runDailyTasks(
     }
 
     // 2. Billing-opened notice on the workspace billing day (tag each plan's role group).
-    if (channelId && dayOfMonth === ws.billing_day) {
+    if (canNotify && dayOfMonth === ws.billing_day) {
       if (await claimNotification(env.DB, { workspaceId: ws.id, type: "billing_opened", period })) {
         const lines = await env.DB
           .prepare(
@@ -69,7 +72,7 @@ export async function runDailyTasks(
     }
 
     // 3. Overdue reminders: still-pending payments past due_date by overdue_days.
-    if (channelId) {
+    if (canNotify) {
       const pending = await env.DB
         .prepare(
           `SELECT p.subscription_id, p.period, p.amount, p.due_date,
