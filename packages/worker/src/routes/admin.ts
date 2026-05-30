@@ -8,6 +8,8 @@ import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, InvalidPaymentTransition } from "../core/payments";
 import { ensureFirstPayment } from "../core/billing";
 import { reconcilePeriod } from "../core/reconcile";
+import { createChannelMessage, editChannelMessage } from "../adapters/discord/api";
+import { payButtonRow } from "../adapters/discord/commands";
 
 // Single-workspace MVP: default to the seeded workspace, overridable via ?workspace_id=.
 const DEFAULT_WORKSPACE_ID = 1;
@@ -368,6 +370,36 @@ async function createUploadLink(req: Request, env: Env, ctx: RouteCtx): Promise<
   return json({ token: raw, path: `/u/${raw}`, expires_at: expiresAt }, { status: 201 });
 }
 
+// ── Discord persistent payment message (spec §11.4) ──────────────────────────
+
+async function discordPaymentMessage(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const row = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
+  if (!row) return errorResponse(404, "not found");
+  const settings = parseSettings(row.settings);
+  const channelId = settings.discord_billing_channel_id;
+  if (!channelId) return errorResponse(400, "discord_billing_channel_id is not set");
+  if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "bot token not configured");
+
+  const body = {
+    content: "💳 **AI 訂閱繳費**\n點下方「繳費」按鈕取得一次性上傳連結，或使用 `/繳費` 指令（可附截圖）。",
+    components: [payButtonRow(ws)],
+  };
+  let messageId = settings.discord_payment_message_id;
+  let ok = false;
+  if (messageId) ok = await editChannelMessage(env.DISCORD_BOT_TOKEN, channelId, messageId, body);
+  if (!ok) {
+    messageId = (await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body)) ?? "";
+    ok = !!messageId;
+  }
+  if (!ok) return errorResponse(502, "failed to post Discord message");
+
+  await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_payment_message_id', ?), updated_at = ? WHERE id = ?")
+    .bind(messageId, nowUtcIso(), ws).run();
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "discord.payment_message", entityType: "workspace", entityId: ws, after: { message_id: messageId } });
+  return json({ ok: true, message_id: messageId });
+}
+
 // ── Router ───────────────────────────────────────────────────────────────────
 
 export function buildAdminRouter(): Router<Env> {
@@ -393,5 +425,6 @@ export function buildAdminRouter(): Router<Env> {
     .post("/admin/payments/:id/reject", rejectPaymentHandler)
     .post("/admin/payments/:id/amount", overrideAmountHandler)
     .post("/admin/payments/:id/delete-proof", deleteProof)
-    .post("/admin/upload-link", createUploadLink);
+    .post("/admin/upload-link", createUploadLink)
+    .post("/admin/discord/payment-message", discordPaymentMessage);
 }

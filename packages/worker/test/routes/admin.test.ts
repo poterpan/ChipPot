@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildAdminRouter } from "../../src/routes/admin";
 import { getPayment } from "../../src/core/payments";
 import { hashToken, findValidUploadToken } from "../../src/core/tokens";
@@ -82,6 +82,15 @@ describe("admin API", () => {
     expect(mp?.status).toBe("verified");
     expect(mp?.source).toBe("admin_manual");
     expect(await auditCount("payment.manual", mId)).toBe(1);
+  });
+
+  it("creates/rebuilds the persistent Discord payment message", async () => {
+    await call("PATCH", "/admin/workspace", { settings: { discord_billing_channel_id: "chan-1" } });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "msg-123" }), { status: 200 })));
+    const res = await call("POST", "/admin/discord/payment-message");
+    vi.unstubAllGlobals();
+    expect(res!.status).toBe(200);
+    expect(((await res!.json()) as any).message_id).toBe("msg-123");
   });
 
   it("reads and updates workspace settings", async () => {

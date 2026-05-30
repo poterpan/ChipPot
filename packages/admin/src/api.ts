@@ -43,6 +43,7 @@ export interface Subscription { id: number; user_name: string; plan_name: string
 export const api = {
   workspace: () => req("GET", "/workspace"),
   updateWorkspace: (b: unknown) => req("PATCH", "/workspace", b),
+  rebuildPaymentMessage: () => req<{ message_id: string }>("POST", "/discord/payment-message"),
   reconcile: (period: string) => req<Reconcile>("GET", `/reconcile${qs({ period })}`),
   payments: (p?: { period?: string; status?: string }) => req<{ payments: Payment[] }>("GET", `/payments${qs(p)}`),
   verify: (id: number, tagId: number | null) => req("POST", `/payments/${id}/verify`, { verified_channel_tag_id: tagId }),

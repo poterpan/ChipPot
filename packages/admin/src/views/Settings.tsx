@@ -60,7 +60,30 @@ export function Settings() {
           <input type="checkbox" checked={delMsg} onChange={(e) => setDelMsg(e.target.checked)} disabled={busy} /> 刪除 Discord 原始繳費訊息
         </label>
         <button className="btn btn--primary" onClick={save} disabled={busy}>儲存設定</button>
+
+        <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
+        <div className="field__label">常駐繳費訊息</div>
+        <RebuildMessage />
       </div>
     </Card>
+  );
+}
+
+function RebuildMessage() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  async function run() {
+    setBusy(true); setErr(null); setMsg(null);
+    try { const r = await api.rebuildPaymentMessage(); setMsg(`✓ 已建立/更新（訊息 id ${r.message_id}）`); }
+    catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }
+  return (
+    <>
+      {err && <div className="error-banner">{err}</div>}
+      {msg && <div style={{ color: "var(--teal)", marginBottom: 10 }}>{msg}</div>}
+      <button className="btn" onClick={run} disabled={busy}>於 #繳費頻道 建立/重建「繳費」按鈕訊息</button>
+    </>
   );
 }

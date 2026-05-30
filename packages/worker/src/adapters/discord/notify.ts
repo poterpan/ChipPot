@@ -1,11 +1,7 @@
 import type { Env } from "../../env";
 import type { Notifier } from "../../core/notify";
 import { createChannelMessage } from "./api";
-import { PAY_BUTTON_PREFIX } from "./commands";
-
-function payButtonRow() {
-  return { type: 1, components: [{ type: 2, style: 1, label: "繳費", custom_id: `${PAY_BUTTON_PREFIX}:1:v1` }] };
-}
+import { payButtonRow } from "./commands";
 
 /** Discord implementation of the channel-agnostic Notifier (spec §9). */
 export const discordNotifier: Notifier = {

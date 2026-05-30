@@ -19,6 +19,14 @@ export const RT_AUTOCOMPLETE = 8;
 
 export const FLAG_EPHEMERAL = 64;
 
+/** The persistent payment message's button action row. custom_id = action:workspace:version. */
+export function payButtonRow(workspaceId = 1, version = "v1") {
+  return {
+    type: 1,
+    components: [{ type: 2, style: 1, label: "繳費", custom_id: `${PAY_BUTTON_PREFIX}:${workspaceId}:${version}` }],
+  };
+}
+
 /** `/繳費` command registration payload. */
 export const PAY_COMMAND = {
   name: "繳費",
