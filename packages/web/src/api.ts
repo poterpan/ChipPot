@@ -7,12 +7,16 @@ export interface SubscriptionChoice {
   plan_name: string;
   amount: number;
 }
+export interface ChannelTag {
+  id: number;
+  name: string;
+}
 export interface TokenInfo {
   valid: boolean;
   period?: string;
   user?: { display_name: string };
-  fixed_subscription_id?: number | null;
   subscriptions?: SubscriptionChoice[];
+  channel_tags?: ChannelTag[];
 }
 
 export async function fetchTokenInfo(token: string): Promise<TokenInfo> {
@@ -30,15 +34,16 @@ export interface UploadResult {
   error?: string;
 }
 
-export async function uploadProof(
+/** Settle all of the user's period subscriptions in one submit. */
+export async function submitPayment(
   token: string,
   blob: Blob | null,
-  subscriptionId: number | null,
+  channelTagId: number | null,
   note: string
 ): Promise<UploadResult> {
   const fd = new FormData();
   if (blob) fd.append("screenshot", new File([blob], "proof.jpg", { type: "image/jpeg" }));
-  if (subscriptionId != null) fd.append("subscription_id", String(subscriptionId));
+  if (channelTagId != null) fd.append("declared_channel_tag_id", String(channelTagId));
   if (note.trim()) fd.append("note", note.trim());
   try {
     const res = await fetch(`${API}/upload/${token}`, { method: "POST", body: fd });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchTokenInfo, uploadProof, type TokenInfo, type SubscriptionChoice } from "./api";
+import { fetchTokenInfo, submitPayment, type TokenInfo } from "./api";
 import { compressImage } from "./compress";
 
 type Stage = "loading" | "invalid" | "ready" | "submitting" | "done";
@@ -13,7 +13,7 @@ export default function App() {
   const token = useMemo(tokenFromPath, []);
   const [stage, setStage] = useState<Stage>("loading");
   const [info, setInfo] = useState<TokenInfo | null>(null);
-  const [subId, setSubId] = useState<number | null>(null);
+  const [channelId, setChannelId] = useState<number | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [note, setNote] = useState("");
@@ -31,8 +31,6 @@ export default function App() {
         return;
       }
       setInfo(i);
-      const subs = i.subscriptions ?? [];
-      setSubId(i.fixed_subscription_id ?? (subs.length === 1 ? subs[0]!.id : null));
       setStage("ready");
     });
   }, [token]);
@@ -44,21 +42,21 @@ export default function App() {
     setPreview(f ? URL.createObjectURL(f) : null);
   }
 
+  const subs = info?.subscriptions ?? [];
+  const tags = info?.channel_tags ?? [];
+  const total = subs.reduce((s, x) => s + x.amount, 0);
+  const canSubmit = !!file || !!note.trim() || channelId != null;
+
   async function submit() {
     if (!token) return;
-    if (!file && !note.trim()) {
-      setError("請至少附上截圖，或填寫備註");
-      return;
-    }
-    const subs = info?.subscriptions ?? [];
-    if (subs.length > 1 && subId == null) {
-      setError("請先選擇方案");
+    if (!canSubmit) {
+      setError("請至少附上截圖、填寫備註，或選擇渠道");
       return;
     }
     setError(null);
     setStage("submitting");
     const blob = file ? await compressImage(file) : null;
-    const res = await uploadProof(token, blob, subId, note);
+    const res = await submitPayment(token, blob, channelId, note);
     if (res.ok) {
       setStage("done");
     } else {
@@ -102,31 +100,27 @@ export default function App() {
     );
   }
 
-  const subs = info?.subscriptions ?? [];
-  const chosen = subs.find((s) => s.id === subId) ?? null;
   const busy = stage === "submitting";
 
   return (
     <Shell>
-      <Stub period={info?.period ?? ""} name={info?.user?.display_name ?? ""} chosen={chosen} />
+      <Stub period={info?.period ?? ""} name={info?.user?.display_name ?? ""} subs={subs} total={total} />
 
       <div className="body">
-        {subs.length > 1 && (
-          <fieldset className="plans" disabled={busy}>
-            <legend>選擇方案</legend>
-            {subs.map((s) => (
-              <label key={s.id} className={`plan ${subId === s.id ? "plan--on" : ""}`}>
-                <input
-                  type="radio"
-                  name="plan"
-                  checked={subId === s.id}
-                  onChange={() => setSubId(s.id)}
-                />
-                <span className="plan__name">{s.plan_name}</span>
-                <span className="plan__amt">NT${s.amount}</span>
-              </label>
-            ))}
-          </fieldset>
+        {tags.length > 0 && (
+          <label className="field">
+            <span className="field__label">繳費渠道</span>
+            <select
+              value={channelId ?? ""}
+              disabled={busy}
+              onChange={(e) => setChannelId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">（不指定）</option>
+              {tags.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </label>
         )}
 
         <label className={`drop ${preview ? "drop--has" : ""}`}>
@@ -150,7 +144,7 @@ export default function App() {
 
         <textarea
           className="note"
-          placeholder="備註 — 例如付款方式、轉帳末五碼（沒有截圖時請至少填這裡）"
+          placeholder="備註 — 例如付款方式、轉帳末五碼"
           value={note}
           maxLength={300}
           disabled={busy}
@@ -159,10 +153,10 @@ export default function App() {
 
         {error && <div className="error">{error}</div>}
 
-        <button className="submit" onClick={submit} disabled={busy || (!file && !note.trim())}>
+        <button className="submit" onClick={submit} disabled={busy || !canSubmit}>
           {busy ? "上傳中…" : "送出繳費"}
         </button>
-        <p className="muted small center">截圖或備註至少填一項。此連結僅限你本人本期使用，送出後即失效。</p>
+        <p className="muted small center">渠道、截圖或備註至少填一項。此連結僅限你本人本期使用，送出後即失效。</p>
       </div>
     </Shell>
   );
@@ -183,11 +177,13 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Stub({
   period,
   name,
-  chosen,
+  subs,
+  total,
 }: {
   period: string;
   name: string;
-  chosen: SubscriptionChoice | null;
+  subs: { id: number; plan_name: string; amount: number }[];
+  total: number;
 }) {
   return (
     <header className="stub">
@@ -196,10 +192,16 @@ function Stub({
         <span className="stub__period">{period}</span>
       </div>
       <div className="stub__hi">嗨，{name || "夥伴"}</div>
-      {chosen && (
+      {subs.map((s) => (
+        <div key={s.id} className="stub__row stub__row--amt">
+          <span className="stub__plan">{s.plan_name}</span>
+          <span className="stub__amt">NT${s.amount}</span>
+        </div>
+      ))}
+      {subs.length > 0 && (
         <div className="stub__row stub__row--amt">
-          <span className="stub__plan">{chosen.plan_name}</span>
-          <span className="stub__amt">NT${chosen.amount}</span>
+          <span className="stub__plan">合計</span>
+          <span className="stub__amt">NT${total}</span>
         </div>
       )}
     </header>
