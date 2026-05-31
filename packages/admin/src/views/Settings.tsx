@@ -71,8 +71,43 @@ export function Settings() {
 
         <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
         <InitiateBilling />
+
+        <ImportRoster />
       </div>
     </Card>
+  );
+}
+
+function ImportRoster() {
+  const [file, setFile] = useState<File | null>(null);
+  const [start, setStart] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  async function run() {
+    if (!file) { setErr("請選擇 CSV 檔"); return; }
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const r = await api.importMembers(file, start || undefined);
+      const s = r.summary;
+      setMsg(`✓ 建立 ${s.usersCreated} 人 / 更新 ${s.usersUpdated} 人 / 新增 ${s.subsCreated} 訂閱 / 跳過 ${s.subsSkipped} 訂閱 / 略過 ${s.rowsSkipped} 列` +
+        (s.unmatchedPlans.length ? ` · 對不到的方案：${s.unmatchedPlans.join(", ")}` : ""));
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }
+  return (
+    <>
+      <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
+      <div className="field__label">匯入名單（CSV）</div>
+      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 10px" }}>欄位需為「姓名, 帳號, 方案名…」；方案名須與系統方案一致。空白＝起算當月。</p>
+      {err && <div className="error-banner">{err}</div>}
+      {msg && <div style={{ color: "var(--teal)", marginBottom: 10 }}>{msg}</div>}
+      <input type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={busy} />
+      <div style={{ marginTop: 10 }}>
+        <Field label="起算月份第一天（選填，YYYY-MM-DD）"><input value={start} onChange={(e) => setStart(e.target.value)} placeholder="2026-06-01" disabled={busy} /></Field>
+      </div>
+      <button className="btn btn--primary" onClick={run} disabled={busy}>匯入</button>
+    </>
   );
 }
 

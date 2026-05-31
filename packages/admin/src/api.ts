@@ -68,6 +68,15 @@ export const api = {
   createChannelTag: (b: unknown) => req("POST", "/channel-tags", b),
   updateChannelTag: (id: number, b: unknown) => req("PATCH", `/channel-tags/${id}`, b),
   imageUrl: (key: string) => `${BASE}/image?key=${encodeURIComponent(key)}`,
+  importMembers: async (file: File, startDate?: string) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (startDate) fd.append("start_date", startDate);
+    const r = await fetch(`${BASE}/members/import`, { method: "POST", body: fd });
+    const data = (await r.json().catch(() => ({}))) as any;
+    if (!r.ok) throw new Error(data?.error ?? `錯誤 ${r.status}`);
+    return data as { summary: { usersCreated: number; usersUpdated: number; subsCreated: number; subsSkipped: number; rowsSkipped: number; unmatchedPlans: string[] } };
+  },
 };
 
 export function currentPeriod(): string {
