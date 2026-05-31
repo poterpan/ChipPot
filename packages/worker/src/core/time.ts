@@ -47,6 +47,22 @@ export function dueDate(period: string, billingDay: number): string {
 }
 
 /**
+ * The period currently being collected, given the billing day: on or after the billing day →
+ * the current month; before it → the previous month (we're still collecting it). This is what
+ * member self-pay and the dashboard default to. Asia/Taipei business date.
+ */
+export function periodForBillingDay(billingDay: number, d: Date = new Date()): string {
+  const iso = taipeiDate(d); // YYYY-MM-DD
+  const y = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7));
+  const day = Number(iso.slice(8, 10));
+  if (day >= billingDay) return `${y}-${String(m).padStart(2, "0")}`;
+  const pm = m === 1 ? 12 : m - 1;
+  const py = m === 1 ? y - 1 : y;
+  return `${py}-${String(pm).padStart(2, "0")}`;
+}
+
+/**
  * The period an admin is about to open ("發起繳費" default): on or before the billing day →
  * the current month; after it → next month. This lets the admin pre-open next month near
  * month-end. Asia/Taipei business date.

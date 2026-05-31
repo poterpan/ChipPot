@@ -95,7 +95,8 @@ export function Settings() {
   if (error) return <div className="error-banner">{error}</div>;
 
   const samples = sampleVars();
-  const savedBillingDay = Number((data as any).workspace?.billing_day) || 1;
+  // Use the form's billing-day value so the 發起繳費 default tracks edits (and saves) immediately.
+  const effBillingDay = Number(billingDay) || 1;
   const tplInvalid =
     unknownKeys(tplOverdue, OVERDUE_KEYS).length > 0 ||
     unknownKeys(tplBilling, BILLING_KEYS).length > 0 ||
@@ -123,7 +124,7 @@ export function Settings() {
         <RebuildMessage />
 
         <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
-        <InitiateBilling billingDay={savedBillingDay} />
+        <InitiateBilling billingDay={effBillingDay} />
 
         <ImportRoster />
       </div>

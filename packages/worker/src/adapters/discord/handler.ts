@@ -1,7 +1,7 @@
 import type { Env } from "../../env";
 import { parseSettings } from "../../env";
 import { json } from "../../http";
-import { taipeiPeriod, nextBillingPeriod } from "../../core/time";
+import { periodForBillingDay, nextBillingPeriod } from "../../core/time";
 import {
   getWorkspaceIdByGuild, getUserByDiscordId, listActiveSubscriptions,
   listActiveChannelTags, listSettleablePayments, listUnboundUsers, bindDiscordId,
@@ -159,7 +159,10 @@ async function computePayResult(i: DiscordInteraction, env: Env): Promise<string
   const subs = await listActiveSubscriptions(env.DB, ws, userId);
   if (subs.length === 0) return "你目前沒有有效訂閱。";
 
-  const period = taipeiPeriod();
+  // The period currently being collected (billing-day aware), so before the billing day we still
+  // settle last month rather than jumping to the calendar month.
+  const wsRow = await env.DB.prepare("SELECT billing_day FROM workspaces WHERE id = ?").bind(ws).first<{ billing_day: number }>();
+  const period = periodForBillingDay(wsRow?.billing_day ?? 1);
   // Members may only pay once billing for the period has been opened (cron or 發起繳費). Block
   // self-pay before then so nobody locks in a stale amount before the admin finalises it.
   if (!(await isBillingOpened(env.DB, ws, period))) {
@@ -340,7 +343,9 @@ async function buildPayPrompt(
 ): Promise<{ content: string; components: unknown[] }> {
   const subs = await listActiveSubscriptions(env.DB, ws, userId);
   if (subs.length === 0) return { content: "你目前沒有有效訂閱。", components: [] };
-  const period = taipeiPeriod();
+  // Billing-day-aware collection period (matches the dashboard + the channel-select custom_id).
+  const wsRow = await env.DB.prepare("SELECT billing_day FROM workspaces WHERE id = ?").bind(ws).first<{ billing_day: number }>();
+  const period = periodForBillingDay(wsRow?.billing_day ?? 1);
   // Gate: no self-pay (and no on-demand bill creation) until billing is opened for the period.
   if (!(await isBillingOpened(env.DB, ws, period))) {
     return { content: `本期（${period}）繳費尚未開放，待管理員發出開繳通知後即可繳費。`, components: [] };

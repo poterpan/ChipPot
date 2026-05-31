@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nowUtcIso, taipeiDate, taipeiPeriod, taipeiDayOfMonth,
-  periodStart, periodEnd, dueDate, daysBetween, nextBillingPeriod,
+  periodStart, periodEnd, dueDate, daysBetween, nextBillingPeriod, periodForBillingDay,
 } from "../../src/core/time";
 
 describe("time", () => {
@@ -50,5 +50,17 @@ describe("time", () => {
     expect(nextBillingPeriod(5, new Date("2026-06-06T08:00:00Z"))).toBe("2026-07"); // after 5
     // year rollover: 12/31 with billing_day 1 → next month is Jan of next year
     expect(nextBillingPeriod(1, new Date("2026-12-31T08:00:00Z"))).toBe("2027-01");
+  });
+
+  it("periodForBillingDay: on/after billing day → current month, before → previous month", () => {
+    // billing_day = 1 → always the current calendar month
+    expect(periodForBillingDay(1, new Date("2026-06-01T08:00:00Z"))).toBe("2026-06");
+    expect(periodForBillingDay(1, new Date("2026-06-15T08:00:00Z"))).toBe("2026-06");
+    // billing_day = 5
+    expect(periodForBillingDay(5, new Date("2026-06-03T08:00:00Z"))).toBe("2026-05"); // before 5 → still collecting May
+    expect(periodForBillingDay(5, new Date("2026-06-05T08:00:00Z"))).toBe("2026-06"); // on 5
+    expect(periodForBillingDay(5, new Date("2026-06-09T08:00:00Z"))).toBe("2026-06"); // after 5
+    // year rollover: Jan before billing day → previous December
+    expect(periodForBillingDay(5, new Date("2026-01-03T08:00:00Z"))).toBe("2025-12");
   });
 });
