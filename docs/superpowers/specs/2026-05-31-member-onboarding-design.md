@@ -24,16 +24,16 @@
 
 ## A. Discord 自助綁定
 
-### 進入點
-1. **未綁定者按「繳費」**（主要）：`handlePayButton` 解析 ws+discord_id 後查 `getUserByDiscordId`；
-   找不到時，若該 workspace 還有**未綁定**成員 → 回**綁定下拉**（ephemeral）讓他指認自己；
-   若沒有未綁定成員 → 維持原訊息（「請聯絡管理員」）。
-2. **`/綁定` 指令**：直接叫出同一個綁定下拉。
+### 進入點（綁定下拉的 custom_id 會記住進入點 `origin` ∈ {pay, cmd}）
+1. **未綁定者按「繳費」**（主要，`origin=pay`）：`handlePayButton` 解析 ws+discord_id 後查
+   `getUserByDiscordId`；找不到時，若該 workspace 還有**未綁定**成員 → 回 **`origin=pay` 的綁定下拉**
+   （ephemeral）；若沒有未綁定成員 → 維持原訊息（「請聯絡管理員」）。
+2. **`/綁定` 指令**（`origin=cmd`）：叫出 **`origin=cmd` 的綁定下拉**。
 3. **`/繳費`（slash，未綁定）**：因為是 deferred **文字** 回覆、無法塞下拉，回提示
    「你還沒綁定 Discord 帳號，請點「繳費」按鈕或用 `/綁定` 完成綁定後再試。」（不在文字流裡綁定。）
 
 ### 綁定下拉
-- string select，`custom_id = chippot:bind:<ws>`，`min_values=1, max_values=1`。
+- string select，`custom_id = chippot:bind:<ws>:<origin>`（origin = `pay` | `cmd`），`min_values=1, max_values=1`。
 - 選項 = 該 workspace **`discord_id IS NULL`** 的 users（`label=display_name, value=user_id`），
   依 id 排序，**上限 25**（社團 9 人足夠；>25 的退路見下）。
 - 提示文字：「請選擇你的名字以綁定 Discord 帳號（只會列出尚未綁定的成員）。」
@@ -52,8 +52,13 @@
   - 此 Discord 帳號已綁到別人（`SELECT … WHERE workspace_id=? AND discord_id=?`）→
     「你的 Discord 帳號已綁定為 <name>。」
   - 該名字已被別人搶綁（target 的 discord_id 已非 NULL）→「這個名字剛被綁定了，請重新操作。」
-- 成功回應（`RT_UPDATE_MESSAGE`，清掉元件）：「✅ 已綁定為 <display_name>。現在請再點一次「繳費」
-  或用 `/繳費` 登記本期繳費。」（**不自動接著繳費**——保持單一動作，YAGNI。）
+- 成功回應依 `origin` 分流（皆用 `RT_UPDATE_MESSAGE` 取代原綁定訊息）：
+  - **`origin=pay`（從繳費按鈕進來）→ 綁定後自動接續繳費**：直接回繳費流程的下一步畫面（同
+    `handlePayButton` 解析成功後的內容——把該段抽成共用 `buildPayPrompt(env, ws, userId)`，回
+    `{ content, components }`：列出本期應繳各方案+總額+渠道下拉；若 0 筆可繳→「已登記繳費」；
+    0 渠道→改用 `/繳費` 提示）。訊息前綴可加「✅ 已綁定為 <name>。」
+  - **`origin=cmd`（從 `/綁定` 進來）→ 只綁定**：「✅ 已綁定為 <display_name>。之後點「繳費」按鈕或用
+    `/繳費` 即可登記繳費。」（清掉元件，不接續繳費。）
 - audit：`writeAudit(action='member.bind', entityType='user', entityId=targetUserId, after={discord_id})`。
 
 ### 防呆 / 邊界
@@ -105,21 +110,22 @@
 - `core/import.ts`（新）：`parseRosterCsv` + `importRoster` + 型別。
 - `core/binding.ts`（新，或併入 `core/db.ts`）：`listUnboundUsers(ws)` + `bindDiscordId(env, ws, userId, discordId)`（原子 guarded UPDATE + 結果判定）。
 - `adapters/discord/commands.ts`：新增 `BIND_SELECT_PREFIX='chippot:bind'`、`bindSelectRow(ws, users)`、`/綁定` 指令定義（`BIND_COMMAND`）。
-- `adapters/discord/handler.ts`：`handlePayButton` 未綁定分流改為叫綁定下拉；新增 `/綁定` 指令路由、`handleBindSelect`（IT_COMPONENT，custom_id 前綴分派）。
+- `adapters/discord/handler.ts`：把 `handlePayButton` 解析成功後的繳費提示抽成共用 `buildPayPrompt(env, ws, userId)`；`handlePayButton` 未綁定分流改叫 `origin=pay` 綁定下拉；新增 `/綁定` 指令路由、`handleBindSelect`（IT_COMPONENT，custom_id 前綴分派；`origin=pay` 成功後呼叫 `buildPayPrompt` 接續繳費，`origin=cmd` 僅確認）。
 - `routes/admin.ts`：`POST /admin/members/import`；`updateUser` 補 discord_id 衝突的明確錯誤。
 - `packages/admin`：匯入名單頁 + api method；成員編輯沿用。
 - `scripts/register-commands.mjs`：加 `/綁定` 指令（與 commands.ts 同步）。
 
 ## 測試重點
-- 綁定：未綁定者按繳費→出綁定下拉（只列未綁定）；選名字→成功寫 discord_id；同帳號二次綁→擋；
-  兩人搶同一名字（target 已綁）→擋；已綁定者按繳費→正常繳費流程。
+- 綁定：未綁定者按繳費→出 `origin=pay` 綁定下拉（只列未綁定）；選名字→成功寫 discord_id；
+  **`origin=pay` 綁定成功→回繳費提示（含渠道下拉）；`origin=cmd` 綁定成功→只確認、無渠道下拉**；
+  同帳號二次綁→擋；兩人搶同一名字（target 已綁）→擋；已綁定者按繳費→正常繳費流程。
 - `/綁定`：列出未綁定成員；空名單（全綁定）→提示無需綁定。
 - 匯入核心：upsert by email（既有保留 discord_id）、多方案展開、冪等重跑、對不到的方案進 unmatchedPlans、
   起算月產生 pending payment（ensureFirstPayment 一致）。
 - 匯入路由：摘要正確；audit 寫入。
 
 ## 待確認 / 已決定
-- (決定) 綁定指認用「選名字下拉」；只列未綁定；不自動接續繳費。
+- (決定) 綁定指認用「選名字下拉」；只列未綁定。綁定成功後：**按鈕進來→自動接續繳費；`/綁定` 進來→只綁定**。
 - (決定) 一次性 9 人名單已 SQL 直接載入正式 D1（本 spec 只做可重複功能）。
 - (決定) 匯入 upsert key = email；既有成員保留 discord_id；start_date 預設當月。
 - (預設，可改) 綁定成功後請成員自行再點繳費，不自動繳。
