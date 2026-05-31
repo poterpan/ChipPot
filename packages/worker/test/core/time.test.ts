@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nowUtcIso, taipeiDate, taipeiPeriod, taipeiDayOfMonth,
-  periodStart, periodEnd, dueDate, daysBetween,
+  periodStart, periodEnd, dueDate, daysBetween, nextBillingPeriod,
 } from "../../src/core/time";
 
 describe("time", () => {
@@ -37,5 +37,18 @@ describe("time", () => {
   it("daysBetween counts whole days", () => {
     expect(daysBetween("2026-05-05", "2026-05-09")).toBe(4);
     expect(daysBetween("2026-05-09", "2026-05-05")).toBe(-4);
+  });
+
+  it("nextBillingPeriod: on/before billing day → current month, after → next month", () => {
+    // billing_day = 1 (collect whole month at month start)
+    expect(nextBillingPeriod(1, new Date("2026-05-31T08:00:00Z"))).toBe("2026-06"); // 5/31 → next
+    expect(nextBillingPeriod(1, new Date("2026-06-01T08:00:00Z"))).toBe("2026-06"); // 6/1  → current
+    expect(nextBillingPeriod(1, new Date("2026-06-02T08:00:00Z"))).toBe("2026-07"); // 6/2  → next
+    // billing_day = 5
+    expect(nextBillingPeriod(5, new Date("2026-06-03T08:00:00Z"))).toBe("2026-06"); // before 5
+    expect(nextBillingPeriod(5, new Date("2026-06-05T08:00:00Z"))).toBe("2026-06"); // on 5
+    expect(nextBillingPeriod(5, new Date("2026-06-06T08:00:00Z"))).toBe("2026-07"); // after 5
+    // year rollover: 12/31 with billing_day 1 → next month is Jan of next year
+    expect(nextBillingPeriod(1, new Date("2026-12-31T08:00:00Z"))).toBe("2027-01");
   });
 });

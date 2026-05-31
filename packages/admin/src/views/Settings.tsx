@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, currentPeriod } from "../api";
+import { api, currentPeriod, nextBillingPeriod } from "../api";
 import { useAsync, Card, Field, Empty, Modal } from "../ui";
 
 const PLACEHOLDER_RE = /\{(\w+)\}/g;
@@ -95,6 +95,7 @@ export function Settings() {
   if (error) return <div className="error-banner">{error}</div>;
 
   const samples = sampleVars();
+  const savedBillingDay = Number((data as any).workspace?.billing_day) || 1;
   const tplInvalid =
     unknownKeys(tplOverdue, OVERDUE_KEYS).length > 0 ||
     unknownKeys(tplBilling, BILLING_KEYS).length > 0 ||
@@ -122,7 +123,7 @@ export function Settings() {
         <RebuildMessage />
 
         <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
-        <InitiateBilling />
+        <InitiateBilling billingDay={savedBillingDay} />
 
         <ImportRoster />
       </div>
@@ -163,20 +164,20 @@ function ImportRoster() {
   );
 }
 
-function InitiateBilling() {
+function InitiateBilling({ billingDay }: { billingDay: number }) {
   const plans = useAsync(() => api.plans(), []);
   const [open, setOpen] = useState(false);
   return (
     <>
       <div className="field__label">發起繳費</div>
       <button className="btn" onClick={() => setOpen(true)}>確認本期金額並發出開繳通知</button>
-      {open && plans.data && <InitiateModal plans={plans.data.plans.filter((p) => p.active)} onClose={() => setOpen(false)} />}
+      {open && plans.data && <InitiateModal plans={plans.data.plans.filter((p) => p.active)} billingDay={billingDay} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function InitiateModal({ plans, onClose }: { plans: { id: number; name: string; monthly_amount: number }[]; onClose: () => void }) {
-  const [period, setPeriod] = useState(currentPeriod());
+function InitiateModal({ plans, billingDay, onClose }: { plans: { id: number; name: string; monthly_amount: number }[]; billingDay: number; onClose: () => void }) {
+  const [period, setPeriod] = useState(nextBillingPeriod(billingDay));
   const [amounts, setAmounts] = useState<Record<number, string>>(() => Object.fromEntries(plans.map((p) => [p.id, String(p.monthly_amount)])));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);

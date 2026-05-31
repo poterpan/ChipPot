@@ -1,12 +1,13 @@
 import type { Env } from "../../env";
 import { parseSettings } from "../../env";
 import { json } from "../../http";
-import { taipeiPeriod } from "../../core/time";
+import { taipeiPeriod, nextBillingPeriod } from "../../core/time";
 import {
   getWorkspaceIdByGuild, getUserByDiscordId, listActiveSubscriptions,
   listActiveChannelTags, listSettleablePayments, listUnboundUsers, bindDiscordId,
 } from "../../core/db";
 import { ensurePeriodPayment, initiateBillingOpened } from "../../core/billing";
+import { isBillingOpened } from "../../core/notify";
 import { settleUserPeriod, assertImageOk, extForContentType, InvalidImage } from "../../core/storage";
 import { writeAudit } from "../../core/audit";
 import { discordNotifier } from "./notify";
@@ -159,6 +160,11 @@ async function computePayResult(i: DiscordInteraction, env: Env): Promise<string
   if (subs.length === 0) return "你目前沒有有效訂閱。";
 
   const period = taipeiPeriod();
+  // Members may only pay once billing for the period has been opened (cron or 發起繳費). Block
+  // self-pay before then so nobody locks in a stale amount before the admin finalises it.
+  if (!(await isBillingOpened(env.DB, ws, period))) {
+    return `本期（${period}）繳費尚未開放，待管理員發出開繳通知後即可繳費。`;
+  }
   const note = getOption(i, "備註")?.value?.trim() || null;
 
   // Resolve declared channel (autocomplete value is a channel_tag id).
@@ -221,7 +227,9 @@ async function handleInitiateCommand(i: DiscordInteraction, env: Env): Promise<R
     .all<{ id: number; name: string; monthly_amount: number }>();
   if (plans.results.length === 0) return ephemeral("沒有啟用中的方案。");
 
-  const period = taipeiPeriod();
+  // Default to the next period to open (so near month-end this pre-fills next month).
+  const wsRow = await env.DB.prepare("SELECT billing_day FROM workspaces WHERE id = ?").bind(ws).first<{ billing_day: number }>();
+  const period = nextBillingPeriod(wsRow?.billing_day ?? 1);
   return json(initiateModal(ws, period, plans.results.slice(0, 5)));
 }
 
@@ -333,6 +341,10 @@ async function buildPayPrompt(
   const subs = await listActiveSubscriptions(env.DB, ws, userId);
   if (subs.length === 0) return { content: "你目前沒有有效訂閱。", components: [] };
   const period = taipeiPeriod();
+  // Gate: no self-pay (and no on-demand bill creation) until billing is opened for the period.
+  if (!(await isBillingOpened(env.DB, ws, period))) {
+    return { content: `本期（${period}）繳費尚未開放，待管理員發出開繳通知後即可繳費。`, components: [] };
+  }
   for (const s of subs) await ensurePeriodPayment(env.DB, s.id, period);
   const settleable = await listSettleablePayments(env.DB, ws, userId, period);
   if (settleable.length === 0) return { content: "✅ 你本期已登記繳費，無需重複操作。", components: [] };
@@ -389,6 +401,10 @@ async function handlePaySelect(i: DiscordInteraction, env: Env): Promise<Respons
   const tags = await listActiveChannelTags(env.DB, ws);
   if (!Number.isInteger(tagId) || !tags.some((t) => t.id === tagId)) {
     return updateErr("渠道無效，請重新點「繳費」按鈕再選一次。");
+  }
+  // Defense in depth: even with a crafted select, don't settle before billing is opened.
+  if (!(await isBillingOpened(env.DB, ws, period))) {
+    return updateErr("本期繳費尚未開放，待管理員發出開繳通知後即可繳費。");
   }
 
   try {

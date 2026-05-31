@@ -47,3 +47,15 @@ export async function claimNotification(db: D1Database, k: NotificationKey): Pro
     .run();
   return (res.meta.changes ?? 0) > 0;
 }
+
+/**
+ * Whether the billing-opened notice has been recorded for this (workspace, period) — i.e. the
+ * cron or an admin "發起繳費" has opened billing. Members may only self-pay once this is true.
+ */
+export async function isBillingOpened(db: D1Database, workspaceId: number, period: string): Promise<boolean> {
+  const row = await db
+    .prepare("SELECT 1 AS ok FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ? LIMIT 1")
+    .bind(workspaceId, period)
+    .first<{ ok: number }>();
+  return !!row;
+}

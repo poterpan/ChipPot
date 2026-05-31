@@ -109,3 +109,16 @@ export function periodForBillingDay(billingDay: number, now: Date = new Date()):
   const py = m === 1 ? y - 1 : y;
   return `${py}-${String(pm).padStart(2, "0")}`;
 }
+
+/**
+ * The period "發起繳費" should default to: on/before the billing day → the current month, after
+ * it → next month. Lets the admin pre-open next month near month-end (forward-looking; this is
+ * the mirror of periodForBillingDay, which looks back at the period still being collected).
+ */
+export function nextBillingPeriod(billingDay: number, now: Date = new Date()): string {
+  const { y, m, d } = taipeiYMD(now);
+  if (d <= billingDay) return `${y}-${String(m).padStart(2, "0")}`;
+  const nm = m === 12 ? 1 : m + 1;
+  const ny = m === 12 ? y + 1 : y;
+  return `${ny}-${String(nm).padStart(2, "0")}`;
+}

@@ -46,6 +46,22 @@ export function dueDate(period: string, billingDay: number): string {
   return `${period}-${String(billingDay).padStart(2, "0")}`;
 }
 
+/**
+ * The period an admin is about to open ("發起繳費" default): on or before the billing day →
+ * the current month; after it → next month. This lets the admin pre-open next month near
+ * month-end. Asia/Taipei business date.
+ */
+export function nextBillingPeriod(billingDay: number, d: Date = new Date()): string {
+  const iso = taipeiDate(d); // YYYY-MM-DD
+  const y = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7));
+  const day = Number(iso.slice(8, 10));
+  if (day <= billingDay) return `${y}-${String(m).padStart(2, "0")}`;
+  const nm = m === 12 ? 1 : m + 1;
+  const ny = m === 12 ? y + 1 : y;
+  return `${ny}-${String(nm).padStart(2, "0")}`;
+}
+
 /** Whole days from fromDate to toDate (both YYYY-MM-DD); negative if toDate earlier. */
 export function daysBetween(fromDate: string, toDate: string): number {
   const a = Date.parse(`${fromDate}T00:00:00Z`);
