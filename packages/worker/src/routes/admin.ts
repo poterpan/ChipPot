@@ -13,6 +13,7 @@ import { payButtonRow } from "../adapters/discord/commands";
 import { discordNotifier } from "../adapters/discord/notify";
 import { parseRosterCsv, importRoster } from "../core/import";
 import { sendOverdueForPeriod } from "../core/scheduled";
+import { renderTemplate } from "../core/templates";
 
 // Single-workspace MVP: default to the seeded workspace, overridable via ?workspace_id=.
 const DEFAULT_WORKSPACE_ID = 1;
@@ -488,7 +489,7 @@ async function discordPaymentMessage(_req: Request, env: Env, ctx: RouteCtx): Pr
   if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "bot token not configured");
 
   const body = {
-    content: "💳 **AI 訂閱繳費**\n點下方「繳費」按鈕選擇繳費渠道送出（一次涵蓋你所有訂閱），或使用 `/繳費` 指令（可附截圖／備註）。",
+    content: renderTemplate(settings.payment_message_template, { period: taipeiPeriod() }),
     components: [payButtonRow(ws)],
   };
   let messageId = settings.discord_payment_message_id;
