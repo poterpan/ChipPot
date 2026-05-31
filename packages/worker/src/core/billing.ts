@@ -186,6 +186,9 @@ export async function initiateBillingOpened(
   let sent = false;
   if (channelId && env.DISCORD_BOT_TOKEN) {
     if (opts?.force) {
+      // force = admin "resend now": clear the slot so the claim below re-sends. Non-atomic
+      // delete-then-claim, but force is an occasional single-admin action (button disabled
+      // in flight); worst case is a duplicate notice from two concurrent resends — accepted.
       await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?")
         .bind(workspaceId, period).run();
     }

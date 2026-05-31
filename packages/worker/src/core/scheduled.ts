@@ -139,6 +139,10 @@ export async function sendOverdueForPeriod(
   if (people.length === 0) return 0;
 
   if (opts.force) {
+    // force = admin "resend now": clear the slot so the claim below always wins. This
+    // delete-then-claim isn't atomic, but force is an occasional single-admin dashboard
+    // action whose button is disabled while in flight; the only risk is a duplicate message
+    // from two truly-concurrent resends, which we accept (no DO/lock — YAGNI).
     await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ?")
       .bind(workspaceId, period).run();
   }

@@ -3,5 +3,7 @@
  * in a user template degrades to visible text rather than silently vanishing). Pure string.
  */
 export function renderTemplate(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (whole, key) => (key in vars ? vars[key]! : whole));
+  return template.replace(/\{(\w+)\}/g, (whole, key) =>
+    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key]! : whole
+  );
 }
