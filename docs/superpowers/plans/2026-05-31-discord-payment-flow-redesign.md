@@ -2086,7 +2086,7 @@ Add a workspace/plan/sub fixture (id-space the file already uses; if it pins wor
 it("POST /admin/billing/initiate updates pending amounts and reports", async () => {
   // seed: plan P (id ...), active sub, a pending payment for the period
   const res = await callAdmin("POST", "/admin/billing/initiate", {
-    period: "2027-09", amounts: [{ plan_id: <PLAN>, amount: 700 }], update_plan_prices: true,
+    period: "2027-09", amounts: [{ plan_id: <PLAN>, amount: 700 }],
   });
   expect(res.status).toBe(200);
   const body = await res.json();
