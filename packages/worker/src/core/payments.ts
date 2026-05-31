@@ -17,6 +17,7 @@ export interface PaymentRow {
   proof_deleted_at: string | null;
   payment_note: string | null;
   verified_channel_tag_id: number | null;
+  declared_channel_tag_id: number | null;
   source: string;
   rejected_reason: string | null;
   submitted_at: string | null;
