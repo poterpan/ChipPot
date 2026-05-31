@@ -1,6 +1,8 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { settleUserPeriod, getObject } from "../../src/core/storage";
+import {
+  settleUserPeriod, getObject, TokenUnusable, NoEligiblePayment,
+} from "../../src/core/storage";
 
 const TS = "2026-05-01T00:00:00.000Z";
 const FUTURE = "2030-01-01T00:00:00.000Z";
@@ -65,5 +67,40 @@ describe("settleUserPeriod — Discord direct path", () => {
     expect(new Set(rows.results.map((x) => x.screenshot_key)).size).toBe(1);
     expect(rows.results.every((x) => x.has_proof === 1)).toBe(true);
     expect(await getObject(env.BUCKET, r.screenshotKey!)).not.toBeNull();
+  });
+});
+
+describe("settleUserPeriod — web token path", () => {
+  it("claims the token once and settles all subs for the period", async () => {
+    const r = await settleUserPeriod(env, {
+      workspaceId: WS, userId: WS, period: "2027-04", source: "user_web",
+      declaredChannelTagId: TAG, tokenHash: "settle-ok-hash",
+      proof: { body: new Uint8Array([9]), ext: "png", contentType: "image/png" },
+    });
+    expect(r.paidCount).toBe(2);
+    const tok = await env.DB.prepare("SELECT used_at FROM upload_tokens WHERE token_hash=?")
+      .bind("settle-ok-hash").first<{ used_at: string | null }>();
+    expect(tok?.used_at).not.toBeNull();
+  });
+
+  it("rejects reuse of a spent token and leaves no orphan object", async () => {
+    const before = (await env.BUCKET.list({ prefix: `${WS}/2027-04/${WS}/` })).objects.length;
+    await expect(settleUserPeriod(env, {
+      workspaceId: WS, userId: WS, period: "2027-04", source: "user_web",
+      tokenHash: "settle-ok-hash",
+      proof: { body: new Uint8Array([9]), ext: "png", contentType: "image/png" },
+    })).rejects.toBeInstanceOf(TokenUnusable);
+    const after = (await env.BUCKET.list({ prefix: `${WS}/2027-04/${WS}/` })).objects.length;
+    expect(after).toBe(before); // failed upload compensated
+  });
+
+  it("rejects when nothing is settleable (already paid) without consuming the token", async () => {
+    await expect(settleUserPeriod(env, {
+      workspaceId: WS, userId: WS, period: "2027-04", source: "user_web",
+      tokenHash: "settle-bad-hash",
+    })).rejects.toBeInstanceOf(NoEligiblePayment);
+    const tok = await env.DB.prepare("SELECT used_at FROM upload_tokens WHERE token_hash=?")
+      .bind("settle-bad-hash").first<{ used_at: string | null }>();
+    expect(tok?.used_at).toBeNull();
   });
 });
