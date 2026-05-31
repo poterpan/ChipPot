@@ -50,6 +50,11 @@ export interface ImportSummary {
  * Upsert a roster: match users by email (update name, keep discord_id; else insert with
  * discord_id NULL), then for each TRUE plan ensure an active subscription (reusing
  * ensureFirstPayment to create the start-month pending payment). Idempotent.
+ *
+ * Concurrency: the user/sub dedup is SELECT-then-INSERT, so two simultaneous imports of the
+ * same roster could double-insert. This is a single-admin, occasional tool and the admin UI
+ * disables the upload button while a request is in flight (prevents the double-click case), so
+ * we don't enforce uniqueness at the DB. Re-running after any failure is idempotent.
  */
 export async function importRoster(
   env: Env,

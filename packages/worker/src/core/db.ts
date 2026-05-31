@@ -204,7 +204,9 @@ export async function bindDiscordId(
     return { status: "ok", boundName: u?.display_name };
   }
 
-  // Didn't apply — diagnose precisely.
+  // Didn't apply — diagnose precisely (messaging only; the guarded UPDATE above is the source
+  // of truth). `boundName` here is whoever this Discord account is already linked to; if that
+  // happens to be the target (a re-bind race), the "已綁定為 <name>" message is still correct.
   const other = await env.DB
     .prepare("SELECT display_name FROM users WHERE workspace_id = ? AND discord_id = ?")
     .bind(workspaceId, discordId)
