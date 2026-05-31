@@ -130,7 +130,8 @@ export async function initiateBillingOpened(
   period: string,
   input: InitiateInput,
   actor: string,
-  notifier: Notifier
+  notifier: Notifier,
+  opts?: { force?: boolean }
 ): Promise<InitiateResult> {
   const now = nowUtcIso();
   const plans = await env.DB
@@ -180,9 +181,14 @@ export async function initiateBillingOpened(
 
   // Notify (claim the shared billing_opened slot — cron uses the same key).
   const ws = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(workspaceId).first<{ settings: string }>();
-  const channelId = parseSettings(ws!.settings).discord_billing_channel_id;
+  const settings = parseSettings(ws!.settings);
+  const channelId = settings.discord_billing_channel_id;
   let sent = false;
   if (channelId && env.DISCORD_BOT_TOKEN) {
+    if (opts?.force) {
+      await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?")
+        .bind(workspaceId, period).run();
+    }
     if (await claimNotification(env.DB, { workspaceId, type: "billing_opened", period })) {
       const lines: PlanOpenLine[] = subs.results
         .map((s) => planById.get(s.plan_id))
@@ -193,7 +199,7 @@ export async function initiateBillingOpened(
           amount: amountByPlan.get(p.id) ?? p.monthly_amount,
         }));
       if (lines.length > 0) {
-        await notifier.sendBillingOpened(env, channelId, period, lines);
+        await notifier.sendBillingOpened(env, channelId, period, lines, settings.billing_opened_template);
         sent = true;
       }
     }

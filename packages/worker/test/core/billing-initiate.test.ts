@@ -12,7 +12,7 @@ const PERIOD = "2027-05";
 
 const sent: { period: string; lines: PlanOpenLine[] }[] = [];
 const notifier: Notifier = {
-  async sendBillingOpened(_e, _ch, period, lines) { sent.push({ period, lines }); },
+  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.push({ period, lines }); },
   async sendOverdue() {},
 };
 
@@ -57,5 +57,15 @@ describe("initiateBillingOpened", () => {
     // slot already claimed by the prior test -> claimNotification now returns false
     const won = await claimNotification(env.DB, { workspaceId: WS, type: "billing_opened", period: PERIOD });
     expect(won).toBe(false);
+  });
+
+  it("force re-sends even after the slot was already claimed", async () => {
+    await initiateBillingOpened(env, WS, "2027-07", { amounts: [] }, "owner@x", notifier);
+    const before = sent.length;
+    const r2 = await initiateBillingOpened(env, WS, "2027-07", { amounts: [] }, "owner@x", notifier);
+    expect(r2.sent).toBe(false);
+    const r3 = await initiateBillingOpened(env, WS, "2027-07", { amounts: [] }, "owner@x", notifier, { force: true });
+    expect(r3.sent).toBe(true);
+    expect(sent.length).toBe(before + 1);
   });
 });
