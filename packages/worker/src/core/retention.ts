@@ -16,7 +16,12 @@ function subMonthsUtc(d: Date, months: number): Date {
 /**
  * Delete screenshots whose proof is older than `retentionMonths` (by verified_at, else
  * paid_at). Reconciliation data (amount/period/tag) is kept — only the image is removed
- * (spec §13). Returns the number of proofs deleted.
+ * (spec §13). Returns the number of proofs cleared.
+ *
+ * Reference-counting: a single screenshot can be shared by several payments (one settlement
+ * covers all of a user's subs). For each expired row we drop THIS row's screenshot_key first
+ * (D1-first, so the row never re-appears), then delete the R2 object only when no OTHER
+ * payment still references the key — never while a non-expired row still points at it.
  */
 export async function runRetention(
   env: Env,
@@ -38,14 +43,20 @@ export async function runRetention(
 
   let deleted = 0;
   for (const row of results) {
-    // R2-first: if the D1 update fails, screenshot_key stays set and the next run retries
-    // (R2 delete is idempotent). Per-row guard so one failure doesn't abort the batch.
     try {
-      await env.BUCKET.delete(row.screenshot_key);
+      // 1. Drop THIS payment's reference first (D1-first so this row never re-appears).
       await env.DB
         .prepare("UPDATE payments SET screenshot_key = NULL, proof_deleted_at = ?, updated_at = ? WHERE id = ?")
         .bind(taipeiDate(now), nowUtcIso(), row.id)
         .run();
+      // 2. Only delete the R2 object when no OTHER payment still references the key.
+      const ref = await env.DB
+        .prepare("SELECT COUNT(*) AS c FROM payments WHERE screenshot_key = ?")
+        .bind(row.screenshot_key)
+        .first<{ c: number }>();
+      if ((ref?.c ?? 0) === 0) {
+        await env.BUCKET.delete(row.screenshot_key);
+      }
       await writeAudit(env.DB, {
         workspaceId, actor: "system", action: "proof.auto_delete",
         entityType: "payment", entityId: row.id, before: { screenshot_key: row.screenshot_key },
