@@ -157,14 +157,19 @@ export async function requireAccess(req: Request, env: Env): Promise<AccessIdent
     throw new AccessDenied("Access is not configured");
   }
   const jwks = await getAccessJwks(env.ACCESS_TEAM_DOMAIN);
-  const allowed = (env.ACCESS_ALLOWED_EMAILS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
+  // Cloudflare Access is the single source of truth for who may use the admin: a valid Access
+  // JWT (signature + aud + iss + exp) is sufficient. The Worker-side email allow-list below is
+  // intentionally DISABLED so that adding/removing admins in the Access policy takes effect
+  // immediately (no redeploy). To re-enable a second gate, uncomment both blocks below and set
+  // ACCESS_ALLOWED_EMAILS in wrangler.toml.
+  // const allowed = (env.ACCESS_ALLOWED_EMAILS ?? "")
+  //   .split(",")
+  //   .map((s) => s.trim().toLowerCase())
+  //   .filter(Boolean);
   return verifyAccessJwt(token, {
     jwks,
     aud: env.ACCESS_AUD,
     issuer: `https://${env.ACCESS_TEAM_DOMAIN}.cloudflareaccess.com`,
-    allowedEmails: allowed.length ? allowed : undefined,
+    // allowedEmails: allowed.length ? allowed : undefined,
   });
 }
