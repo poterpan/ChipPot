@@ -65,4 +65,9 @@ secrets. Cloudflare account **PoterPan** `d216cdc92992e29b473cc209f06bbf32`.
 - Admin: Settings has 3 template textareas; Payments list has one-click ✅ 驗證 (auto declared channel);
   Dashboard has a 推播狀態 panel with 立即重發/重置 for 開繳 + 逾期.
 - New endpoints: `GET /admin/notifications`, `POST /admin/notifications/{resend,reset}`.
-- No new slash command (no re-register needed). Branch `admin-enhancements` (NOT yet merged — awaiting owner smoke test).
+- No new slash command (no re-register needed). Branch `admin-enhancements` **merged to main 2026-05-31**.
+- Follow-ups (same branch): overdue催繳 now includes `rejected` (still unpaid); Settings template
+  **live preview + unknown-placeholder validation** (blocks save); 繳費審核 UX — status **pills** (wrap on
+  mobile), **paid-first ordering** (待繳 sinks to bottom), quick-verify **only on `paid`**, 憑證 shows「—」for
+  unpaid. Removed the dead `delete_discord_original_message` setting + checkbox (no-op since the
+  Discord-first flow has no public "original payment message" — payments are ephemeral).
