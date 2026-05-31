@@ -26,6 +26,16 @@ describe("parseSettings", () => {
     expect(() => parseSettings(JSON.stringify({ proof_retention_months: 0 }))).toThrow();
   });
 
+  it("defaults the three notification templates and lets them be overridden", () => {
+    const d = parseSettings("{}");
+    expect(d.overdue_template).toContain("{list}");
+    expect(d.billing_opened_template).toContain("{plans}");
+    expect(d.payment_message_template).toContain("繳費");
+    const s = parseSettings(JSON.stringify({ overdue_template: "欠 {total}" }));
+    expect(s.overdue_template).toBe("欠 {total}");
+    expect(s.billing_opened_template).toBe(d.billing_opened_template); // others keep default
+  });
+
   it("parses admin_discord_ids as a string array, defaulting to []", () => {
     expect(parseSettings("{}").admin_discord_ids).toEqual([]);
     expect(parseSettings(JSON.stringify({ admin_discord_ids: ["123", "456"] })).admin_discord_ids)
