@@ -11,6 +11,7 @@ import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage } from "../adapters/discord/api";
 import { payButtonRow } from "../adapters/discord/commands";
 import { discordNotifier } from "../adapters/discord/notify";
+import { parseRosterCsv, importRoster } from "../core/import";
 
 // Single-workspace MVP: default to the seeded workspace, overridable via ?workspace_id=.
 const DEFAULT_WORKSPACE_ID = 1;
@@ -97,6 +98,30 @@ async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<R
   return json({ ok: true, sent: r.sent, updated_plans: r.updatedPlans, updated_payments: r.updatedPayments });
 }
 
+async function membersImport(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  let csv: string | null = null;
+  let startDate: string | undefined;
+  const ct = req.headers.get("content-type") ?? "";
+  if (ct.includes("multipart/form-data")) {
+    const form = await req.formData();
+    const f = form.get("file");
+    if (f && typeof f !== "string") csv = await (f as Blob).text();
+    const sd = form.get("start_date");
+    if (typeof sd === "string" && sd) startDate = sd;
+  } else {
+    const b = await readJson<{ csv?: string; start_date?: string }>(req);
+    csv = b?.csv ?? null;
+    startDate = b?.start_date;
+  }
+  if (!csv) return errorResponse(400, "csv is required");
+  if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return errorResponse(400, "start_date must be YYYY-MM-DD");
+  const start = startDate ?? `${taipeiPeriod()}-01`;
+  const summary = await importRoster(env, ws, parseRosterCsv(csv), { startDate: start });
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "roster.import", entityType: "workspace", entityId: ws, after: summary });
+  return json({ ok: true, summary });
+}
+
 // ── Users ────────────────────────────────────────────────────────────────────
 
 async function listUsers(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -125,6 +150,11 @@ async function updateUser(req: Request, env: Env, ctx: RouteCtx): Promise<Respon
   const before = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
   if (!before) return errorResponse(404, "not found");
   const b = await readJson<{ display_name?: string; discord_id?: string; email?: string; note?: string }>(req) ?? {};
+  if (b.discord_id) {
+    const clash = await env.DB.prepare("SELECT id FROM users WHERE workspace_id = ? AND discord_id = ? AND id <> ?")
+      .bind(wsId(ctx), b.discord_id, id).first<{ id: number }>();
+    if (clash) return errorResponse(400, "此 Discord ID 已綁定其他成員");
+  }
   await env.DB.prepare(
     `UPDATE users SET display_name = COALESCE(?, display_name), discord_id = ?, email = ?, note = ?, updated_at = ? WHERE id = ?`
   ).bind(b.display_name ?? null, b.discord_id ?? null, b.email ?? null, b.note ?? null, nowUtcIso(), id).run();
@@ -432,6 +462,7 @@ export function buildAdminRouter(): Router<Env> {
     .patch("/admin/workspace", updateWorkspace)
     .get("/admin/reconcile", reconcile)
     .post("/admin/billing/initiate", billingInitiate)
+    .post("/admin/members/import", membersImport)
     .get("/admin/users", listUsers)
     .post("/admin/users", createUser)
     .patch("/admin/users/:id", updateUser)

@@ -178,6 +178,30 @@ describe("admin billing/initiate + declared channel", () => {
     expect((await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [{ plan_id: 1, amount: -1 }] }))!.status).toBe(400);
   });
 
+  it("imports a CSV (JSON body) and returns a summary", async () => {
+    const csv = "姓名,帳號,ChatGPT,Claude Standard,Claude Premium\nNewMember,newmember@x.tw,TRUE,FALSE,FALSE";
+    const res = await call("POST", "/admin/members/import", { csv, start_date: "2027-11-01" });
+    expect(res!.status).toBe(200);
+    const body = (await res!.json()) as any;
+    expect(body.summary).toMatchObject({ usersCreated: 1, subsCreated: 1 });
+    const u = await env.DB.prepare("SELECT id FROM users WHERE email='newmember@x.tw'").first<{ id: number }>();
+    expect(u).not.toBeNull();
+  });
+
+  it("rejects a missing csv and a bad start_date", async () => {
+    expect((await call("POST", "/admin/members/import", {}))!.status).toBe(400);
+    expect((await call("POST", "/admin/members/import", { csv: "姓名,帳號\nA,a@x.tw", start_date: "bad" }))!.status).toBe(400);
+  });
+
+  it("PATCH /admin/users rejects a discord_id already bound to another member", async () => {
+    const a = await call("POST", "/admin/users", { display_name: "Conflicter", discord_id: "dup-disc" });
+    expect(a!.status).toBe(201);
+    const b = await call("POST", "/admin/users", { display_name: "Other" });
+    const otherId = ((await b!.json()) as any).id as number;
+    const res = await call("PATCH", `/admin/users/${otherId}`, { discord_id: "dup-disc" });
+    expect(res!.status).toBe(400);
+  });
+
   it("verify pre-fills verified_channel_tag_id from declared; list shows declared name", async () => {
     const uRes = await call("POST", "/admin/users", { display_name: "Declarer" });
     const uid = ((await uRes!.json()) as any).id as number;
