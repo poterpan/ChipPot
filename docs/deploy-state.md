@@ -47,3 +47,12 @@ secrets. Cloudflare account **PoterPan** `d216cdc92992e29b473cc209f06bbf32`.
   edit perm, so `wrangler deploy` errors on re-asserting the (already-existing) `admin.panspace.dev/api/*`
   route — **non-fatal**: the script version uploads and goes live first. Add Zone→Workers Routes→Edit
   to silence it.
+
+## Member onboarding deployed (2026-05-31)
+- Roster (9 members) loaded to prod via SQL earlier; all `discord_id` NULL until members self-bind.
+- Worker + admin Pages redeployed. Guild commands now: **繳費, 發起繳費, 綁定**.
+- `/綁定` + the persistent 「繳費」 button now offer a "選你的名字" self-bind select for unbound members
+  (button origin → continues to pay after binding; `/綁定` origin → bind only). Admin 成員 edit can
+  still hand-fill a Discord ID (rejects duplicates with 400).
+- New admin importer: Settings → 「匯入名單」 (`POST /admin/members/import`, multipart or JSON csv).
+- Branch `member-onboarding` (NOT yet merged to main — awaiting owner smoke test).
