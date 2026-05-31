@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { runDailyTasks } from "../../src/core/scheduled";
-import type { Notifier, PlanOpenLine, OverdueTarget } from "../../src/core/notify";
+import type { Notifier, PlanOpenLine, OverduePerson } from "../../src/core/notify";
 import { getObject, putObject } from "../../src/core/storage";
 
 const TS = "2024-01-10T00:00:00.000Z";
@@ -10,10 +10,10 @@ const CHAN = "chan-9010";
 const ROLE = "role-9010";
 const NOW = new Date("2026-07-04T16:30:00.000Z"); // = Taipei 2026-07-05 00:30 -> day 5, period 2026-07
 
-const sent = { billing: [] as { period: string; lines: PlanOpenLine[] }[], overdue: [] as OverdueTarget[] };
+const sent = { billing: [] as { period: string; lines: PlanOpenLine[] }[], overdue: [] as { period: string; people: OverduePerson[] }[] };
 const notifier: Notifier = {
-  async sendBillingOpened(_e, _ch, period, lines) { sent.billing.push({ period, lines }); },
-  async sendOverdue(_e, _ch, t) { sent.overdue.push(t); },
+  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.billing.push({ period, lines }); },
+  async sendOverdue(_e, _ch, period, people, _t) { sent.overdue.push({ period, people }); },
 };
 
 beforeAll(async () => {
@@ -44,9 +44,12 @@ describe("runDailyTasks", () => {
     expect(s.billingOpenedSent).toBe(1);
     expect(sent.billing.at(-1)?.lines.find((l) => l.plan_id === WS)?.role_id).toBe(ROLE);
 
-    // overdue: the 2026-06 pending payment (30 days late) reminded; the new 2026-07 isn't
+    // overdue: the 2026-06 pending payment (30 days late) reminded as one batched message
     expect(s.overdueSent).toBe(1);
-    expect(sent.overdue.at(-1)).toMatchObject({ period: "2026-06", discord_id: "d-9010" });
+    const od = sent.overdue.at(-1)!;
+    expect(od.period).toBe("2026-06");
+    expect(od.people[0]).toMatchObject({ discord_id: "d-9010" });
+    expect(od.people[0]!.lines.length).toBeGreaterThanOrEqual(1);
 
     // retention: the 2024 proof deleted
     expect(s.proofsDeleted).toBe(1);
