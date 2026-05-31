@@ -300,7 +300,7 @@ async function handleBindSelect(i: DiscordInteraction, env: Env): Promise<Respon
 
   const parts = (i.data?.custom_id ?? "").split(":"); // chippot:bind:<ws>:<origin>
   const origin = parts[3];
-  if (Number(parts[2]) !== ws || (origin !== "pay" && origin !== "cmd")) {
+  if (parts.length !== 4 || Number(parts[2]) !== ws || (origin !== "pay" && origin !== "cmd")) {
     return updateErr("這個綁定選單已失效，請重新操作。");
   }
   const targetUserId = Number(i.data?.values?.[0]);
