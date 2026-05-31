@@ -115,6 +115,7 @@ async function notificationsStatus(_req: Request, env: Env, ctx: RouteCtx): Prom
 async function notificationsResend(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
   const b = await readJson<{ type?: string; period?: string }>(req);
+  if (b?.period !== undefined && typeof b.period !== "string") return errorResponse(400, "period must be YYYY-MM");
   const period = b?.period ?? taipeiPeriod();
   if (!b?.type || !NOTIF_TYPES.includes(b.type as any)) return errorResponse(400, "type must be billing_opened or overdue");
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
@@ -133,6 +134,7 @@ async function notificationsResend(req: Request, env: Env, ctx: RouteCtx): Promi
 async function notificationsReset(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
   const b = await readJson<{ type?: string; period?: string }>(req);
+  if (b?.period !== undefined && typeof b.period !== "string") return errorResponse(400, "period must be YYYY-MM");
   const period = b?.period ?? taipeiPeriod();
   if (!b?.type || !NOTIF_TYPES.includes(b.type as any)) return errorResponse(400, "type must be billing_opened or overdue");
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");

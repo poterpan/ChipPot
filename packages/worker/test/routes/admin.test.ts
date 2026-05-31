@@ -178,9 +178,10 @@ describe("admin notifications", () => {
     expect(st.overdue).toBeNull();
   });
 
-  it("validates type and period", async () => {
+  it("validates type and period (incl. non-string period)", async () => {
     expect((await call("POST", "/admin/notifications/resend", { type: "bogus", period: "2028-03" }))!.status).toBe(400);
     expect((await call("POST", "/admin/notifications/reset", { type: "overdue", period: "bad" }))!.status).toBe(400);
+    expect((await call("POST", "/admin/notifications/reset", { type: "overdue", period: ["2028-03"] }))!.status).toBe(400);
   });
 });
 
