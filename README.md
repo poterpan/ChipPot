@@ -1,82 +1,219 @@
-# ChipPot
+<div align="center">
 
-訂閱代管收費系統 — 100% serverless on Cloudflare。社團 AI 訂閱（OpenAI / Anthropic）代收、
-對帳、繳費管理。核心層 / 管道 adapter 層分離（本期 Discord，預留 LINE/Telegram），
-資料模型支援多帳本（workspace）。
+<img src="assets/banner.png" alt="ChipPot — serverless subscription billing & reconciliation" width="840" />
 
-## Live
+<br/>
 
-| 部分 | 網址 |
+**Discord-first subscription billing & reconciliation for clubs that co-buy AI subscriptions — 100% serverless on Cloudflare.**
+
+![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Vitest](https://img.shields.io/badge/tests-152%20passing-0f6e63?logo=vitest&logoColor=white)
+![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
+
+</div>
+
+---
+
+ChipPot started life solving a very concrete problem: a club bulk-buys OpenAI / Anthropic
+subscriptions and splits the cost across members. Collecting and reconciling everyone's monthly
+payment over a spreadsheet is painful. ChipPot moves the whole loop **into Discord** — members
+pay with a button, the bot tracks who owes / paid / verified, and an admin dashboard handles
+reconciliation — all running on Cloudflare's free-tier serverless stack.
+
+It's built with a **core / channel-adapter split** (Discord today; LINE / Telegram are
+pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond one club.
+
+## Table of contents
+
+- [Highlights](#highlights)
+- [How a payment flows](#how-a-payment-flows)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Project layout](#project-layout)
+- [Quick start](#quick-start)
+- [Deployment](#deployment)
+- [Configuration](#configuration)
+- [Admin & operations](#admin--operations)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+## Highlights
+
+- 💳 **Discord-first payments** — a persistent **繳費** button → pick a channel → done. One submit
+  settles *all* of a member's subscriptions for the period (multi-plan aggregation).
+- 🔗 **Self-service linking** — members link their Discord account to the roster themselves
+  (`/綁定` or the pay button); admins can also assign IDs by hand.
+- 📥 **CSV roster import** — onboard an existing roster (e.g. a Google-Forms export) in one upload:
+  upsert members + subscriptions, idempotent re-runs.
+- 🧾 **Review queue + reconciliation** — an admin dashboard with per-plan / per-channel totals, a
+  one-click verify queue, manual back-fill, and frozen period amounts (price changes never rewrite history).
+- 🔔 **Customizable notifications** — editable templates (with live preview + validation) for the
+  billing-opened notice, the batched overdue reminder, and the persistent pay message.
+- ⏰ **Daily cron, idempotent** — opens billing, sends one batched overdue reminder per period, and
+  enforces screenshot retention — all deduped through `notification_logs`.
+- 🛡️ **Access-gated admin** — the whole admin host sits behind Cloudflare Access (email OTP); the
+  SPA and its API are same-origin so the Access JWT reaches the Worker.
+- 🧪 **Real-runtime tests** — 152 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
+  enforced), not mocks.
+
+## How a payment flows
+
+```
+Member taps 「繳費」 (or /繳費)
+        │
+        ├─ not linked yet? → "選你的名字" dropdown → binds their Discord id, then continues
+        │
+        ▼
+  ephemeral: this period's plans + total + a channel select
+        │  (screenshot / note optional via /繳費 or the web page)
+        ▼
+  settleUserPeriod() — marks every pending/rejected payment "paid", one shared proof key
+        │
+        ▼
+  Admin dashboard → review queue → ✅ verify (declared channel pre-filled)
+```
+
+A `payment` row is a **bill** (an obligation), created the moment a member has a subscription or by
+the monthly cron. Its lifecycle: `pending → paid → verified` (or `rejected`, re-payable). The
+amount is frozen per period, so changing a plan's price never alters past bills.
+
+## Architecture
+
+```
+Discord  ─┐                              ┌─ D1  (chippot-db)         — SQLite ledger
+Web 上傳 ─┼─►  Cloudflare Worker  ───────┤─ R2  (chippot-proofs)     — private screenshots
+Admin UI ─┤    core + adapters           └─ Cron (daily 01:00 UTC)   — billing / overdue / retention
+Cron     ─┘
+```
+
+- **Core** `worker/src/core/*` — channel-agnostic domain: `time` (Asia/Taipei), `tokens`, `audit`,
+  `payments` (state machine), `billing`, `reconcile`, `storage` (R2 + compensation), `notify`,
+  `templates`, `import`, `scheduled`, `retention`.
+- **Discord adapter** `worker/src/adapters/discord/*` — Ed25519 signature verification, slash
+  commands (`/繳費` · `/發起繳費` · `/綁定`), buttons, string-selects, modals, and notifications.
+- **Routes** `worker/src/routes/*` — `/interactions` (Ed25519) · `/upload/:token` (one-time token)
+  · `/admin/*` + `/admin/image` (Access JWT) · `/images`.
+- **Frontends** — `packages/web` (token-gated upload page) and `packages/admin` (the dashboard SPA),
+  both Vite + React deployed to Cloudflare Pages.
+
+### Admin Access model
+
+`admin.panspace.dev` is fully protected by Cloudflare Access. The SPA is served from Pages, while
+the admin API is the **same Worker** via a route on `admin.panspace.dev/api/*` (the Worker strips
+`/api`). Because it's same-origin, the Access JWT (`Cf-Access-Jwt-Assertion`) reaches the Worker,
+where `requireAccess` verifies `aud` / `iss` / `exp` and an email allow-list. Screenshots stream
+through a same-origin protected endpoint, so `<img>` tags just work.
+
+## Tech stack
+
+| Layer | Tech |
 |---|---|
-| Worker API + Discord interactions + Cron | https://chippot.poterpan.workers.dev |
-| 繳費上傳頁（公開，token-gated） | https://pay.panspace.dev |
-| 管理後台（Cloudflare Access） | https://admin.panspace.dev |
+| Runtime | Cloudflare Workers (TypeScript, `nodejs_compat`) |
+| Data | D1 (SQLite) · R2 (object storage) |
+| Scheduling | Cron Triggers (daily) |
+| Auth | Cloudflare Access (admin) · Ed25519 (Discord) · one-time hashed tokens (upload) |
+| Frontend | Vite + React 18 → Cloudflare Pages |
+| Tests | Vitest 4 + `@cloudflare/vitest-pool-workers` (Miniflare D1/R2) |
+| Tooling | pnpm workspaces · Wrangler |
 
-資源與佈建狀態（D1 / R2 / Access AUD / Discord ids）記錄於 **`docs/deploy-state.md`**。
-規格→計畫在 `docs/superpowers/plans/`。
-
-## 架構
+## Project layout
 
 ```
-Discord ─┐                         ┌─ D1 (chippot-db)
-Web 上傳 ─┼─► Cloudflare Worker ───┤
-Admin UI ─┤   (核心層 + adapters)   └─ R2 (chippot-proofs, private)
-Cron ────┘
+packages/
+  worker/                 Cloudflare Worker (API + Discord + Cron)
+    src/core/             channel-agnostic domain logic
+    src/adapters/discord/ Ed25519 verify · commands · handler · notify
+    src/routes/           interactions · upload · admin · images
+    migrations/           D1 schema (0001…0004)
+    scripts/              register-commands.mjs
+    test/                 Vitest (real Miniflare D1/R2)
+  web/                    public token-gated upload page (Vite/React)
+  admin/                  Access-gated admin SPA (Vite/React)
+assets/                   logo + banner
+docs/                     deploy-state, specs & implementation plans
 ```
-- **核心層** `src/core/*`：與管道無關 — time(Asia/Taipei) · tokens · audit · payments(狀態機) ·
-  billing · reconcile · storage(R2+補償) · notify · scheduled · retention。
-- **Discord adapter** `src/adapters/discord/*`：Ed25519 驗章、`/繳費` 互動、按鈕、通知。
-- **Routes** `src/routes/*`：`/admin/*`(Access) · `/upload`(token) · `/images`(受保護) · `/interactions`(Ed25519)。
-- **前端**：`packages/web`(上傳頁) · `packages/admin`(後台 SPA)，皆 Vite+React → Cloudflare Pages。
 
-### 管理後台的 Access 模型
-`admin.panspace.dev` 整個主機由 Cloudflare Access 保護（登入寄 OTP 到允許的 email）。
-SPA 在 Pages；後台 API 用 **Worker route `admin.panspace.dev/api/*`** 回到同一個 worker
-（worker 去除 `/api` 前綴）。同源 → Access JWT(`Cf-Access-Jwt-Assertion`) 會到 worker，
-`requireAccess` 驗 aud/iss/exp + email allowlist。看截圖走同源受保護端點，`<img>` 直接可用。
+## Quick start
 
-## 開發
+> Requires [pnpm](https://pnpm.io) and a [Cloudflare account](https://dash.cloudflare.com) with
+> Wrangler authenticated for deploys.
 
 ```bash
 pnpm install
-pnpm --filter @chippot/worker test          # 103 tests (Vitest + Miniflare 真 D1/R2)
-pnpm --filter @chippot/worker typecheck
-pnpm --filter @chippot/worker dev            # 本地 wrangler dev
-pnpm --filter @chippot/web build             # 上傳頁
-pnpm --filter @chippot/admin build           # 後台
-```
-測試慣例（每個 DB 測試）：storage 隔離是**每檔案**級；Miniflare D1 強制 FK；變更型測試用
-獨立 id 空間（9001+）。
 
-## 部署
+# Worker — tests run against real Miniflare D1 + R2
+pnpm --filter @chippot/worker test
+pnpm --filter @chippot/worker typecheck
+pnpm --filter @chippot/worker dev          # local wrangler dev
+
+# Frontends
+pnpm --filter @chippot/web build
+pnpm --filter @chippot/admin build
+```
+
+Test convention: storage isolation is **per test file**; Miniflare's D1 enforces FK constraints,
+so DB tests seed real parents and use a distinct id-space (9001+).
+
+## Deployment
 
 ```bash
-# Worker（含 cron trigger 與 admin.panspace.dev/api 路由）
-cd packages/worker && wrangler deploy
-# 上傳頁 / 後台
-cd packages/web   && pnpm build && wrangler pages deploy dist --project-name chippot-web --branch main
-cd packages/admin && pnpm build && wrangler pages deploy dist --project-name chippot-admin --branch main
-# D1 migration
+# 1. Apply D1 migrations
 wrangler d1 migrations apply chippot-db --remote
+
+# 2. Worker (carries the cron trigger + the admin.panspace.dev/api route)
+cd packages/worker && wrangler deploy
+
+# 3. Frontends → Pages
+cd packages/web   && pnpm build && wrangler pages deploy dist --project-name chippot-web   --branch main
+cd packages/admin && pnpm build && wrangler pages deploy dist --project-name chippot-admin --branch main
+
+# 4. Register the guild slash commands (/繳費 · /發起繳費 · /綁定)
+DISCORD_GUILD_ID=<guild> pnpm --filter @chippot/worker register
 ```
 
-### Secrets / vars
-- Secret：`DISCORD_BOT_TOKEN`（`wrangler secret put`）。本地放 `packages/worker/.dev.vars`（gitignored）。
-- Vars（`wrangler.toml`，非機密）：`DISCORD_APPLICATION_ID`、`DISCORD_PUBLIC_KEY`、
-  `WEB_ORIGIN`、`ADMIN_ORIGIN`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ACCESS_ALLOWED_EMAILS`。
-- Discord 端設定：interactions endpoint = worker `/interactions`；`/繳費` 註冊於測試 guild。
+A reference deployment runs at `chippot.poterpan.workers.dev` (Worker), `pay.panspace.dev`
+(upload page), and `admin.panspace.dev` (admin). Live resource IDs are recorded in
+[`docs/deploy-state.md`](docs/deploy-state.md).
 
-## 操作
+## Configuration
 
-- **新增成員/訂閱**：後台 → 成員 / 訂閱（建立訂閱會立即建第一期 payment）。
-- **審核繳費**：後台 → 繳費審核 → 開單筆看截圖 → 標 verified（選渠道 tag）/ 退回 / 改金額 / 刪截圖。
-- **手動補登 / 代繳**：繳費審核 → 手動補登（source=admin_manual）。
-- **產生上傳連結**：繳費審核 → 產生上傳連結（30 分鐘、一次性、貼給對方）。
-- **常駐繳費按鈕**：後台 → 設定 → 建立/重建繳費訊息（或 `POST /admin/discord/payment-message`）。
-- **Cron**：每日 01:00 UTC（=09:00 台北）— 冪等建當期 payment、開繳通知(tag 身分組)、
-  逾期提醒(tag 個人)、截圖 retention 刪圖。皆經 `notification_logs` 去重。
-- **收費入口**：① Discord 常駐「繳費」按鈕 → 上傳頁；② `/繳費`(可附截圖或留備註，至少一項)；
-  ③ 後台手動產生連結。
+- **Secret** — `DISCORD_BOT_TOKEN` (`wrangler secret put`; locally in
+  `packages/worker/.dev.vars`, which is gitignored).
+- **Vars** (`wrangler.toml`, non-secret) — `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`,
+  `WEB_ORIGIN`, `ADMIN_ORIGIN`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ACCESS_ALLOWED_EMAILS`.
+- **Workspace settings** (in D1, edited from the admin **Settings** page) — billing day, overdue
+  days, screenshot retention, Discord guild / channel ids, the admin allow-list
+  (`admin_discord_ids`), and the three editable notification templates.
+- **Discord** — set the app's Interactions Endpoint to the Worker's `/interactions`, then register
+  the guild commands with the script above.
 
-## 已知後續（本期不實作，留接口）
-多帳本 workspace 切換 UI、LINE/Telegram adapter、orphan R2 清理 cron、`plans.billing_cycle`(年繳)/`split_count`(分攤)。
+## Admin & operations
+
+- **Members & subscriptions** — add manually or bulk-import a CSV; creating a subscription opens
+  its first period bill.
+- **Review queue** — Payments → status pills → the **已繳待驗** queue floats to the top → one-click
+  ✅ verify (or open a row for screenshots, channel, reject, amount override, delete proof).
+- **發起繳費** — confirm this period's per-plan amounts (any change becomes the plan's new price),
+  then post the billing-opened notice. Triggerable from the admin Settings or Discord's `/發起繳費`.
+- **Push status** — the dashboard shows whether the billing-opened / overdue notices went out, with
+  **Resend now** (force) and **Reset** controls.
+- **Daily cron** (01:00 UTC = 09:00 Asia/Taipei) — idempotently opens each period's bills, posts the
+  billing-opened notice (tagging plan roles), sends **one batched overdue reminder per period**
+  listing all unpaid members, and runs screenshot retention. Everything dedups via `notification_logs`.
+
+## Roadmap
+
+Interfaces are in place; these are intentionally not yet built:
+
+- Multi-workspace switcher UI
+- LINE / Telegram adapters (the core is already channel-agnostic)
+- Orphan-R2 sweeper cron
+- `plans.billing_cycle` (yearly) and `split_count` (cost splitting)
+
+## License
+
+Not yet licensed — add a `LICENSE` file before publishing (MIT recommended).
+
+<div align="center"><sub>Built with a core / adapter split · TDD · 100% serverless.</sub></div>

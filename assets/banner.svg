@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="400" viewBox="0 0 1280 400">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a4d45"/>
+      <stop offset="1" stop-color="#063b38"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="400" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#f4b32b"/>
+  <!-- logo on a soft card -->
+  <rect x="90" y="70" width="260" height="260" rx="58" fill="#ffffff"/>
+  <image href="logo.svg" xlink:href="logo.svg" x="106" y="86" width="228" height="228"/>
+  <!-- wordmark + taglines -->
+  <text x="404" y="178" font-family="'Helvetica Neue', Arial, sans-serif" font-size="94" font-weight="700" fill="#ffffff" letter-spacing="-1">ChipPot</text>
+  <text x="408" y="228" font-family="'Helvetica Neue', Arial, sans-serif" font-size="28" font-weight="600" fill="#f4b32b">Serverless subscription billing &amp; reconciliation</text>
+  <text x="408" y="268" font-family="'Helvetica Neue', Arial, sans-serif" font-size="22" fill="#bcd9d4">Discord-first · for clubs sharing AI subscriptions</text>
+  <text x="408" y="304" font-family="'Helvetica Neue', Arial, sans-serif" font-size="19" fill="#86b2ab">Cloudflare Workers · D1 · R2 · Cron · Access · 100% serverless</text>
+</svg>
