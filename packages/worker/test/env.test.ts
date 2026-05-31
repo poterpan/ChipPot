@@ -25,4 +25,14 @@ describe("parseSettings", () => {
     expect(() => parseSettings(JSON.stringify({ overdue_days: -1 }))).toThrow();
     expect(() => parseSettings(JSON.stringify({ proof_retention_months: 0 }))).toThrow();
   });
+
+  it("parses admin_discord_ids as a string array, defaulting to []", () => {
+    expect(parseSettings("{}").admin_discord_ids).toEqual([]);
+    expect(parseSettings(JSON.stringify({ admin_discord_ids: ["123", "456"] })).admin_discord_ids)
+      .toEqual(["123", "456"]);
+    // non-string members are dropped; non-arrays fall back to []
+    expect(parseSettings(JSON.stringify({ admin_discord_ids: ["123", 7, null] })).admin_discord_ids)
+      .toEqual(["123"]);
+    expect(parseSettings(JSON.stringify({ admin_discord_ids: "nope" })).admin_discord_ids).toEqual([]);
+  });
 });

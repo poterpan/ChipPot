@@ -22,6 +22,7 @@ export interface WorkspaceSettings {
   overdue_days: number;
   delete_discord_original_message: boolean;
   proof_retention_months: number;
+  admin_discord_ids: string[];
 }
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -32,6 +33,7 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   overdue_days: 3,
   delete_discord_original_message: false,
   proof_retention_months: 24,
+  admin_discord_ids: [],
 };
 
 function intInRange(v: unknown, fallback: number, min: number, max: number): number {
@@ -44,6 +46,10 @@ function intInRange(v: unknown, fallback: number, min: number, max: number): num
 
 function str(v: unknown, fallback: string): string {
   return typeof v === "string" ? v : fallback;
+}
+
+function strArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
 
 export function parseSettings(json: string): WorkspaceSettings {
@@ -61,5 +67,6 @@ export function parseSettings(json: string): WorkspaceSettings {
     proof_retention_months: intInRange(
       raw.proof_retention_months, DEFAULT_SETTINGS.proof_retention_months, 1, 600
     ),
+    admin_discord_ids: strArray(raw.admin_discord_ids),
   };
 }
