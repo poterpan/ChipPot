@@ -1,3 +1,6 @@
+import type { Env } from "../env";
+import { nowUtcIso } from "./time";
+
 export interface WorkspaceRow {
   id: number;
   name: string;
@@ -151,4 +154,68 @@ export async function listSettleablePayments(
     .bind(workspaceId, period, userId)
     .all<SettleablePayment>();
   return results;
+}
+
+export interface UnboundUser {
+  id: number;
+  display_name: string;
+}
+
+/** Users in a workspace that have not yet linked a Discord account (for the self-bind select). */
+export async function listUnboundUsers(
+  db: D1Database,
+  workspaceId: number
+): Promise<UnboundUser[]> {
+  const { results } = await db
+    .prepare("SELECT id, display_name FROM users WHERE workspace_id = ? AND discord_id IS NULL ORDER BY id")
+    .bind(workspaceId)
+    .all<UnboundUser>();
+  return results;
+}
+
+export interface BindResult {
+  status: "ok" | "already_bound_other" | "name_taken" | "not_found";
+  boundName?: string;
+}
+
+/**
+ * Atomically link a Discord account to an unbound member. The guarded UPDATE only applies
+ * when the target is still unbound AND this Discord account isn't already on someone, so two
+ * people can't claim the same name and one account can't bind to two names.
+ */
+export async function bindDiscordId(
+  env: Env,
+  workspaceId: number,
+  userId: number,
+  discordId: string
+): Promise<BindResult> {
+  const now = nowUtcIso();
+  const res = await env.DB
+    .prepare(
+      `UPDATE users SET discord_id = ?, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND discord_id IS NULL
+         AND NOT EXISTS (SELECT 1 FROM users WHERE workspace_id = ? AND discord_id = ?)`
+    )
+    .bind(discordId, now, userId, workspaceId, workspaceId, discordId)
+    .run();
+
+  if ((res.meta.changes ?? 0) === 1) {
+    const u = await env.DB.prepare("SELECT display_name FROM users WHERE id = ?").bind(userId).first<{ display_name: string }>();
+    return { status: "ok", boundName: u?.display_name };
+  }
+
+  // Didn't apply — diagnose precisely.
+  const other = await env.DB
+    .prepare("SELECT display_name FROM users WHERE workspace_id = ? AND discord_id = ?")
+    .bind(workspaceId, discordId)
+    .first<{ display_name: string }>();
+  if (other) return { status: "already_bound_other", boundName: other.display_name };
+
+  const target = await env.DB
+    .prepare("SELECT discord_id FROM users WHERE id = ? AND workspace_id = ?")
+    .bind(userId, workspaceId)
+    .first<{ discord_id: string | null }>();
+  if (!target) return { status: "not_found" };
+  if (target.discord_id !== null) return { status: "name_taken" };
+  return { status: "not_found" };
 }
