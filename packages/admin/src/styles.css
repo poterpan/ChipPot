@@ -108,6 +108,10 @@ tbody tr.click:hover { background: #faf7f0; }
 /* misc */
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
 .toolbar select, .toolbar input { padding: 8px 11px; border: 1.5px solid var(--line); border-radius: 9px; font: inherit; background: var(--panel); }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { padding: 6px 13px; border: 1.5px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); cursor: pointer; font-size: 13px; }
+.pill:hover { border-color: var(--teal); }
+.pill--on { background: var(--teal); border-color: var(--teal); color: #fff; }
 .empty { padding: 40px; text-align: center; color: var(--muted); }
 .error-banner { background: #f6e2df; color: #9a2f24; padding: 10px 14px; border-radius: 10px; margin-bottom: 16px; font-size: 14px; }
 .proof-img { max-width: 100%; border-radius: 10px; border: 1px solid var(--line); background: #f1ece1; }

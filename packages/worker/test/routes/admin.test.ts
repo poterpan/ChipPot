@@ -241,6 +241,20 @@ describe("admin billing/initiate + declared channel", () => {
     expect(res!.status).toBe(400);
   });
 
+  it("orders the list with paid (review queue) before pending", async () => {
+    const u = await call("POST", "/admin/users", { display_name: "Order" });
+    const uid = ((await u!.json()) as any).id as number;
+    const sA = await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: 1, start_date: "2029-01-01" });
+    await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: 1, start_date: "2029-01-01" });
+    const sAid = ((await sA!.json()) as any).id as number;
+    await call("POST", "/admin/payments/manual", { subscription_id: sAid, period: "2029-01", status: "paid" });
+    const list = await call("GET", "/admin/payments?period=2029-01");
+    const ps = ((await list!.json()) as any).payments;
+    expect(ps.length).toBe(2);
+    expect(ps[0].status).toBe("paid");
+    expect(ps[1].status).toBe("pending");
+  });
+
   it("verify pre-fills verified_channel_tag_id from declared; list shows declared name", async () => {
     const uRes = await call("POST", "/admin/users", { display_name: "Declarer" });
     const uid = ((await uRes!.json()) as any).id as number;

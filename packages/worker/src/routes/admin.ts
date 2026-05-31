@@ -353,7 +353,7 @@ async function listPayments(_req: Request, env: Env, ctx: RouteCtx): Promise<Res
      LEFT JOIN channel_tags ct ON ct.id = p.verified_channel_tag_id
      LEFT JOIN channel_tags dct ON dct.id = p.declared_channel_tag_id
      WHERE ${conds.join(" AND ")}
-     ORDER BY p.id DESC`
+     ORDER BY CASE p.status WHEN 'paid' THEN 0 WHEN 'rejected' THEN 1 WHEN 'verified' THEN 2 ELSE 3 END, p.id DESC`
   ).bind(...binds).all();
   return json({ payments: results });
 }

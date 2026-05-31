@@ -2,6 +2,14 @@ import { useState } from "react";
 import { api, currentPeriod, type Payment, type ChannelTag } from "../api";
 import { useAsync, Card, Modal, Field, Empty, Money, StatusBadge } from "../ui";
 
+const STATUS_OPTS = [
+  { v: "", label: "全部" },
+  { v: "paid", label: "已繳待驗" },
+  { v: "pending", label: "待繳" },
+  { v: "verified", label: "已驗證" },
+  { v: "rejected", label: "已退回" },
+];
+
 export function Payments() {
   const [period, setPeriod] = useState(currentPeriod());
   const [status, setStatus] = useState("");
@@ -17,13 +25,11 @@ export function Payments() {
     <>
       <div className="toolbar">
         <label>期別 <input value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="全部" style={{ width: 100 }} /></label>
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">全部狀態</option>
-          <option value="pending">待繳</option>
-          <option value="paid">已繳待驗</option>
-          <option value="verified">已驗證</option>
-          <option value="rejected">已退回</option>
-        </select>
+        <div className="pills">
+          {STATUS_OPTS.map((o) => (
+            <button key={o.v} className={`pill ${status === o.v ? "pill--on" : ""}`} onClick={() => setStatus(o.v)}>{o.label}</button>
+          ))}
+        </div>
         <div style={{ flex: 1 }} />
         <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結</button>
         <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
@@ -43,10 +49,14 @@ export function Payments() {
                 <td className="mono">{p.period}</td>
                 <td className="right"><Money v={p.amount} /></td>
                 <td><StatusBadge status={p.status} /></td>
-                <td>{p.has_proof ? <span className="proof-yes">✅ 有截圖</span> : <span className="proof-no">⚠️ 純聲明</span>}</td>
+                <td>{
+                  ["paid", "verified"].includes(p.status)
+                    ? (p.has_proof ? <span className="proof-yes">✅ 有截圖</span> : <span className="proof-no">⚠️ 純聲明</span>)
+                    : <span style={{ color: "var(--muted)" }}>—</span>
+                }</td>
                 <td style={{ fontSize: 12.5, color: "var(--muted)" }}>{p.source}</td>
                 <td className="right" onClick={(e) => e.stopPropagation()}>
-                  {["pending", "paid", "rejected"].includes(p.status) && <QuickVerify id={p.id} onDone={reload} />}
+                  {p.status === "paid" && <QuickVerify id={p.id} onDone={reload} />}
                 </td>
               </tr>
             ))}
