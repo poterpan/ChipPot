@@ -45,7 +45,11 @@ export default function App() {
   }
 
   async function submit() {
-    if (!token || !file) return;
+    if (!token) return;
+    if (!file && !note.trim()) {
+      setError("請至少附上截圖，或填寫備註");
+      return;
+    }
     const subs = info?.subscriptions ?? [];
     if (subs.length > 1 && subId == null) {
       setError("請先選擇方案");
@@ -53,7 +57,7 @@ export default function App() {
     }
     setError(null);
     setStage("submitting");
-    const blob = await compressImage(file);
+    const blob = file ? await compressImage(file) : null;
     const res = await uploadProof(token, blob, subId, note);
     if (res.ok) {
       setStage("done");
@@ -138,7 +142,7 @@ export default function App() {
           ) : (
             <div className="drop__hint">
               <span className="drop__icon">＋</span>
-              <span>上傳繳費截圖</span>
+              <span>上傳繳費截圖（選填）</span>
               <span className="muted small">PNG / JPG / WebP · 會自動壓縮</span>
             </div>
           )}
@@ -146,7 +150,7 @@ export default function App() {
 
         <textarea
           className="note"
-          placeholder="備註（選填）— 例如付款方式、轉帳末五碼"
+          placeholder="備註 — 例如付款方式、轉帳末五碼（沒有截圖時請至少填這裡）"
           value={note}
           maxLength={300}
           disabled={busy}
@@ -155,10 +159,10 @@ export default function App() {
 
         {error && <div className="error">{error}</div>}
 
-        <button className="submit" onClick={submit} disabled={busy || !file}>
+        <button className="submit" onClick={submit} disabled={busy || (!file && !note.trim())}>
           {busy ? "上傳中…" : "送出繳費"}
         </button>
-        <p className="muted small center">此連結僅限你本人本期使用，送出後即失效。</p>
+        <p className="muted small center">截圖或備註至少填一項。此連結僅限你本人本期使用，送出後即失效。</p>
       </div>
     </Shell>
   );

@@ -14,12 +14,14 @@ const SUB_A = 90061, SUB_B = 90062;
 const PERIOD = "2026-06";
 const RAW_OK = "raw-token-ok";
 const RAW_USED = "raw-token-used";
+const RAW_NOTE = "raw-token-note";
 
 const ctxFor = (token: string): RouteCtx => ({ params: { token }, url: new URL("https://x/upload/" + token) });
 
 beforeAll(async () => {
   const okHash = await hashToken(RAW_OK);
   const usedHash = await hashToken(RAW_USED);
+  const noteHash = await hashToken(RAW_NOTE);
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(WS, "W", "o", "discord", 5, "{}", TS, TS),
     env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?)`).bind(WS, WS, "Alice", TS, TS),
@@ -29,6 +31,7 @@ beforeAll(async () => {
     // unbound token (client must pick a subscription)
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,expires_at,created_at) VALUES (?,?,?,?,?,?)`).bind(okHash, WS, WS, PERIOD, FUTURE, TS),
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,expires_at,created_at) VALUES (?,?,?,?,?,?)`).bind(usedHash, WS, WS, PERIOD, PAST, TS),
+    env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,expires_at,created_at) VALUES (?,?,?,?,?,?)`).bind(noteHash, WS, WS, PERIOD, FUTURE, TS),
   ]);
 });
 
@@ -56,9 +59,25 @@ describe("upload info", () => {
 });
 
 describe("upload submit", () => {
-  it("rejects a missing file", async () => {
+  it("rejects an empty submission (no screenshot and no note)", async () => {
     const res = await handleUpload(uploadReq(RAW_OK, { subscription_id: String(SUB_A) }), env, ctxFor(RAW_OK));
     expect(res.status).toBe(400);
+  });
+
+  it("accepts a note-only submission (no screenshot)", async () => {
+    const res = await handleUpload(
+      uploadReq(RAW_NOTE, { subscription_id: String(SUB_B), note: "LINE 轉帳末五碼 12345" }),
+      env, ctxFor(RAW_NOTE)
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.has_proof).toBe(0);
+    const p = await getPayment(env.DB, body.payment_id);
+    expect(p?.status).toBe("paid");
+    expect(p?.has_proof).toBe(0);
+    expect(p?.payment_note).toBe("LINE 轉帳末五碼 12345");
+    expect(p?.source).toBe("user_web");
   });
 
   it("rejects a non-image", async () => {

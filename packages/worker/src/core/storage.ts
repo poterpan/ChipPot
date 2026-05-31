@@ -272,6 +272,81 @@ export async function recordProof(
   return { paymentId: row!.id, screenshotKey: key };
 }
 
+export interface DeclareInput {
+  tokenHash: string;
+  subscriptionId: number;
+  workspaceId: number;
+  userId: number;
+  period: string;
+  source: string; // "user_web"
+  paymentNote?: string | null;
+}
+
+/**
+ * Token-gated "paid, no proof" submission (web note-only path). Same one-time-token
+ * guarantee as submitProofWithToken: a double-gated D1 batch where the payment UPDATE
+ * fires only while the token is unused, and the token claim fires only once the payment
+ * carries our unique paid_at marker — so both apply or neither, and the token can't be
+ * spent twice. No R2 involved.
+ */
+export async function recordDeclaredWithToken(
+  env: Env,
+  input: DeclareInput
+): Promise<{ paymentId: number }> {
+  const { tokenHash, subscriptionId, workspaceId, userId, period } = input;
+  await ensurePeriodPayment(env.DB, subscriptionId, period);
+  const now = nowUtcIso();
+
+  const results = await env.DB.batch([
+    env.DB
+      .prepare(
+        `UPDATE payments
+           SET status = 'paid', has_proof = 0,
+               payment_note = COALESCE(?, payment_note),
+               source = ?, submitted_at = ?, paid_at = ?, updated_at = ?
+         WHERE subscription_id = ? AND period = ? AND workspace_id = ?
+           AND status IN ('pending','rejected')
+           AND EXISTS (SELECT 1 FROM upload_tokens t
+                       WHERE t.token_hash = ? AND t.user_id = ? AND t.period = ?
+                         AND t.workspace_id = ?
+                         AND (t.subscription_id IS NULL OR t.subscription_id = ?)
+                         AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > ?)`
+      )
+      .bind(
+        input.paymentNote ?? null, input.source, now, now, now,
+        subscriptionId, period, workspaceId,
+        tokenHash, userId, period, workspaceId, subscriptionId, now
+      ),
+    env.DB
+      .prepare(
+        `UPDATE upload_tokens
+           SET used_at = ?, used_by_source = ?
+         WHERE token_hash = ? AND user_id = ? AND period = ? AND workspace_id = ?
+           AND (subscription_id IS NULL OR subscription_id = ?)
+           AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+           AND EXISTS (SELECT 1 FROM payments
+                       WHERE subscription_id = ? AND period = ? AND workspace_id = ?
+                         AND paid_at = ? AND status = 'paid')`
+      )
+      .bind(
+        now, input.source,
+        tokenHash, userId, period, workspaceId, subscriptionId, now,
+        subscriptionId, period, workspaceId, now
+      ),
+  ]);
+
+  const payChanges = results[0]?.meta.changes ?? 0;
+  const tokChanges = results[1]?.meta.changes ?? 0;
+  if (payChanges !== 1 || tokChanges !== 1) {
+    await throwSubmitError(env, tokenHash, userId, period, workspaceId, subscriptionId, now);
+  }
+  const row = await env.DB
+    .prepare("SELECT id FROM payments WHERE subscription_id = ? AND period = ?")
+    .bind(subscriptionId, period)
+    .first<{ id: number }>();
+  return { paymentId: row!.id };
+}
+
 /** Decide which precise error to raise when the guarded batch didn't apply. */
 async function throwSubmitError(
   env: Env,

@@ -5,7 +5,7 @@ import { nowUtcIso } from "../core/time";
 import { hashToken, findValidUploadToken } from "../core/tokens";
 import { listActiveSubscriptions } from "../core/db";
 import {
-  submitProofWithToken, assertImageOk, extForContentType,
+  submitProofWithToken, recordDeclaredWithToken, assertImageOk, extForContentType,
   InvalidImage, TokenUnusable, NoEligiblePayment,
 } from "../core/storage";
 
@@ -55,11 +55,14 @@ export async function handleUpload(
     return errorResponse(400, "expected a multipart form");
   }
 
+  // Screenshot OR note — at least one required (both optional).
   const entry = form.get("screenshot");
-  if (entry === null || typeof entry === "string") {
-    return errorResponse(400, "screenshot file is required");
+  const hasFile = entry !== null && typeof entry !== "string";
+  const noteRaw = form.get("note");
+  const note = typeof noteRaw === "string" && noteRaw.trim() ? noteRaw.trim() : null;
+  if (!hasFile && !note) {
+    return errorResponse(400, "請至少附上截圖，或填寫備註");
   }
-  const file = entry as unknown as Blob;
 
   // Resolve the subscription: bound by the token, else chosen by the client (validated).
   const subscriptionId = tok.subscription_id ?? Number(form.get("subscription_id") ?? NaN);
@@ -74,31 +77,37 @@ export async function handleUpload(
     .first<{ id: number }>();
   if (!sub) return errorResponse(400, "invalid subscription");
 
-  const noteRaw = form.get("note");
-  const note = typeof noteRaw === "string" && noteRaw.trim() ? noteRaw.trim() : null;
+  const common = {
+    tokenHash: hash,
+    subscriptionId,
+    workspaceId: tok.workspace_id,
+    userId: tok.user_id,
+    period: tok.period,
+    source: "user_web",
+    paymentNote: note,
+  };
 
-  const buf = await file.arrayBuffer();
-  const contentType = file.type;
   try {
-    assertImageOk(contentType, buf.byteLength);
-  } catch (e) {
-    return errorResponse(400, (e as Error).message, { code: "image" });
-  }
-
-  try {
+    if (!hasFile) {
+      const res = await recordDeclaredWithToken(env, common);
+      return json({ ok: true, payment_id: res.paymentId, has_proof: 0 });
+    }
+    const file = entry as unknown as Blob;
+    const buf = await file.arrayBuffer();
+    const contentType = file.type;
+    try {
+      assertImageOk(contentType, buf.byteLength);
+    } catch (e) {
+      if (e instanceof InvalidImage) return errorResponse(400, e.message, { code: "image" });
+      throw e;
+    }
     const res = await submitProofWithToken(env, {
-      tokenHash: hash,
-      subscriptionId,
-      workspaceId: tok.workspace_id,
-      userId: tok.user_id,
-      period: tok.period,
+      ...common,
       body: buf,
       ext: extForContentType(contentType),
       contentType,
-      source: "user_web",
-      paymentNote: note,
     });
-    return json({ ok: true, payment_id: res.paymentId });
+    return json({ ok: true, payment_id: res.paymentId, has_proof: 1 });
   } catch (e) {
     if (e instanceof TokenUnusable) return errorResponse(410, "link already used", { code: "token" });
     if (e instanceof NoEligiblePayment) {

@@ -32,12 +32,12 @@ export interface UploadResult {
 
 export async function uploadProof(
   token: string,
-  blob: Blob,
+  blob: Blob | null,
   subscriptionId: number | null,
   note: string
 ): Promise<UploadResult> {
   const fd = new FormData();
-  fd.append("screenshot", new File([blob], "proof.jpg", { type: "image/jpeg" }));
+  if (blob) fd.append("screenshot", new File([blob], "proof.jpg", { type: "image/jpeg" }));
   if (subscriptionId != null) fd.append("subscription_id", String(subscriptionId));
   if (note.trim()) fd.append("note", note.trim());
   try {
