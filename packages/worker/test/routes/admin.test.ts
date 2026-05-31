@@ -151,3 +151,46 @@ describe("admin API", () => {
     expect(res!.status).toBe(409);
   });
 });
+
+describe("admin billing/initiate + declared channel", () => {
+  it("POST /admin/billing/initiate updates plan price + pending amounts", async () => {
+    const pRes = await call("POST", "/admin/plans", { name: "InitPlan", provider: "openai", monthly_amount: 500 });
+    const planId = ((await pRes!.json()) as any).id as number;
+    const uRes = await call("POST", "/admin/users", { display_name: "Initer" });
+    const uid = ((await uRes!.json()) as any).id as number;
+    const sRes = await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: planId, start_date: "2027-09-01" });
+    const sid = ((await sRes!.json()) as any).id as number;
+
+    const res = await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [{ plan_id: planId, amount: 800 }] });
+    expect(res!.status).toBe(200);
+    expect(((await res!.json()) as any).updated_payments).toBeGreaterThanOrEqual(1);
+
+    const plan = await env.DB.prepare("SELECT monthly_amount FROM plans WHERE id=?").bind(planId).first<{ monthly_amount: number }>();
+    expect(plan?.monthly_amount).toBe(800);
+    const pay = await env.DB.prepare("SELECT amount FROM payments WHERE subscription_id=? AND period='2027-09'").bind(sid).first<{ amount: number }>();
+    expect(pay?.amount).toBe(800);
+  });
+
+  it("billing/initiate validates the period and amounts", async () => {
+    expect((await call("POST", "/admin/billing/initiate", { period: "2027-13", amounts: [] }))!.status).toBe(400);
+    expect((await call("POST", "/admin/billing/initiate", { period: "2027-09" }))!.status).toBe(400);
+  });
+
+  it("verify pre-fills verified_channel_tag_id from declared; list shows declared name", async () => {
+    const uRes = await call("POST", "/admin/users", { display_name: "Declarer" });
+    const uid = ((await uRes!.json()) as any).id as number;
+    const sRes = await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: 1, start_date: "2027-10-01" });
+    const sid = ((await sRes!.json()) as any).id as number;
+    await env.DB.prepare("UPDATE payments SET status='paid', declared_channel_tag_id=1, paid_at=?, updated_at=? WHERE subscription_id=? AND period='2027-10'")
+      .bind(nowUtcIso(), nowUtcIso(), sid).run();
+    const pid = (await env.DB.prepare("SELECT id FROM payments WHERE subscription_id=? AND period='2027-10'").bind(sid).first<{ id: number }>())!.id;
+
+    const v = await call("POST", `/admin/payments/${pid}/verify`, {});
+    expect(v!.status).toBe(200);
+    expect(((await v!.json()) as any).payment.verified_channel_tag_id).toBe(1);
+
+    const list = await call("GET", "/admin/payments?period=2027-10");
+    const payments = ((await list!.json()) as any).payments;
+    expect(payments.find((p: any) => p.id === pid).declared_channel_tag_name).toBe("LINE Pay");
+  });
+});

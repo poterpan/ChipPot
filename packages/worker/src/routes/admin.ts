@@ -6,10 +6,11 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment } from "../core/billing";
+import { ensureFirstPayment, initiateBillingOpened } from "../core/billing";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage } from "../adapters/discord/api";
 import { payButtonRow } from "../adapters/discord/commands";
+import { discordNotifier } from "../adapters/discord/notify";
 
 // Single-workspace MVP: default to the seeded workspace, overridable via ?workspace_id=.
 const DEFAULT_WORKSPACE_ID = 1;
@@ -75,6 +76,25 @@ async function updateWorkspace(req: Request, env: Env, ctx: RouteCtx): Promise<R
 async function reconcile(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const period = ctx.url.searchParams.get("period") ?? taipeiPeriod();
   return json(await reconcilePeriod(env.DB, wsId(ctx), period));
+}
+
+// ── Manual 發起繳費 (confirm amounts + open billing) ──────────────────────────
+
+async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const b = await readJson<{ period?: string; amounts?: { plan_id: number; amount: number }[] }>(req);
+  const period = b?.period ?? taipeiPeriod();
+  if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
+  if (!Array.isArray(b?.amounts)) return errorResponse(400, "amounts is required");
+  for (const a of b!.amounts) {
+    if (!Number.isInteger(a.plan_id) || !Number.isInteger(a.amount) || a.amount < 0) {
+      return errorResponse(400, "each amount needs an integer plan_id and non-negative amount");
+    }
+  }
+  const r = await initiateBillingOpened(
+    env, ws, period, { amounts: b!.amounts }, actorOf(ctx), discordNotifier
+  );
+  return json({ ok: true, sent: r.sent, updated_plans: r.updatedPlans, updated_payments: r.updatedPayments });
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────
@@ -239,12 +259,14 @@ async function listPayments(_req: Request, env: Env, ctx: RouteCtx): Promise<Res
   if (period) { conds.push("p.period = ?"); binds.push(period); }
   if (status) { conds.push("p.status = ?"); binds.push(status); }
   const { results } = await env.DB.prepare(
-    `SELECT p.*, u.display_name AS user_name, pl.name AS plan_name, ct.name AS channel_tag_name
+    `SELECT p.*, u.display_name AS user_name, pl.name AS plan_name,
+            ct.name AS channel_tag_name, dct.name AS declared_channel_tag_name
      FROM payments p
      JOIN subscriptions s ON s.id = p.subscription_id
      JOIN users u ON u.id = s.user_id
      JOIN plans pl ON pl.id = s.plan_id
      LEFT JOIN channel_tags ct ON ct.id = p.verified_channel_tag_id
+     LEFT JOIN channel_tags dct ON dct.id = p.declared_channel_tag_id
      WHERE ${conds.join(" AND ")}
      ORDER BY p.id DESC`
   ).bind(...binds).all();
@@ -256,11 +278,13 @@ async function verifyPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
   const before = await getPayment(env.DB, id);
   if (!before) return errorResponse(404, "not found");
   const b = await readJson<{ verified_channel_tag_id?: number }>(req) ?? {};
-  if (b.verified_channel_tag_id != null && !(await tagBelongsToWorkspace(env, before.workspace_id, b.verified_channel_tag_id))) {
+  // Default the verified channel to the user's declared channel when the admin doesn't override.
+  const tagId = b.verified_channel_tag_id ?? before.declared_channel_tag_id ?? null;
+  if (tagId != null && !(await tagBelongsToWorkspace(env, before.workspace_id, tagId))) {
     return errorResponse(400, "invalid channel tag");
   }
   try {
-    const after = await verifyPayment(env.DB, id, { verifiedBy: actorOf(ctx), verifiedChannelTagId: b.verified_channel_tag_id ?? null });
+    const after = await verifyPayment(env.DB, id, { verifiedBy: actorOf(ctx), verifiedChannelTagId: tagId });
     await writeAudit(env.DB, { workspaceId: before.workspace_id, actor: actorOf(ctx), action: "payment.verify", entityType: "payment", entityId: id, before, after });
     return json({ ok: true, payment: after });
   } catch (e) {
@@ -407,6 +431,7 @@ export function buildAdminRouter(): Router<Env> {
     .get("/admin/workspace", getWorkspace)
     .patch("/admin/workspace", updateWorkspace)
     .get("/admin/reconcile", reconcile)
+    .post("/admin/billing/initiate", billingInitiate)
     .get("/admin/users", listUsers)
     .post("/admin/users", createUser)
     .patch("/admin/users/:id", updateUser)
