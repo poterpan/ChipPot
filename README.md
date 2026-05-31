@@ -12,6 +12,10 @@
 ![Vitest](https://img.shields.io/badge/tests-152%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
+<br/>
+
+**English** · [繁體中文](README.zh-TW.md)
+
 </div>
 
 ---
@@ -214,6 +218,6 @@ Interfaces are in place; these are intentionally not yet built:
 
 ## License
 
-Not yet licensed — add a `LICENSE` file before publishing (MIT recommended).
+Released under the [MIT License](LICENSE). © 2026 PoterPan.
 
 <div align="center"><sub>Built with a core / adapter split · TDD · 100% serverless.</sub></div>
