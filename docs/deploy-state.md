@@ -55,4 +55,14 @@ secrets. Cloudflare account **PoterPan** `d216cdc92992e29b473cc209f06bbf32`.
   (button origin → continues to pay after binding; `/綁定` origin → bind only). Admin 成員 edit can
   still hand-fill a Discord ID (rejects duplicates with 400).
 - New admin importer: Settings → 「匯入名單」 (`POST /admin/members/import`, multipart or JSON csv).
-- Branch `member-onboarding` (NOT yet merged to main — awaiting owner smoke test).
+- Branch `member-onboarding` (merged to main 2026-05-31).
+
+## Admin enhancements deployed (2026-05-31)
+- Worker + admin Pages redeployed. Three new editable templates in settings
+  (`overdue_template` / `billing_opened_template` / `payment_message_template`, defaults = prior text).
+- **Overdue催繳 is now ONE batched public message per period** (lists all unpaid members, tags once),
+  deduped per (ws, period) — was per-payment before. Cron iterates distinct pending periods.
+- Admin: Settings has 3 template textareas; Payments list has one-click ✅ 驗證 (auto declared channel);
+  Dashboard has a 推播狀態 panel with 立即重發/重置 for 開繳 + 逾期.
+- New endpoints: `GET /admin/notifications`, `POST /admin/notifications/{resend,reset}`.
+- No new slash command (no re-register needed). Branch `admin-enhancements` (NOT yet merged — awaiting owner smoke test).
