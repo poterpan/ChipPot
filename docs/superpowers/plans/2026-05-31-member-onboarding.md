@@ -235,20 +235,20 @@ import { describe, expect, it } from "vitest";
 import { parseRosterCsv } from "../../src/core/import";
 
 const CSV = `姓名,帳號,ChatGPT,Claude Standard,Claude Premium
-潘柏嘉,poter.pan@x.tw,TRUE,FALSE,TRUE
-柯艾妤,aiiiii@x.tw,FALSE,TRUE,FALSE
-,blank@x.tw,TRUE,FALSE,FALSE
+Alice,alice@example.com,TRUE,FALSE,TRUE
+Bob,bob@example.com,FALSE,TRUE,FALSE
+,blank@example.com,TRUE,FALSE,FALSE
 
-陳怡晶,chingching@x.tw,true,false,false`;
+Carol,carol@example.com,true,false,false`;
 
 describe("parseRosterCsv", () => {
   it("extracts name, email, and TRUE plan columns (case-insensitive); skips blank lines", () => {
     const rows = parseRosterCsv(CSV);
     expect(rows.length).toBe(4);
-    expect(rows[0]).toEqual({ name: "潘柏嘉", email: "poter.pan@x.tw", plans: ["ChatGPT", "Claude Premium"] });
-    expect(rows[1]).toEqual({ name: "柯艾妤", email: "aiiiii@x.tw", plans: ["Claude Standard"] });
-    expect(rows[2]).toEqual({ name: "", email: "blank@x.tw", plans: ["ChatGPT"] });
-    expect(rows[3]).toEqual({ name: "陳怡晶", email: "chingching@x.tw", plans: [] });
+    expect(rows[0]).toEqual({ name: "Alice", email: "alice@example.com", plans: ["ChatGPT", "Claude Premium"] });
+    expect(rows[1]).toEqual({ name: "Bob", email: "bob@example.com", plans: ["Claude Standard"] });
+    expect(rows[2]).toEqual({ name: "", email: "blank@example.com", plans: ["ChatGPT"] });
+    expect(rows[3]).toEqual({ name: "Carol", email: "carol@example.com", plans: [] });
   });
 
   it("returns [] for empty or header-only input", () => {

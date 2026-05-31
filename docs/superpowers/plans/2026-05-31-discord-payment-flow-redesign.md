@@ -2427,7 +2427,7 @@ Expected: `200` and both `繳費` + `發起繳費` returned. Confirm `/發起繳
 
 - [ ] **Step 5: Seed `admin_discord_ids`** (so `/發起繳費` authorizes you)
 
-In the admin Settings page, set the admin Discord IDs (your id `290324369442603020`) and save. Verify via `GET /admin/workspace` that `settings.admin_discord_ids` contains it.
+In the admin Settings page, set the admin Discord IDs (your id `<your-discord-id>`) and save. Verify via `GET /admin/workspace` that `settings.admin_discord_ids` contains it.
 
 - [ ] **Step 6: Live smoke (manual)**
 

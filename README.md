@@ -136,7 +136,7 @@ packages/
   web/                    public token-gated upload page (Vite/React)
   admin/                  Access-gated admin SPA (Vite/React)
 assets/                   logo + banner
-docs/                     deploy-state, specs & implementation plans
+docs/                     specs & implementation plans
 ```
 
 ## Quick start
@@ -177,9 +177,8 @@ cd packages/admin && pnpm build && wrangler pages deploy dist --project-name chi
 DISCORD_GUILD_ID=<guild> pnpm --filter @chippot/worker register
 ```
 
-A reference deployment runs at `chippot.poterpan.workers.dev` (Worker), `pay.panspace.dev`
-(upload page), and `admin.panspace.dev` (admin). Live resource IDs are recorded in
-[`docs/deploy-state.md`](docs/deploy-state.md).
+Provision your own resources (D1, R2, an Access application) and fill in `wrangler.toml`
+accordingly — `database_id`, the R2 bucket, `ACCESS_*`, and the Discord vars.
 
 ## Configuration
 

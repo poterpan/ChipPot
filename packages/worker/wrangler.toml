@@ -28,7 +28,9 @@ WEB_ORIGIN = "https://pay.panspace.dev"
 ADMIN_ORIGIN = "https://admin.panspace.dev"
 ACCESS_TEAM_DOMAIN = "panspace"
 ACCESS_AUD = "6682958aadf8ca528792922ff3c7a0756ae8a15976180343ce85cb09cbf6f508"
-ACCESS_ALLOWED_EMAILS = "poterpan5466@gmail.com"
+# ⚠️ Set this to YOUR Cloudflare Access email before deploying — it's the admin allow-list.
+# Deploying with the placeholder will lock you out of the admin UI.
+ACCESS_ALLOWED_EMAILS = "owner@example.com"
 
 # 01:00 UTC = 09:00 Asia/Taipei, daily.
 [triggers]

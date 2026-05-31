@@ -73,7 +73,7 @@ describe("runDailyTasks", () => {
 
 describe("sendOverdueForPeriod includes rejected payments", () => {
   it("force-resend lists a member whose payment was rejected (still owes)", async () => {
-    // 王竣翔-style: a 2099-01 payment that the admin rejected → still unpaid.
+    // a member: a 2099-01 payment that the admin rejected → still unpaid.
     await env.DB.prepare(
       `INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?)`

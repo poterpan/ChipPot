@@ -5,7 +5,7 @@
 > checklist, and deliberate deviations from the spec. Each phase has its own detailed
 > plan file and produces working, testable software on its own.
 
-**Product name:** ChipPot · **Repo dir:** `chippot` · **Owner:** poterpan5466@gmail.com
+**Product name:** ChipPot · **Repo dir:** `chippot` · **Owner:** owner@example.com
 
 **Goal:** A 100%-serverless subscription billing/reconciliation system on the Cloudflare
 stack (Pages + Workers + D1 + R2 + Cron + Access), serving a non-profit club's AI

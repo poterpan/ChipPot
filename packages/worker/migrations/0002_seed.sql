@@ -4,7 +4,7 @@
 
 INSERT INTO workspaces (id, name, owner_id, channel_type, billing_day, settings, created_at, updated_at)
 VALUES (
-  1, '社團 AI 訂閱', 'poterpan5466@gmail.com', 'discord', 5,
+  1, '社團 AI 訂閱', 'owner@example.com', 'discord', 5,
   '{"timezone":"Asia/Taipei","discord_guild_id":"","discord_billing_channel_id":"","discord_payment_message_id":"","overdue_days":3,"delete_discord_original_message":false,"proof_retention_months":24}',
   strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')
 );

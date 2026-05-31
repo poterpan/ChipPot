@@ -128,7 +128,7 @@ packages/
   web/                    公開的 token-gated 上傳頁（Vite/React）
   admin/                  Access 保護的後台 SPA（Vite/React）
 assets/                   logo + banner
-docs/                     部署狀態、規格與實作計畫
+docs/                     規格與實作計畫
 ```
 
 ## 快速開始
@@ -168,8 +168,8 @@ cd packages/admin && pnpm build && wrangler pages deploy dist --project-name chi
 DISCORD_GUILD_ID=<guild> pnpm --filter @chippot/worker register
 ```
 
-參考部署：`chippot.poterpan.workers.dev`（Worker）、`pay.panspace.dev`（上傳頁）、
-`admin.panspace.dev`（後台）。實際資源 ID 記在 [`docs/deploy-state.md`](docs/deploy-state.md)。
+請自行建立資源（D1、R2、一個 Access application）並把對應值填進 `wrangler.toml`——
+`database_id`、R2 bucket、`ACCESS_*` 與 Discord 相關 vars。
 
 ## 設定
 

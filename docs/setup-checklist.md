@@ -37,7 +37,7 @@ it all without prompts, create a token and put it in `.dev.vars`:
 - [x] Zero Trust is enabled on the account? (free plan is fine) — yes / no: `yes free`
 - [x] Team/org domain: `panspace.cloudflareaccess.com`
 - [x] Admin emails allowed into the admin UI (owner + 網管):
-      1. `poterpan5466@gmail.com` (owner)
+      1. `owner@example.com` (owner)
       2. `__________________` (網管)
 
 ## D. Discord — ⛔ for Phase 4 (the big one)
