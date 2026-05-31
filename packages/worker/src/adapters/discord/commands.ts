@@ -4,6 +4,8 @@ export const PAY_BUTTON_PREFIX = "chippot:pay";
 export const PAY_SELECT_PREFIX = "chippot:paysel";
 // The 發起繳費 modal (action:workspace:period). Text inputs use custom_id `amt:<plan_id>`.
 export const INITIATE_MODAL_PREFIX = "chippot:initiate";
+// The self-bind string-select (action:workspace:origin). origin ∈ {pay, cmd}.
+export const BIND_SELECT_PREFIX = "chippot:bind";
 
 // Discord option types we use.
 export const OPT_STRING = 3;
@@ -62,6 +64,25 @@ export function channelSelectRow(
   };
 }
 
+/** String-select of unbound members for self-binding. origin drives the post-bind action. */
+export function bindSelectRow(
+  workspaceId: number,
+  origin: "pay" | "cmd",
+  users: { id: number; display_name: string }[]
+) {
+  return {
+    type: CT_ACTION_ROW,
+    components: [{
+      type: CT_STRING_SELECT,
+      custom_id: `${BIND_SELECT_PREFIX}:${workspaceId}:${origin}`,
+      placeholder: "選擇你的名字",
+      min_values: 1,
+      max_values: 1,
+      options: users.slice(0, 25).map((u) => ({ label: u.display_name, value: String(u.id) })),
+    }],
+  };
+}
+
 /** Modal for 發起繳費: one text input per active plan, pre-filled with its current price. */
 export function initiateModal(
   workspaceId: number,
@@ -108,4 +129,11 @@ export const INITIATE_COMMAND = {
   type: 1,
   description: "（管理員）確認本期各方案金額並發出開繳通知",
   default_member_permissions: MANAGE_GUILD,
+};
+
+/** `/綁定` command registration payload. */
+export const BIND_COMMAND = {
+  name: "綁定",
+  type: 1,
+  description: "把你的 Discord 帳號綁定到名單上的成員",
 };
