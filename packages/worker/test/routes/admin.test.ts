@@ -272,4 +272,14 @@ describe("admin billing/initiate + declared channel", () => {
     const payments = ((await list!.json()) as any).payments;
     expect(payments.find((p: any) => p.id === pid).declared_channel_tag_name).toBe("LINE Pay");
   });
+
+  it("PATCH /admin/plans/:id can update the provider", async () => {
+    const pRes = await call("POST", "/admin/plans", { name: "GemPlan", provider: "openai", monthly_amount: 400 });
+    const planId = ((await pRes!.json()) as any).id as number;
+    const up = await call("PATCH", `/admin/plans/${planId}`, { provider: "gemini" });
+    expect(up!.status).toBe(200);
+    const row = await env.DB.prepare("SELECT provider, monthly_amount FROM plans WHERE id = ?").bind(planId).first<{ provider: string; monthly_amount: number }>();
+    expect(row?.provider).toBe("gemini");
+    expect(row?.monthly_amount).toBe(400); // untouched fields preserved
+  });
 });

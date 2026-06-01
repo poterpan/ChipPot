@@ -134,16 +134,27 @@ function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: ()
 export function Plans() {
   const { data, loading, error, reload } = useAsync(() => api.plans(), []);
   const [edit, setEdit] = useState<Plan | null | undefined>(undefined);
+  const [pFilter, setPFilter] = useState("");
+  const providers = [...new Set((data?.plans ?? []).map((p) => p.provider).filter(Boolean))].sort();
+  const shown = (data?.plans ?? []).filter((p) => !pFilter || p.provider === pFilter);
   return (
     <>
       {error && <div className="error-banner">{error}</div>}
       <Card title="方案" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增方案</button>}>
+        {providers.length > 1 && (
+          <div className="pills" style={{ padding: "12px 18px 0" }}>
+            <button className={`pill ${pFilter === "" ? "pill--on" : ""}`} onClick={() => setPFilter("")}>全部</button>
+            {providers.map((pv) => (
+              <button key={pv} className={`pill ${pFilter === pv ? "pill--on" : ""}`} onClick={() => setPFilter(pv)}>{pv}</button>
+            ))}
+          </div>
+        )}
         <div className="tbl">
           <table>
             <thead><tr><th>名稱</th><th>provider</th><th className="right">月費</th><th>身分組 ID</th><th>啟用</th><th></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6}><Empty>載入中…</Empty></td></tr>}
-              {data?.plans.map((p) => (
+              {shown.map((p) => (
                 <tr key={p.id}>
                   <td>{p.name}</td><td>{p.provider}</td><td className="right mono">NT${p.monthly_amount}</td>
                   <td className="mono" style={{ fontSize: 12 }}>{p.discord_role_id ?? "—"}</td><td>{p.active ? "✓" : "—"}</td>
@@ -154,19 +165,21 @@ export function Plans() {
           </table>
         </div>
       </Card>
-      {edit !== undefined && <PlanModal plan={edit} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
+      {edit !== undefined && <PlanModal plan={edit} providers={providers} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
     </>
   );
 }
-function PlanModal({ plan, onClose, onDone }: { plan: Plan | null; onClose: () => void; onDone: () => void }) {
-  const [f, set] = useForm({ name: plan?.name ?? "", provider: plan?.provider ?? "openai", monthly_amount: String(plan?.monthly_amount ?? ""), discord_role_id: plan?.discord_role_id ?? "", active: plan?.active ?? 1 });
+function PlanModal({ plan, providers, onClose, onDone }: { plan: Plan | null; providers: string[]; onClose: () => void; onDone: () => void }) {
+  const [f, set] = useForm({ name: plan?.name ?? "", provider: plan?.provider ?? "", monthly_amount: String(plan?.monthly_amount ?? ""), discord_role_id: plan?.discord_role_id ?? "", active: plan?.active ?? 1 });
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   async function save() {
+    const provider = f.provider.trim().toLowerCase();
     if (!f.name || !f.monthly_amount) { setErr("請填名稱與月費"); return; }
+    if (!provider) { setErr("請填 provider"); return; }
     setBusy(true); setErr(null);
     try {
-      const body: any = { name: f.name, monthly_amount: Number(f.monthly_amount), discord_role_id: f.discord_role_id || undefined, active: f.active ? 1 : 0 };
-      if (plan) await api.updatePlan(plan.id, body); else await api.createPlan({ ...body, provider: f.provider });
+      const body: any = { name: f.name, provider, monthly_amount: Number(f.monthly_amount), discord_role_id: f.discord_role_id || undefined, active: f.active ? 1 : 0 };
+      if (plan) await api.updatePlan(plan.id, body); else await api.createPlan(body);
       onDone();
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
@@ -174,7 +187,10 @@ function PlanModal({ plan, onClose, onDone }: { plan: Plan | null; onClose: () =
     <Modal title={plan ? "編輯方案" : "新增方案"} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
       <Field label="名稱"><input value={f.name} onChange={(e) => set("name", e.target.value)} disabled={busy} /></Field>
-      {!plan && <Field label="provider"><select value={f.provider} onChange={(e) => set("provider", e.target.value)} disabled={busy}><option value="openai">openai</option><option value="anthropic">anthropic</option></select></Field>}
+      <Field label="provider（選現有或直接輸入新的，如 gemini、glm）">
+        <input list="plan-providers" value={f.provider} onChange={(e) => set("provider", e.target.value)} disabled={busy} placeholder="openai / anthropic / gemini …" />
+        <datalist id="plan-providers">{providers.map((pv) => <option key={pv} value={pv} />)}</datalist>
+      </Field>
       <Field label="月費 (TWD)"><input type="number" value={f.monthly_amount} onChange={(e) => set("monthly_amount", e.target.value)} disabled={busy} /></Field>
       <Field label="Discord 身分組 ID（通知 tag 用）"><input value={f.discord_role_id} onChange={(e) => set("discord_role_id", e.target.value)} disabled={busy} /></Field>
       <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}><input type="checkbox" checked={!!f.active} onChange={(e) => set("active", e.target.checked ? 1 : 0)} disabled={busy} /> 啟用</label>

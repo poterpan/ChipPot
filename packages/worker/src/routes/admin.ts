@@ -244,11 +244,11 @@ async function updatePlan(req: Request, env: Env, ctx: RouteCtx): Promise<Respon
   const id = Number(ctx.params.id);
   const before = await env.DB.prepare("SELECT * FROM plans WHERE id = ?").bind(id).first();
   if (!before) return errorResponse(404, "not found");
-  const b = await readJson<{ name?: string; monthly_amount?: number; discord_role_id?: string; active?: number }>(req) ?? {};
+  const b = await readJson<{ name?: string; provider?: string; monthly_amount?: number; discord_role_id?: string; active?: number }>(req) ?? {};
   await env.DB.prepare(
-    `UPDATE plans SET name = COALESCE(?, name), monthly_amount = COALESCE(?, monthly_amount),
+    `UPDATE plans SET name = COALESCE(?, name), provider = COALESCE(?, provider), monthly_amount = COALESCE(?, monthly_amount),
        discord_role_id = ?, active = COALESCE(?, active), updated_at = ? WHERE id = ?`
-  ).bind(b.name ?? null, b.monthly_amount ?? null, b.discord_role_id ?? null, b.active ?? null, nowUtcIso(), id).run();
+  ).bind(b.name ?? null, b.provider ?? null, b.monthly_amount ?? null, b.discord_role_id ?? null, b.active ?? null, nowUtcIso(), id).run();
   const after = await env.DB.prepare("SELECT * FROM plans WHERE id = ?").bind(id).first();
   await writeAudit(env.DB, { workspaceId: wsId(ctx), actor: actorOf(ctx), action: "plan.update", entityType: "plan", entityId: id, before, after });
   return json({ ok: true });
