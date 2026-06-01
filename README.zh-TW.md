@@ -153,6 +153,10 @@ pnpm --filter @chippot/admin build
 
 ## 部署
 
+> **要部署到你自己的 Cloudflare 帳號？** 請看完整逐步教學 **[docs/DEPLOY.md](docs/DEPLOY.md)**——
+> 涵蓋建立 D1／R2／Pages、Cloudflare Access、Discord 應用、secret、自訂網域與首次設定。
+> 下面的指令是「資源都建好之後」的快速參考。
+
 ```bash
 # 1. 套用 D1 migration
 wrangler d1 migrations apply chippot-db --remote

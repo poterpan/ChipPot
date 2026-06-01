@@ -162,6 +162,11 @@ so DB tests seed real parents and use a distinct id-space (9001+).
 
 ## Deployment
 
+> **Deploying to your own Cloudflare account?** Follow the complete step-by-step runbook in
+> **[docs/DEPLOY.md](docs/DEPLOY.md)** (繁體中文) — it covers creating the D1/R2/Pages resources,
+> Cloudflare Access, the Discord app, secrets, custom domains, and first-run configuration. The
+> commands below are the quick reference once those resources exist.
+
 ```bash
 # 1. Apply D1 migrations
 wrangler d1 migrations apply chippot-db --remote
