@@ -4,34 +4,33 @@ compatibility_date = "2025-11-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
-# Admin API: same-origin with the admin SPA (Pages) so the Access JWT reaches the worker.
-# Worker routes take precedence over Pages on the same hostname for matching paths.
+# 後台 API 與 admin SPA 同源（同 hostname 下 worker route 優先於 Pages，對 /api/* 生效）。
+# 換成你自己的網域與 Cloudflare zone：
 routes = [
-  { pattern = "admin.panspace.dev/api/*", zone_name = "panspace.dev" },
+  { pattern = "admin.example.com/api/*", zone_name = "example.com" },
 ]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "chippot-db"
-database_id = "adf93584-5bfa-4376-b08d-b0847709ecfe"
+# 執行 `wrangler d1 create chippot-db`（或在 Cloudflare 後台建 D1）後，把回傳的 id 填這裡：
+database_id = "your-d1-database-id"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "chippot-proofs"
 
-# Non-secret Discord config (public values). Bot token is a secret (wrangler secret put).
+# 非機密的 Discord / Access 設定（公開值）。Bot token 是 secret，用 `wrangler secret put DISCORD_BOT_TOKEN`
+# 或後台 Worker → Settings → Variables and Secrets 設定，不寫在這裡。
 [vars]
-DISCORD_APPLICATION_ID = "1510355256498978917"
-DISCORD_PUBLIC_KEY = "f322b974d23880e58e830ed8ac9b587ee48d1beb16887efb0bad6617b914e2de"
-WEB_ORIGIN = "https://pay.panspace.dev"
-ADMIN_ORIGIN = "https://admin.panspace.dev"
-ACCESS_TEAM_DOMAIN = "panspace"
-ACCESS_AUD = "6682958aadf8ca528792922ff3c7a0756ae8a15976180343ce85cb09cbf6f508"
-# ⚠️ Set this to YOUR Cloudflare Access email before deploying — it's the admin allow-list.
-# Deploying with the placeholder will lock you out of the admin UI.
-ACCESS_ALLOWED_EMAILS = "owner@example.com"
+DISCORD_APPLICATION_ID = "your-discord-application-id"
+DISCORD_PUBLIC_KEY = "your-discord-public-key"
+WEB_ORIGIN = "https://pay.example.com"
+ADMIN_ORIGIN = "https://admin.example.com"
+ACCESS_TEAM_DOMAIN = "your-team-name"
+ACCESS_AUD = "your-access-aud"
 
-# 01:00 UTC = 09:00 Asia/Taipei, daily.
+# 01:00 UTC = 09:00 Asia/Taipei，每天。
 [triggers]
 crons = ["0 1 * * *"]
