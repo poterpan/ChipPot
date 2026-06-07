@@ -313,7 +313,7 @@ async function deletePlan(_req: Request, env: Env, ctx: RouteCtx): Promise<Respo
   const plan = await env.DB.prepare("SELECT * FROM plans WHERE id = ? AND workspace_id = ?").bind(id, ws).first();
   if (!plan) return errorResponse(404, "not found");
   const ref = await env.DB.prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE plan_id = ? AND workspace_id = ?").bind(id, ws).first<{ c: number }>();
-  if ((ref?.c ?? 0) > 0) return errorResponse(409, "此方案仍有訂閱，請先刪除訂閱或改用停用");
+  if ((ref?.c ?? 0) > 0) return errorResponse(409, "此方案仍有訂閱（含已取消的歷史訂閱）：請先刪除這些訂閱，或將方案改為「停用」以保留歷史");
   await env.DB.prepare("DELETE FROM plans WHERE id = ? AND workspace_id = ?").bind(id, ws).run();
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "plan.delete", entityType: "plan", entityId: id, before: plan });
   return json({ ok: true });
