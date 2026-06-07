@@ -104,8 +104,8 @@ Cron     ─┘
 
 ### Admin Access model
 
-`admin.panspace.dev` is fully protected by Cloudflare Access. The SPA is served from Pages, while
-the admin API is the **same Worker** via a route on `admin.panspace.dev/api/*` (the Worker strips
+`admin.example.com` is fully protected by Cloudflare Access. The SPA is served from Pages, while
+the admin API is the **same Worker** via a route on `admin.example.com/api/*` (the Worker strips
 `/api`). Because it's same-origin, the Access JWT (`Cf-Access-Jwt-Assertion`) reaches the Worker,
 where `requireAccess` verifies `aud` / `iss` / `exp` and an email allow-list. Screenshots stream
 through a same-origin protected endpoint, so `<img>` tags just work.
@@ -171,7 +171,7 @@ so DB tests seed real parents and use a distinct id-space (9001+).
 # 1. Apply D1 migrations
 wrangler d1 migrations apply chippot-db --remote
 
-# 2. Worker (carries the cron trigger + the admin.panspace.dev/api route)
+# 2. Worker (carries the cron trigger + the admin.example.com/api route)
 cd packages/worker && wrangler deploy
 
 # 3. Frontends → Pages

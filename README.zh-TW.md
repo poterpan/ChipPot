@@ -97,8 +97,8 @@ Cron     ─┘
 
 ### 後台 Access 模型
 
-`admin.panspace.dev` 整台主機受 Cloudflare Access 保護。SPA 在 Pages；後台 API 則是**同一個 Worker**，
-透過 `admin.panspace.dev/api/*` 路由（Worker 會去掉 `/api` 前綴）。因為同源，Access JWT
+`admin.example.com` 整台主機受 Cloudflare Access 保護。SPA 在 Pages；後台 API 則是**同一個 Worker**，
+透過 `admin.example.com/api/*` 路由（Worker 會去掉 `/api` 前綴）。因為同源，Access JWT
 （`Cf-Access-Jwt-Assertion`）會到達 Worker，由 `requireAccess` 驗證 `aud` / `iss` / `exp` 與 email
 白名單。截圖走同源的受保護端點，所以 `<img>` 直接可用。
 
@@ -161,7 +161,7 @@ pnpm --filter @chippot/admin build
 # 1. 套用 D1 migration
 wrangler d1 migrations apply chippot-db --remote
 
-# 2. Worker（含 cron trigger 與 admin.panspace.dev/api 路由）
+# 2. Worker（含 cron trigger 與 admin.example.com/api 路由）
 cd packages/worker && wrangler deploy
 
 # 3. 前端 → Pages
