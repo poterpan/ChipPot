@@ -7,7 +7,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler d1 migrations apply chippot-db --remote && wrangler deploy",
     "migrate:local": "wrangler d1 migrations apply chippot-db --local",
     "migrate:remote": "wrangler d1 migrations apply chippot-db --remote",
     "register": "node scripts/register-commands.mjs"
