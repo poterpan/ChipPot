@@ -6,5 +6,6 @@ dist/
 .DS_Store
 coverage/
 
-# internal ops log — not for the public repo
+# internal ops / one-time setup notes — not for the public repo (hold owner-specific values)
 docs/deploy-state.md
+docs/setup-checklist.md
