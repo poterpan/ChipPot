@@ -29,6 +29,7 @@ export async function runRetention(
   retentionMonths: number,
   now: Date = new Date()
 ): Promise<number> {
+  if (!env.BUCKET) return 0; // R2 not configured — nothing to retain
   const cutoffIso = subMonthsUtc(now, retentionMonths).toISOString();
 
   const { results } = await env.DB

@@ -42,7 +42,7 @@ export interface User { id: number; display_name: string; discord_id: string | n
 export interface Subscription { id: number; user_name: string; plan_name: string; status: string; start_date: string; billing_day: number; custom_cycle: number; user_id: number; plan_id: number }
 
 export const api = {
-  workspace: () => req("GET", "/workspace"),
+  workspace: () => req<{ workspace: any; r2_configured: boolean }>("GET", "/workspace"),
   updateWorkspace: (b: unknown) => req("PATCH", "/workspace", b),
   rebuildPaymentMessage: () => req<{ message_id: string }>("POST", "/discord/payment-message"),
   registerCommands: () => req<{ ok: boolean; registered: number }>("POST", "/discord/register-commands"),

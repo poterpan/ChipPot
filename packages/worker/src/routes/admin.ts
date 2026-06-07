@@ -49,7 +49,7 @@ async function getWorkspace(_req: Request, env: Env, ctx: RouteCtx): Promise<Res
   const row = await env.DB.prepare("SELECT * FROM workspaces WHERE id = ?").bind(wsId(ctx))
     .first<{ id: number; name: string; billing_day: number; settings: string }>();
   if (!row) return errorResponse(404, "not found");
-  return json({ workspace: { ...row, settings: parseSettings(row.settings) } });
+  return json({ workspace: { ...row, settings: parseSettings(row.settings) }, r2_configured: !!env.BUCKET });
 }
 
 async function updateWorkspace(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -456,7 +456,7 @@ async function deleteProof(_req: Request, env: Env, ctx: RouteCtx): Promise<Resp
   const id = Number(ctx.params.id);
   const p = await getPayment(env.DB, id);
   if (!p) return errorResponse(404, "not found");
-  if (p.screenshot_key) await env.BUCKET.delete(p.screenshot_key);
+  if (p.screenshot_key && env.BUCKET) await env.BUCKET.delete(p.screenshot_key);
   await env.DB.prepare("UPDATE payments SET screenshot_key = NULL, proof_deleted_at = ?, updated_at = ? WHERE id = ?")
     .bind(taipeiDate(), nowUtcIso(), id).run();
   await writeAudit(env.DB, { workspaceId: p.workspace_id, actor: actorOf(ctx), action: "proof.delete", entityType: "payment", entityId: id, before: { screenshot_key: p.screenshot_key } });

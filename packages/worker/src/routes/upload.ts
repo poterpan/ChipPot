@@ -25,6 +25,7 @@ export async function handleUploadInfo(_req: Request, env: Env, ctx: RouteCtx): 
     user: { display_name: user?.display_name ?? "" },
     subscriptions,
     channel_tags,
+    proof_enabled: !!env.BUCKET,
   });
 }
 
@@ -70,7 +71,7 @@ export async function handleUpload(req: Request, env: Env, ctx: RouteCtx): Promi
       workspaceId: tok.workspace_id, userId: tok.user_id, period: tok.period,
       source: "user_web", tokenHash: hash, declaredChannelTagId, paymentNote: note, proof,
     });
-    return json({ ok: true, paid_count: r.paidCount, total_amount: r.totalAmount, has_proof: proof ? 1 : 0 });
+    return json({ ok: true, paid_count: r.paidCount, total_amount: r.totalAmount, has_proof: r.screenshotKey ? 1 : 0 });
   } catch (e) {
     if (e instanceof TokenUnusable) return errorResponse(410, "link already used", { code: "token" });
     if (e instanceof NoEligiblePayment) return errorResponse(409, "this period is already paid or finalized", { code: "payment" });

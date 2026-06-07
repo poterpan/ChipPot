@@ -168,6 +168,33 @@ describe("admin API", () => {
     const res = await call("POST", `/admin/payments/${id}/reject`, { rejected_reason: "x" });
     expect(res!.status).toBe(409);
   });
+
+  it("reports r2_configured from the BUCKET binding", async () => {
+    const on = (await (await call("GET", "/admin/workspace"))!.json()) as any;
+    expect(on.r2_configured).toBe(true);
+    const prev = (env as any).BUCKET;
+    (env as any).BUCKET = undefined;
+    const off = (await (await call("GET", "/admin/workspace"))!.json()) as any;
+    (env as any).BUCKET = prev;
+    expect(off.r2_configured).toBe(false);
+  });
+
+  it("delete-proof still clears the DB column when R2 is not configured", async () => {
+    const key = "1/2026-10/1/noR2.png";
+    const ins = await env.DB.prepare(
+      `INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,has_proof,screenshot_key,source,created_at,updated_at)
+       SELECT 1, s.id, '2026-10', '2026-10-01','2026-10-31','2026-10-05', 315, 'paid', 1, ?, 'user_web', ?, ?
+       FROM subscriptions s WHERE s.workspace_id = 1 ORDER BY s.id LIMIT 1`
+    ).bind(key, nowUtcIso(), nowUtcIso()).run();
+    const pid = ins.meta.last_row_id as number;
+    const prev = (env as any).BUCKET;
+    (env as any).BUCKET = undefined;
+    const res = await call("POST", `/admin/payments/${pid}/delete-proof`);
+    (env as any).BUCKET = prev;
+    expect(res!.status).toBe(200);
+    const p = await getPayment(env.DB, pid);
+    expect(p?.screenshot_key).toBeNull();
+  });
 });
 
 describe("admin notifications", () => {

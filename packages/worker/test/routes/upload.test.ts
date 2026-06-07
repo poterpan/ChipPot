@@ -58,6 +58,16 @@ describe("upload info", () => {
     const res = await handleUploadInfo(new Request("https://x"), env, ctxFor("nope"));
     expect(res.status).toBe(404);
   });
+
+  it("reports proof_enabled per R2 configuration", async () => {
+    const on = (await (await handleUploadInfo(new Request("https://x"), env, ctxFor(RAW_OK))).json()) as any;
+    expect(on.proof_enabled).toBe(true);
+    const prev = (env as any).BUCKET;
+    (env as any).BUCKET = undefined;
+    const off = (await (await handleUploadInfo(new Request("https://x"), env, ctxFor(RAW_OK))).json()) as any;
+    (env as any).BUCKET = prev;
+    expect(off.proof_enabled).toBe(false);
+  });
 });
 
 describe("upload submit", () => {
@@ -105,5 +115,18 @@ describe("upload submit", () => {
   it("410s a used/expired token", async () => {
     const res = await handleUpload(uploadReq(RAW_USED, { note: "x" }), env, ctxFor(RAW_USED));
     expect(res.status).toBe(410);
+  });
+
+  it("reports has_proof=0 when R2 is absent even if a file is posted", async () => {
+    const RAW = "raw-token-nor2";
+    const h = await hashToken(RAW);
+    await env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,expires_at,created_at) VALUES (?,?,?,?,?,?)`).bind(h, WS, WS, "2026-09", FUTURE, TS).run();
+    const prev = (env as any).BUCKET;
+    (env as any).BUCKET = undefined;
+    const res = await handleUpload(uploadReq(RAW, { screenshot: pngFile() }), env, ctxFor(RAW));
+    (env as any).BUCKET = prev;
+    const body = (await res.json()) as any;
+    expect(res.status).toBe(200);
+    expect(body.has_proof).toBe(0);
   });
 });

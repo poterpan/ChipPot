@@ -44,4 +44,12 @@ describe("protected image endpoint", () => {
     const res = await handleImage(new Request("https://x"), env, ctxFor());
     expect(res.status).toBe(400);
   });
+
+  it("404s when R2 is not configured", async () => {
+    const prev = (env as any).BUCKET;
+    (env as any).BUCKET = undefined;
+    const res = await handleImage(new Request("https://x"), env, ctxFor(KEY));
+    (env as any).BUCKET = prev;
+    expect(res.status).toBe(404);
+  });
 });

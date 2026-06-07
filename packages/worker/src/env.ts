@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
-  BUCKET: R2Bucket;
+  // Optional: omit the [[r2_buckets]] binding in wrangler.toml to run without screenshots.
+  BUCKET?: R2Bucket;
   // Cloudflare Access (secrets / vars; set via wrangler secret put or .dev.vars).
   ACCESS_TEAM_DOMAIN?: string; // <team> in <team>.cloudflareaccess.com
   ACCESS_AUD?: string; // Access application AUD tag

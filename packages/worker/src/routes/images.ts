@@ -15,6 +15,8 @@ export async function handleImage(
   const key = ctx.url.searchParams.get("key");
   if (!key) return errorResponse(400, "key is required");
 
+  if (!env.BUCKET) return errorResponse(404, "not found");
+
   const known = await env.DB
     .prepare("SELECT 1 AS ok FROM payments WHERE screenshot_key = ?")
     .bind(key)
