@@ -476,7 +476,9 @@ async function createUploadLink(req: Request, env: Env, ctx: RouteCtx): Promise<
     ttlMs: UPLOAD_TOKEN_TTL_MS,
   });
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "upload_link.create", entityType: "user", entityId: b.user_id, after: { period: b.period, subscription_id: b.subscription_id ?? null, expires_at: expiresAt } });
-  return json({ token: raw, path: `/u/${raw}`, expires_at: expiresAt }, { status: 201 });
+  const path = `/u/${raw}`;
+  const webOrigin = (env.WEB_ORIGIN ?? "").replace(/\/$/, "");
+  return json({ token: raw, path, url: `${webOrigin}${path}`, expires_at: expiresAt }, { status: 201 });
 }
 
 // ── Discord persistent payment message (spec §11.4) ──────────────────────────

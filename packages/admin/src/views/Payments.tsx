@@ -232,7 +232,7 @@ function LinkModal({ onClose }: { onClose: () => void }) {
     setBusy(true); setErr(null);
     try {
       const r = await api.uploadLink({ user_id: Number(userId), period });
-      setLink(`https://pay.panspace.dev${r.path}`);
+      setLink(r.url);
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }

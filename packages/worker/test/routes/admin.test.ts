@@ -70,6 +70,9 @@ describe("admin API", () => {
     const lRes = await call("POST", "/admin/upload-link", { user_id: userId, period: "2026-07", subscription_id: subId });
     expect(lRes!.status).toBe(201);
     const link = (await lRes!.json()) as any;
+    // url is a full absolute link built from WEB_ORIGIN, ending in the token path (no hardcoded domain).
+    expect(link.url).toMatch(/^https?:\/\/.+\/u\/.+$/);
+    expect(link.url.endsWith(link.path)).toBe(true);
     const tok = await findValidUploadToken(env.DB, await hashToken(link.token), nowUtcIso());
     expect(tok?.user_id).toBe(userId);
     expect(tok?.period).toBe("2026-07");
