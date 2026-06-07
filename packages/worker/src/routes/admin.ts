@@ -176,8 +176,8 @@ async function listUsers(_req: Request, env: Env, ctx: RouteCtx): Promise<Respon
   const { results } = await env.DB
     .prepare(
       `SELECT u.*,
-              (SELECT COUNT(*) FROM subscriptions s WHERE s.user_id = u.id) AS subscription_count,
-              (SELECT COUNT(*) FROM payments p JOIN subscriptions s2 ON s2.id = p.subscription_id WHERE s2.user_id = u.id) AS payment_count
+              (SELECT COUNT(*) FROM subscriptions s WHERE s.user_id = u.id AND s.workspace_id = u.workspace_id) AS subscription_count,
+              (SELECT COUNT(*) FROM payments p JOIN subscriptions s2 ON s2.id = p.subscription_id WHERE s2.user_id = u.id AND s2.workspace_id = u.workspace_id) AS payment_count
        FROM users u WHERE u.workspace_id = ? ORDER BY u.id`
     )
     .bind(wsId(ctx)).all();
@@ -280,7 +280,7 @@ async function deleteSubscription(_req: Request, env: Env, ctx: RouteCtx): Promi
 
 async function listPlans(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const { results } = await env.DB.prepare(
-    `SELECT p.*, (SELECT COUNT(*) FROM subscriptions s WHERE s.plan_id = p.id) AS subscription_count
+    `SELECT p.*, (SELECT COUNT(*) FROM subscriptions s WHERE s.plan_id = p.id AND s.workspace_id = p.workspace_id) AS subscription_count
      FROM plans p WHERE p.workspace_id = ? ORDER BY p.id`
   ).bind(wsId(ctx)).all();
   return json({ plans: results });
@@ -332,7 +332,7 @@ async function deletePlan(_req: Request, env: Env, ctx: RouteCtx): Promise<Respo
 async function listSubscriptions(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const { results } = await env.DB.prepare(
     `SELECT s.*, u.display_name AS user_name, pl.name AS plan_name,
-            (SELECT COUNT(*) FROM payments p WHERE p.subscription_id = s.id) AS payment_count
+            (SELECT COUNT(*) FROM payments p WHERE p.subscription_id = s.id AND p.workspace_id = s.workspace_id) AS payment_count
      FROM subscriptions s JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
      WHERE s.workspace_id = ? ORDER BY s.id`
   ).bind(wsId(ctx)).all();
@@ -379,7 +379,7 @@ async function updateSubscription(req: Request, env: Env, ctx: RouteCtx): Promis
 
 async function listChannelTags(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const { results } = await env.DB.prepare(
-    `SELECT ct.*, (SELECT COUNT(*) FROM payments p WHERE p.verified_channel_tag_id = ct.id OR p.declared_channel_tag_id = ct.id) AS usage_count
+    `SELECT ct.*, (SELECT COUNT(*) FROM payments p WHERE (p.verified_channel_tag_id = ct.id OR p.declared_channel_tag_id = ct.id) AND p.workspace_id = ct.workspace_id) AS usage_count
      FROM channel_tags ct WHERE ct.workspace_id = ? ORDER BY ct.sort_order, ct.id`
   ).bind(wsId(ctx)).all();
   return json({ channel_tags: results });

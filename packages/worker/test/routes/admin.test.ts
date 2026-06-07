@@ -409,6 +409,20 @@ describe("admin billing/initiate + declared channel", () => {
     expect(await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(uid).first()).toBeNull();
   });
 
+  it("cascade-delete removes the R2 proof object when R2 is configured", async () => {
+    const u = await call("POST", "/admin/users", { display_name: "R2Del" });
+    const uid = ((await u!.json()) as any).id as number;
+    const s = await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: 1, start_date: "2031-07-01" });
+    const sid = ((await s!.json()) as any).id as number;
+    const key = "1/2031-07/r2del/p.png";
+    await putObject(env.BUCKET, key, new Uint8Array([1, 2, 3]), "image/png");
+    await env.DB.prepare("UPDATE payments SET screenshot_key = ? WHERE subscription_id = ?").bind(key, sid).run();
+    expect(await getObject(env.BUCKET, key)).not.toBeNull();
+    const del = await call("DELETE", `/admin/users/${uid}`);
+    expect(del!.status).toBe(200);
+    expect(await getObject(env.BUCKET, key)).toBeNull();
+  });
+
   it("plan delete is blocked (409) while subscriptions reference it, allowed when none", async () => {
     const p = await call("POST", "/admin/plans", { name: "DelPlan", provider: "openai", monthly_amount: 100 });
     const pid = ((await p!.json()) as any).id as number;
