@@ -86,9 +86,14 @@ describe("admin API", () => {
 
   it("creates/rebuilds the persistent Discord payment message", async () => {
     await call("PATCH", "/admin/workspace", { settings: { discord_billing_channel_id: "chan-1" } });
+    // Supply the bot token locally (CI has no .dev.vars), then restore it — the later
+    // billing/initiate test doesn't stub fetch, so it must keep its no-real-send behavior.
+    const prevToken = (env as any).DISCORD_BOT_TOKEN;
+    (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "msg-123" }), { status: 200 })));
     const res = await call("POST", "/admin/discord/payment-message");
     vi.unstubAllGlobals();
+    (env as any).DISCORD_BOT_TOKEN = prevToken;
     expect(res!.status).toBe(200);
     expect(((await res!.json()) as any).message_id).toBe("msg-123");
   });
@@ -164,9 +169,12 @@ describe("admin notifications", () => {
     expect(st.billing_opened).toBeNull();
     expect(st.overdue).toBeNull();
 
+    const prevToken = (env as any).DISCORD_BOT_TOKEN;
+    (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     const r = await call("POST", "/admin/notifications/resend", { type: "overdue", period: "2028-03" });
     vi.unstubAllGlobals();
+    (env as any).DISCORD_BOT_TOKEN = prevToken;
     expect(r!.status).toBe(200);
     expect(((await r!.json()) as any).count).toBeGreaterThanOrEqual(1);
     st = (await (await call("GET", "/admin/notifications?period=2028-03"))!.json()) as any;

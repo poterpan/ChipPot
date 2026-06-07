@@ -17,6 +17,9 @@ const notifier: Notifier = {
 };
 
 beforeAll(async () => {
+  // Tests must not depend on .dev.vars (CI / a fresh clone has none). The notifier here is a
+  // fake, so this token only flips the env gate that lets initiateBillingOpened actually "send".
+  (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
   const settings = JSON.stringify({ discord_billing_channel_id: CHAN });
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(WS, "W", "o", "discord", 5, settings, TS, TS),

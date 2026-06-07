@@ -1,0 +1,15 @@
+# Local dev secrets template. Copy to `.dev.vars` and fill in real values:
+#     cp .dev.vars.example .dev.vars
+#
+# `.dev.vars` is gitignored — never commit real secrets (this repo is public).
+# NOTE: the test suite does NOT need this file — tests set their own dummy token,
+# so `vitest run` passes on a clean checkout / in CI without any `.dev.vars`.
+#
+# These are only needed to actually run things locally:
+#   - `wrangler dev`                          -> CLOUDFLARE_API_TOKEN, DISCORD_BOT_TOKEN
+#   - `node scripts/register-commands.mjs`    -> DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID, DISCORD_GUILD_ID
+
+CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
+DISCORD_BOT_TOKEN=your-discord-bot-token
+DISCORD_APPLICATION_ID=your-discord-application-id
+DISCORD_GUILD_ID=your-discord-guild-id

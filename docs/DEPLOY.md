@@ -140,11 +140,19 @@ cd packages/worker
 wrangler secret put DISCORD_BOT_TOKEN     # 貼上第 3 步的 token
 ```
 
-再建一個 `packages/worker/.dev.vars`（已被 gitignore）給「註冊 slash 指令」腳本與本地開發用：
+再建一個 `packages/worker/.dev.vars`（已被 gitignore）給「註冊 slash 指令」腳本與本地開發用。直接從範本複製再填值：
+```bash
+cd packages/worker
+cp .dev.vars.example .dev.vars   # 然後填入真實值
 ```
+內容（鍵見 `.dev.vars.example`）：
+```
+CLOUDFLARE_API_TOKEN=你的-cloudflare-api-token
 DISCORD_BOT_TOKEN=你的-bot-token
 DISCORD_APPLICATION_ID=你的-application-id
+DISCORD_GUILD_ID=你的-guild-id
 ```
+> 註：跑測試（`pnpm test`）**不需要**這個檔——測試會自帶假 token，乾淨 clone／CI 沒有 `.dev.vars` 也能全綠。
 
 ---
 
