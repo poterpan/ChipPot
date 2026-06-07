@@ -314,10 +314,20 @@ wrangler pages deploy packages/admin/dist --project-name chippot-admin --branch 
 
 登入後台 → **設定** 頁 → 點「**註冊 / 更新 Discord slash 指令**」按鈕。
 
+> 需先完成第 8 步、在**設定**頁填入 **Discord Guild ID** 並儲存，按鈕才會成功（否則會回 `discord_guild_id is not set`）。
+
 ### 路徑二（CLI）
 
+此腳本會讀取 `packages/worker/.dev.vars`（從 `.dev.vars.example` 複製並填入），需要 `DISCORD_BOT_TOKEN`、`DISCORD_APPLICATION_ID`、`DISCORD_GUILD_ID` 三個值：
+
 ```bash
-DISCORD_GUILD_ID=<你的伺服器ID> pnpm --filter @chippot/worker register
+cp packages/worker/.dev.vars.example packages/worker/.dev.vars   # 首次：填入 BOT_TOKEN / APPLICATION_ID / GUILD_ID
+pnpm --filter @chippot/worker register
+```
+
+（或直接內聯三個變數）：
+```bash
+DISCORD_BOT_TOKEN=... DISCORD_APPLICATION_ID=... DISCORD_GUILD_ID=... pnpm --filter @chippot/worker register
 ```
 
 > 兩者都對相同的 Discord API 端點（`PUT .../guilds/{GUILD_ID}/commands`）做 idempotent 覆寫，效果等同。

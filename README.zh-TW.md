@@ -158,18 +158,15 @@ pnpm --filter @chippot/admin build
 > 下面的指令是「資源都建好之後」的快速參考。
 
 ```bash
-# 1. 套用 D1 migration
-wrangler d1 migrations apply chippot-db --remote
+# 1. Worker — 套用 D1 migrations 後部署（含 cron trigger 與 admin.example.com/api 路由）
+pnpm --filter @chippot/worker deploy
 
-# 2. Worker（含 cron trigger 與 admin.example.com/api 路由）
-cd packages/worker && wrangler deploy
-
-# 3. 前端 → Pages
+# 2. 前端 → Pages
 cd packages/web   && pnpm build && wrangler pages deploy dist --project-name chippot-web   --branch main
 cd packages/admin && pnpm build && wrangler pages deploy dist --project-name chippot-admin --branch main
 
-# 4. 註冊 guild slash 指令（/繳費 · /發起繳費 · /綁定）
-DISCORD_GUILD_ID=<guild> pnpm --filter @chippot/worker register
+# 3. 註冊 guild slash 指令（/繳費 · /發起繳費 · /綁定）— 需在 packages/worker/.dev.vars 填入 DISCORD_BOT_TOKEN、DISCORD_APPLICATION_ID、DISCORD_GUILD_ID
+pnpm --filter @chippot/worker register
 ```
 
 請自行建立資源（D1、R2、一個 Access application）並把對應值填進 `wrangler.toml`——
@@ -180,7 +177,7 @@ DISCORD_GUILD_ID=<guild> pnpm --filter @chippot/worker register
 - **Secret** — `DISCORD_BOT_TOKEN`（`wrangler secret put`；本地放
   `packages/worker/.dev.vars`，已 gitignore）。
 - **Vars**（`wrangler.toml`，非機密）— `DISCORD_APPLICATION_ID`、`DISCORD_PUBLIC_KEY`、
-  `WEB_ORIGIN`、`ADMIN_ORIGIN`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ACCESS_ALLOWED_EMAILS`。
+  `WEB_ORIGIN`、`ADMIN_ORIGIN`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`。
 - **Workspace 設定**（存在 D1，從後台「設定」頁編輯）— 結帳日、逾期天數、截圖保存月數、
   Discord guild／頻道 id、可發起繳費的管理員白名單（`admin_discord_ids`），以及三種可自訂的通知模板。
 - **Discord** — 把 app 的 Interactions Endpoint 設成 Worker 的 `/interactions`，再用上面的腳本註冊 guild 指令。

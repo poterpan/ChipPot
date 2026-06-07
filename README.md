@@ -168,18 +168,15 @@ so DB tests seed real parents and use a distinct id-space (9001+).
 > commands below are the quick reference once those resources exist.
 
 ```bash
-# 1. Apply D1 migrations
-wrangler d1 migrations apply chippot-db --remote
+# 1. Worker — applies D1 migrations, then deploys (carries the cron + admin.example.com/api route)
+pnpm --filter @chippot/worker deploy
 
-# 2. Worker (carries the cron trigger + the admin.example.com/api route)
-cd packages/worker && wrangler deploy
-
-# 3. Frontends → Pages
+# 2. Frontends → Pages
 cd packages/web   && pnpm build && wrangler pages deploy dist --project-name chippot-web   --branch main
 cd packages/admin && pnpm build && wrangler pages deploy dist --project-name chippot-admin --branch main
 
-# 4. Register the guild slash commands (/繳費 · /發起繳費 · /綁定)
-DISCORD_GUILD_ID=<guild> pnpm --filter @chippot/worker register
+# 3. Register the guild slash commands (/繳費 · /發起繳費 · /綁定) — needs DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID, DISCORD_GUILD_ID in packages/worker/.dev.vars
+pnpm --filter @chippot/worker register
 ```
 
 Provision your own resources (D1, R2, an Access application) and fill in `wrangler.toml`
@@ -190,7 +187,7 @@ accordingly — `database_id`, the R2 bucket, `ACCESS_*`, and the Discord vars.
 - **Secret** — `DISCORD_BOT_TOKEN` (`wrangler secret put`; locally in
   `packages/worker/.dev.vars`, which is gitignored).
 - **Vars** (`wrangler.toml`, non-secret) — `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`,
-  `WEB_ORIGIN`, `ADMIN_ORIGIN`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ACCESS_ALLOWED_EMAILS`.
+  `WEB_ORIGIN`, `ADMIN_ORIGIN`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`.
 - **Workspace settings** (in D1, edited from the admin **Settings** page) — billing day, overdue
   days, screenshot retention, Discord guild / channel ids, the admin allow-list
   (`admin_discord_ids`), and the three editable notification templates.
