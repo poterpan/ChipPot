@@ -28,7 +28,7 @@ function corsOptions(env: Env): CorsOptions {
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     let url = new URL(req.url);
-    // admin.panspace.dev/api/* routes to this worker; strip /api so the same routers match.
+    // admin.example.com/api/* routes to this worker; strip /api so the same routers match.
     if (url.pathname.startsWith("/api/")) {
       url = new URL(req.url);
       url.pathname = url.pathname.slice(4);
