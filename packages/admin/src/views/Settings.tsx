@@ -124,6 +124,10 @@ export function Settings() {
         <RebuildMessage />
 
         <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
+        <div className="field__label">Discord slash 指令</div>
+        <RegisterCommands />
+
+        <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
         <InitiateBilling billingDay={effBillingDay} />
 
         <ImportRoster />
@@ -225,6 +229,25 @@ function RebuildMessage() {
       {err && <div className="error-banner">{err}</div>}
       {msg && <div style={{ color: "var(--teal)", marginBottom: 10 }}>{msg}</div>}
       <button className="btn" onClick={run} disabled={busy}>於 #繳費頻道 建立/重建「繳費」按鈕訊息</button>
+    </>
+  );
+}
+
+function RegisterCommands() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  async function run() {
+    setBusy(true); setErr(null); setMsg(null);
+    try { const r = await api.registerCommands(); setMsg(`✓ 已註冊 ${r.registered} 個 slash 指令`); }
+    catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }
+  return (
+    <>
+      {err && <div className="error-banner">{err}</div>}
+      {msg && <div style={{ color: "var(--teal)", marginBottom: 10 }}>{msg}</div>}
+      <button className="btn" onClick={run} disabled={busy}>註冊 / 更新 Discord slash 指令（/繳費、/發起繳費、/綁定）</button>
     </>
   );
 }

@@ -8,8 +8,8 @@ import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, InvalidPaymentTransition } from "../core/payments";
 import { ensureFirstPayment, initiateBillingOpened } from "../core/billing";
 import { reconcilePeriod } from "../core/reconcile";
-import { createChannelMessage, editChannelMessage } from "../adapters/discord/api";
-import { payButtonRow } from "../adapters/discord/commands";
+import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
+import { payButtonRow, PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
 import { discordNotifier } from "../adapters/discord/notify";
 import { parseRosterCsv, importRoster } from "../core/import";
 import { sendOverdueForPeriod } from "../core/scheduled";
@@ -513,6 +513,24 @@ async function discordPaymentMessage(_req: Request, env: Env, ctx: RouteCtx): Pr
   return json({ ok: true, message_id: messageId });
 }
 
+async function discordRegisterCommands(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const row = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
+  if (!row) return errorResponse(404, "not found");
+  const settings = parseSettings(row.settings);
+  const guildId = settings.discord_guild_id;
+  if (!guildId) return errorResponse(400, "discord_guild_id is not set");
+  if (!env.DISCORD_APPLICATION_ID) return errorResponse(400, "DISCORD_APPLICATION_ID is not set");
+  if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "bot token not configured");
+
+  const commands = [PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND];
+  const res = await registerGuildCommands(env.DISCORD_BOT_TOKEN, env.DISCORD_APPLICATION_ID, guildId, commands);
+  if (!res.ok) return errorResponse(502, "failed to register commands");
+
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "discord.register_commands", entityType: "workspace", entityId: ws, after: { guild_id: guildId, count: commands.length } });
+  return json({ ok: true, registered: commands.length });
+}
+
 // ── Router ───────────────────────────────────────────────────────────────────
 
 export function buildAdminRouter(): Router<Env> {
@@ -544,5 +562,6 @@ export function buildAdminRouter(): Router<Env> {
     .post("/admin/payments/:id/amount", overrideAmountHandler)
     .post("/admin/payments/:id/delete-proof", deleteProof)
     .post("/admin/upload-link", createUploadLink)
-    .post("/admin/discord/payment-message", discordPaymentMessage);
+    .post("/admin/discord/payment-message", discordPaymentMessage)
+    .post("/admin/discord/register-commands", discordRegisterCommands);
 }

@@ -206,6 +206,39 @@ describe("admin notifications", () => {
   });
 });
 
+describe("admin discord slash registration", () => {
+  it("registers the three guild commands via the Discord API", async () => {
+    // guild id lives in workspace settings; bot token is a runtime secret.
+    await call("PATCH", "/admin/workspace", { settings: { discord_guild_id: "guild-777" } });
+    const prevToken = (env as any).DISCORD_BOT_TOKEN;
+    (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
+    let captured: { url: string; body: any } | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: any) => {
+      captured = { url, body: JSON.parse(init.body) };
+      return new Response("[]", { status: 200 });
+    }));
+    const res = await call("POST", "/admin/discord/register-commands");
+    vi.unstubAllGlobals();
+    (env as any).DISCORD_BOT_TOKEN = prevToken;
+
+    expect(res!.status).toBe(200);
+    expect(((await res!.json()) as any).registered).toBe(3);
+    expect(captured!.url).toContain("/guilds/guild-777/commands");
+    const names = captured!.body.map((c: any) => c.name);
+    expect(names).toHaveLength(3);
+    expect(new Set(names)).toEqual(new Set(["繳費", "發起繳費", "綁定"])); // order-independent
+  });
+
+  it("400s when the bot token is not configured", async () => {
+    await call("PATCH", "/admin/workspace", { settings: { discord_guild_id: "guild-777" } });
+    const prevToken = (env as any).DISCORD_BOT_TOKEN;
+    delete (env as any).DISCORD_BOT_TOKEN;
+    const res = await call("POST", "/admin/discord/register-commands");
+    (env as any).DISCORD_BOT_TOKEN = prevToken;
+    expect(res!.status).toBe(400);
+  });
+});
+
 describe("admin billing/initiate + declared channel", () => {
   it("POST /admin/billing/initiate updates plan price + pending amounts", async () => {
     const pRes = await call("POST", "/admin/plans", { name: "InitPlan", provider: "openai", monthly_amount: 500 });
