@@ -1,6 +1,12 @@
-const API =
-  (import.meta.env.VITE_API_BASE as string | undefined) ??
-  "https://chippot.poterpan.workers.dev";
+const API = import.meta.env.VITE_API_BASE as string | undefined;
+if (!API) {
+  // Fail loud instead of silently calling someone else's backend: a fork that forgot to set
+  // VITE_API_BASE at build time would otherwise post payments to the upstream worker.
+  throw new Error(
+    "VITE_API_BASE is not set. Build the web app with it pointing at your worker, e.g. " +
+      "VITE_API_BASE=https://chippot.<your-subdomain>.workers.dev pnpm --filter @chippot/web build"
+  );
+}
 
 export interface SubscriptionChoice {
   id: number;
