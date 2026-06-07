@@ -1,2 +1,11 @@
 packages:
   - "packages/*"
+
+# pnpm 10 only runs build scripts for packages on this allowlist. Required so a fresh
+# `pnpm install` (e.g. in CI) compiles these native deps — workerd powers the worker test
+# pool, esbuild/sharp power the vite builds. (Moved here from package.json's "pnpm" field,
+# which pnpm 10 no longer reads.)
+onlyBuiltDependencies:
+  - esbuild
+  - workerd
+  - sharp
