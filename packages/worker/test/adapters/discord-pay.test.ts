@@ -115,4 +115,30 @@ describe("/繳費 with no R2 ignores the screenshot", () => {
     (env as any).DISCORD_APPLICATION_ID = prevApp;
     expect(captured).toContain("未開啟截圖功能");
   });
+
+  it("settles and notes the ignored screenshot on success (channel + screenshot, no R2)", async () => {
+    const U2 = 90247, S2 = 90248, DISC2 = "disc2-9024";
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,discord_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(U2, WS, DISC2, "Member2", TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(S2, WS, U2, WS, "2026-05-01", 5, TS, TS),
+    ]);
+    const prevB = (env as any).BUCKET;
+    const prevApp = (env as any).DISCORD_APPLICATION_ID;
+    (env as any).BUCKET = undefined;
+    (env as any).DISCORD_APPLICATION_ID = "app-9024";
+    let captured = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: any) => { captured = JSON.parse(init.body).content; return new Response("{}", { status: 200 }); }));
+    const i: DiscordInteraction = {
+      type: 2, id: "1", token: "tok", guild_id: GUILD, ...member(DISC2),
+      data: { name: "繳費", options: [{ name: "渠道", value: String(TAG) }, { name: "截圖", value: "att1" }], resolved: { attachments: { att1: { url: "https://cdn.discordapp.com/x.png", content_type: "image/png", size: 100 } } } },
+    } as any;
+    const res = await routeInteraction(i, env, CTX);
+    expect((await res.json() as any).type).toBe(5);
+    await Promise.all(tasks.splice(0));
+    vi.unstubAllGlobals();
+    (env as any).BUCKET = prevB;
+    (env as any).DISCORD_APPLICATION_ID = prevApp;
+    expect(captured).toContain("已登記本期");
+    expect(captured).toContain("已記錄你的繳費宣告");
+  });
 });
