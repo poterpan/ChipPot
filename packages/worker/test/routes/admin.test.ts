@@ -363,4 +363,49 @@ describe("admin billing/initiate + declared channel", () => {
     expect(row?.provider).toBe("gemini");
     expect(row?.monthly_amount).toBe(400); // untouched fields preserved
   });
+
+  it("cascade-deletes a member with subscriptions + payments (+audit)", async () => {
+    const u = await call("POST", "/admin/users", { display_name: "DelMe", discord_id: "d-delme" });
+    const uid = ((await u!.json()) as any).id as number;
+    const s = await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: 1, start_date: "2031-01-01" });
+    const sid = ((await s!.json()) as any).id as number;
+    const del = await call("DELETE", `/admin/users/${uid}`);
+    expect(del!.status).toBe(200);
+    const body = (await del!.json()) as any;
+    expect(body.deleted.subscriptions).toBe(1);
+    expect(body.deleted.payments).toBeGreaterThanOrEqual(1);
+    const users = ((await (await call("GET", "/admin/users"))!.json()) as any).users;
+    expect(users.find((x: any) => x.id === uid)).toBeUndefined();
+    expect(await env.DB.prepare("SELECT id FROM subscriptions WHERE id = ?").bind(sid).first()).toBeNull();
+    const leftoverPay = await env.DB.prepare("SELECT COUNT(*) AS c FROM payments WHERE subscription_id = ?").bind(sid).first<{ c: number }>();
+    expect(leftoverPay?.c).toBe(0);
+    expect(await auditCount("user.delete", uid)).toBe(1);
+  });
+
+  it("cascade-deletes a subscription with its payments, leaving the member", async () => {
+    const u = await call("POST", "/admin/users", { display_name: "KeepMe" });
+    const uid = ((await u!.json()) as any).id as number;
+    const s = await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: 1, start_date: "2031-02-01" });
+    const sid = ((await s!.json()) as any).id as number;
+    const del = await call("DELETE", `/admin/subscriptions/${sid}`);
+    expect(del!.status).toBe(200);
+    expect(((await del!.json()) as any).deleted.payments).toBeGreaterThanOrEqual(1);
+    expect(await env.DB.prepare("SELECT id FROM subscriptions WHERE id = ?").bind(sid).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(uid).first()).not.toBeNull();
+    expect(await auditCount("subscription.delete", sid)).toBe(1);
+  });
+
+  it("cascade-deletes cleanly when R2 is not configured (proof rows present)", async () => {
+    const u = await call("POST", "/admin/users", { display_name: "NoR2Del" });
+    const uid = ((await u!.json()) as any).id as number;
+    const s = await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: 1, start_date: "2031-03-01" });
+    const sid = ((await s!.json()) as any).id as number;
+    await env.DB.prepare("UPDATE payments SET screenshot_key = ? WHERE subscription_id = ?").bind("1/2031-03/x/p.png", sid).run();
+    const prev = (env as any).BUCKET;
+    (env as any).BUCKET = undefined;
+    const del = await call("DELETE", `/admin/users/${uid}`);
+    (env as any).BUCKET = prev;
+    expect(del!.status).toBe(200);
+    expect(await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(uid).first()).toBeNull();
+  });
 });

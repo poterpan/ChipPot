@@ -218,6 +218,55 @@ async function updateUser(req: Request, env: Env, ctx: RouteCtx): Promise<Respon
   return json({ ok: true });
 }
 
+async function deleteUser(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const id = Number(ctx.params.id);
+  const ws = wsId(ctx);
+  const user = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND workspace_id = ?").bind(id, ws).first();
+  if (!user) return errorResponse(404, "not found");
+
+  if (env.BUCKET) {
+    const keys = await env.DB.prepare(
+      `SELECT DISTINCT p.screenshot_key AS k FROM payments p
+       JOIN subscriptions s ON s.id = p.subscription_id
+       WHERE s.user_id = ? AND s.workspace_id = ? AND p.screenshot_key IS NOT NULL`
+    ).bind(id, ws).all<{ k: string }>();
+    for (const { k } of keys.results) await env.BUCKET.delete(k).catch(() => {});
+  }
+
+  const subCount = (await env.DB.prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE user_id = ? AND workspace_id = ?").bind(id, ws).first<{ c: number }>())?.c ?? 0;
+  const payCount = (await env.DB.prepare(
+    "SELECT COUNT(*) AS c FROM payments WHERE subscription_id IN (SELECT id FROM subscriptions WHERE user_id = ? AND workspace_id = ?)"
+  ).bind(id, ws).first<{ c: number }>())?.c ?? 0;
+
+  await env.DB.prepare("DELETE FROM payments WHERE subscription_id IN (SELECT id FROM subscriptions WHERE user_id = ? AND workspace_id = ?)").bind(id, ws).run();
+  await env.DB.prepare("DELETE FROM upload_tokens WHERE user_id = ? AND workspace_id = ?").bind(id, ws).run();
+  await env.DB.prepare("DELETE FROM subscriptions WHERE user_id = ? AND workspace_id = ?").bind(id, ws).run();
+  await env.DB.prepare("DELETE FROM users WHERE id = ? AND workspace_id = ?").bind(id, ws).run();
+
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "user.delete", entityType: "user", entityId: id, before: user, after: { deleted: { subscriptions: subCount, payments: payCount } } });
+  return json({ ok: true, deleted: { subscriptions: subCount, payments: payCount } });
+}
+
+async function deleteSubscription(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const id = Number(ctx.params.id);
+  const ws = wsId(ctx);
+  const sub = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ? AND workspace_id = ?").bind(id, ws).first();
+  if (!sub) return errorResponse(404, "not found");
+
+  if (env.BUCKET) {
+    const keys = await env.DB.prepare("SELECT DISTINCT screenshot_key AS k FROM payments WHERE subscription_id = ? AND screenshot_key IS NOT NULL").bind(id).all<{ k: string }>();
+    for (const { k } of keys.results) await env.BUCKET.delete(k).catch(() => {});
+  }
+
+  const payCount = (await env.DB.prepare("SELECT COUNT(*) AS c FROM payments WHERE subscription_id = ?").bind(id).first<{ c: number }>())?.c ?? 0;
+  await env.DB.prepare("DELETE FROM payments WHERE subscription_id = ?").bind(id).run();
+  await env.DB.prepare("DELETE FROM upload_tokens WHERE subscription_id = ?").bind(id).run();
+  await env.DB.prepare("DELETE FROM subscriptions WHERE id = ? AND workspace_id = ?").bind(id, ws).run();
+
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "subscription.delete", entityType: "subscription", entityId: id, before: sub, after: { deleted: { payments: payCount } } });
+  return json({ ok: true, deleted: { payments: payCount } });
+}
+
 // ── Plans ──────────────────────────────────────────────────────────────────
 
 async function listPlans(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -546,12 +595,14 @@ export function buildAdminRouter(): Router<Env> {
     .get("/admin/users", listUsers)
     .post("/admin/users", createUser)
     .patch("/admin/users/:id", updateUser)
+    .delete("/admin/users/:id", deleteUser)
     .get("/admin/plans", listPlans)
     .post("/admin/plans", createPlan)
     .patch("/admin/plans/:id", updatePlan)
     .get("/admin/subscriptions", listSubscriptions)
     .post("/admin/subscriptions", createSubscription)
     .patch("/admin/subscriptions/:id", updateSubscription)
+    .delete("/admin/subscriptions/:id", deleteSubscription)
     .get("/admin/channel-tags", listChannelTags)
     .post("/admin/channel-tags", createChannelTag)
     .patch("/admin/channel-tags/:id", updateChannelTag)
