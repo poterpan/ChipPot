@@ -424,6 +424,22 @@ describe("admin billing/initiate + declared channel", () => {
     expect(await auditCount("plan.delete", pid)).toBe(1);
   });
 
+  it("list endpoints report dependency counts", async () => {
+    const u = await call("POST", "/admin/users", { display_name: "Counter" });
+    const uid = ((await u!.json()) as any).id as number;
+    await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: 1, start_date: "2031-06-01" });
+    const users = ((await (await call("GET", "/admin/users"))!.json()) as any).users;
+    const row = users.find((x: any) => x.id === uid);
+    expect(row.subscription_count).toBe(1);
+    expect(row.payment_count).toBeGreaterThanOrEqual(1);
+    const subs = ((await (await call("GET", "/admin/subscriptions"))!.json()) as any).subscriptions;
+    expect(subs.every((s: any) => typeof s.payment_count === "number")).toBe(true);
+    const plans = ((await (await call("GET", "/admin/plans"))!.json()) as any).plans;
+    expect(plans.find((p: any) => p.id === 1)?.subscription_count).toBeGreaterThanOrEqual(1);
+    const tags = ((await (await call("GET", "/admin/channel-tags"))!.json()) as any).channel_tags;
+    expect(tags.every((t: any) => typeof t.usage_count === "number")).toBe(true);
+  });
+
   it("channel-tag delete is blocked (409) while a payment references it, allowed when none", async () => {
     const t = await call("POST", "/admin/channel-tags", { name: "DelTag", type: "bank" });
     const tid = ((await t!.json()) as any).id as number;
