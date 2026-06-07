@@ -3,7 +3,8 @@ import { Dashboard } from "./views/Dashboard";
 import { Payments } from "./views/Payments";
 import { Users, Subscriptions, Plans, ChannelTags } from "./views/Manage";
 import { Settings } from "./views/Settings";
-import { IconLogout } from "./ui";
+import { api } from "./api";
+import { IconLogout, Modal } from "./ui";
 
 const VIEWS = [
   { id: "dashboard", label: "對帳看板", el: <Dashboard /> },
@@ -14,6 +15,28 @@ const VIEWS = [
   { id: "tags", label: "支付渠道", el: <ChannelTags /> },
   { id: "settings", label: "設定", el: <Settings /> },
 ];
+
+function R2Notice() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (localStorage.getItem("chippot.r2NoticeSeen")) return;
+    api.workspace().then((w) => { if (w && w.r2_configured === false) setShow(true); }).catch(() => {});
+  }, []);
+  if (!show) return null;
+  const dismiss = () => { localStorage.setItem("chippot.r2NoticeSeen", "1"); setShow(false); };
+  return (
+    <Modal title="Cloudflare R2 尚未設定" onClose={dismiss}>
+      <p>偵測到尚未綁定 R2 儲存空間，以下功能將無法使用：</p>
+      <ul style={{ margin: "8px 0 8px 18px" }}>
+        <li>成員上傳繳費截圖</li>
+        <li>後台檢視繳費截圖</li>
+        <li>截圖自動保存清理</li>
+      </ul>
+      <p className="muted small">不影響：宣告繳費、後台審核、對帳、Discord 通知。如需截圖功能，請在 wrangler.toml 註冊 R2 binding 後重新部署。</p>
+      <button className="btn btn--primary" onClick={dismiss}>我知道了</button>
+    </Modal>
+  );
+}
 
 export default function App() {
   const [view, setView] = useState(() => window.location.hash.slice(1) || "dashboard");
@@ -26,6 +49,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <R2Notice />
       <aside className="sidebar">
         <div className="sidebar__brand">ChipPot</div>
         <nav className="nav">

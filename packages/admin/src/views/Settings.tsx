@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, currentPeriod, nextBillingPeriod } from "../api";
-import { useAsync, Card, Field, Empty, Modal } from "../ui";
+import { useAsync, Card, Field, Empty, Modal, IconCheck, IconWarning } from "../ui";
 
 const PLACEHOLDER_RE = /\{(\w+)\}/g;
 const OVERDUE_KEYS = ["period", "count", "list"];
@@ -107,6 +107,14 @@ export function Settings() {
       <div style={{ padding: "18px 20px", maxWidth: 460 }}>
         {err && <div className="error-banner">{err}</div>}
         {saved && <div style={{ color: "var(--teal)", marginBottom: 12 }}>✓ 已儲存</div>}
+        {data && (
+          <div style={{ marginBottom: 14, fontSize: 14 }}>
+            <span className="field__label">截圖儲存（R2）：</span>{" "}
+            {(data as any).r2_configured
+              ? <span style={{ color: "var(--teal)" }}><IconCheck /> 已啟用</span>
+              : <span style={{ color: "var(--muted)" }}><IconWarning /> 未啟用（成員無法上傳截圖；其餘功能正常）</span>}
+          </div>
+        )}
         <Field label="統一結帳日 (1-28)"><input type="number" value={billingDay} onChange={(e) => setBillingDay(e.target.value)} disabled={busy} /></Field>
         <Field label="逾期天數"><input type="number" value={overdue} onChange={(e) => setOverdue(e.target.value)} disabled={busy} /></Field>
         <Field label="截圖保存月數 (retention)"><input type="number" value={retention} onChange={(e) => setRetention(e.target.value)} disabled={busy} /></Field>
