@@ -87,6 +87,16 @@ describe("admin API", () => {
     expect(await auditCount("payment.manual", mId)).toBe(1);
   });
 
+  it("upload-link 500s when WEB_ORIGIN is not configured", async () => {
+    const u = await call("POST", "/admin/users", { display_name: "NoOrigin" });
+    const uid = ((await u!.json()) as any).id as number;
+    const prev = (env as any).WEB_ORIGIN;
+    delete (env as any).WEB_ORIGIN;
+    const res = await call("POST", "/admin/upload-link", { user_id: uid, period: "2027-05" });
+    (env as any).WEB_ORIGIN = prev;
+    expect(res!.status).toBe(500);
+  });
+
   it("creates/rebuilds the persistent Discord payment message", async () => {
     await call("PATCH", "/admin/workspace", { settings: { discord_billing_channel_id: "chan-1" } });
     // Supply the bot token locally (CI has no .dev.vars), then restore it — the later

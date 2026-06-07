@@ -471,13 +471,15 @@ async function createUploadLink(req: Request, env: Env, ctx: RouteCtx): Promise<
   const ws = wsId(ctx);
   const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND workspace_id = ?").bind(b.user_id, ws).first();
   if (!user) return errorResponse(400, "invalid user");
+  // Fail loud rather than mint a token only to hand back a broken relative link.
+  if (!env.WEB_ORIGIN) return errorResponse(500, "WEB_ORIGIN is not configured");
   const { raw, expiresAt } = await issueUploadToken(env.DB, {
     workspaceId: ws, userId: b.user_id, period: b.period, subscriptionId: b.subscription_id ?? null,
     ttlMs: UPLOAD_TOKEN_TTL_MS,
   });
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "upload_link.create", entityType: "user", entityId: b.user_id, after: { period: b.period, subscription_id: b.subscription_id ?? null, expires_at: expiresAt } });
   const path = `/u/${raw}`;
-  const webOrigin = (env.WEB_ORIGIN ?? "").replace(/\/$/, "");
+  const webOrigin = env.WEB_ORIGIN.replace(/\/$/, "");
   return json({ token: raw, path, url: `${webOrigin}${path}`, expires_at: expiresAt }, { status: 201 });
 }
 
