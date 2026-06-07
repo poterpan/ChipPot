@@ -58,6 +58,16 @@ describe("upload info", () => {
     const res = await handleUploadInfo(new Request("https://x"), env, ctxFor("nope"));
     expect(res.status).toBe(404);
   });
+
+  it("reports proof_enabled per R2 configuration", async () => {
+    const on = (await (await handleUploadInfo(new Request("https://x"), env, ctxFor(RAW_OK))).json()) as any;
+    expect(on.proof_enabled).toBe(true);
+    const prev = (env as any).BUCKET;
+    (env as any).BUCKET = undefined;
+    const off = (await (await handleUploadInfo(new Request("https://x"), env, ctxFor(RAW_OK))).json()) as any;
+    (env as any).BUCKET = prev;
+    expect(off.proof_enabled).toBe(false);
+  });
 });
 
 describe("upload submit", () => {

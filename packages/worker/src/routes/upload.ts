@@ -25,6 +25,7 @@ export async function handleUploadInfo(_req: Request, env: Env, ctx: RouteCtx): 
     user: { display_name: user?.display_name ?? "" },
     subscriptions,
     channel_tags,
+    proof_enabled: !!env.BUCKET,
   });
 }
 

@@ -8,6 +8,7 @@ declare global {
   namespace Cloudflare {
     interface Env extends AppEnv {
       TEST_MIGRATIONS: D1Migration[];
+      BUCKET: R2Bucket; // tests always provide R2; override the app's optional binding
     }
   }
 }

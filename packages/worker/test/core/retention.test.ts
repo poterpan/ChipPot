@@ -39,6 +39,23 @@ describe("runRetention reference-counting", () => {
     expect(await getObject(env.BUCKET, SOLO)).toBeNull();
   });
 
+  it("is a no-op when R2 is not configured (returns 0, keeps the row + object)", async () => {
+    const KEY = "noR2-key-9023";
+    await env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,has_proof,screenshot_key,paid_at,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(WS, SUB, "2023-05", "2023-05-01", "2023-05-31", "2023-05-05", 315, "verified", 1, KEY, OLD, "user_web", TS, TS).run();
+    await putObject(env.BUCKET, KEY, new Uint8Array([4]), "image/png");
+    const prev = (env as any).BUCKET;
+    (env as any).BUCKET = undefined;
+    const cleared = await runRetention(env, WS, 24, NOW);
+    (env as any).BUCKET = prev;
+    expect(cleared).toBe(0);
+    const row = await env.DB.prepare("SELECT screenshot_key FROM payments WHERE workspace_id=? AND period='2023-05'").bind(WS).first<{ screenshot_key: string | null }>();
+    expect(row?.screenshot_key).toBe(KEY);
+    expect(await getObject(env.BUCKET, KEY)).not.toBeNull();
+    // Clean up so this row doesn't affect subsequent retention tests in this file.
+    await env.DB.prepare("DELETE FROM payments WHERE workspace_id=? AND period='2023-05'").bind(WS).run();
+    await env.BUCKET.delete(KEY);
+  });
+
   it("keeps the R2 object when a non-expired payment still references the key", async () => {
     const KEY = "mixed-key-9023";
     const RECENT = "2026-04-15T00:00:00.000Z"; // within 24mo of NOW -> NOT eligible

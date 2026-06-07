@@ -66,6 +66,20 @@ describe("settleUserPeriod — Discord direct path", () => {
     expect(after).toBe(before);
   });
 
+  it("settles without a proof object when R2 is not configured (has_proof=0)", async () => {
+    const prev = (env as any).BUCKET;
+    (env as any).BUCKET = undefined;
+    const r = await settleUserPeriod(env, {
+      workspaceId: WS, userId: WS, period: "2027-05", source: "user_slash",
+      proof: { body: new Uint8Array([1, 2, 3]), ext: "png", contentType: "image/png" },
+    });
+    (env as any).BUCKET = prev;
+    expect(r.paidCount).toBe(2);
+    expect(r.screenshotKey).toBeNull();
+    const rows = await env.DB.prepare("SELECT has_proof, screenshot_key FROM payments WHERE workspace_id=? AND period='2027-05'").bind(WS).all<{ has_proof: number; screenshot_key: string | null }>();
+    expect(rows.results.every((p) => p.has_proof === 0 && p.screenshot_key === null)).toBe(true);
+  });
+
   it("shares ONE screenshot key across all settled rows", async () => {
     const r = await settleUserPeriod(env, {
       workspaceId: WS, userId: WS, period: "2027-03", source: "user_slash",

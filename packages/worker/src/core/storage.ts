@@ -184,7 +184,7 @@ export async function settleUserPeriod(env: Env, input: SettleInput): Promise<Se
 
   // 3. Store the proof once (shared key) if present.
   let key: string | null = null;
-  if (input.proof) {
+  if (input.proof && env.BUCKET) {
     key = buildScreenshotKey(workspaceId, period, userId, input.proof.ext, crypto.randomUUID());
     await putObject(env.BUCKET, key, input.proof.body, input.proof.contentType);
   }
@@ -198,7 +198,7 @@ export async function settleUserPeriod(env: Env, input: SettleInput): Promise<Se
       await applyDirectSettle(env, input, key, now);
     }
   } catch (err) {
-    if (key) await deleteObject(env.BUCKET, key).catch(() => {});
+    if (key && env.BUCKET) await deleteObject(env.BUCKET, key).catch(() => {});
     throw err;
   }
 
@@ -215,7 +215,7 @@ export async function settleUserPeriod(env: Env, input: SettleInput): Promise<Se
   // TOCTOU guard: if a concurrent settle paid these rows between the settleTargets() snapshot
   // and our UPDATE, the direct path can match 0 rows after we already stored the object —
   // compensate so it isn't orphaned. (The token path throws before reaching here on 0 rows.)
-  if (paidRows.results.length === 0 && key) {
+  if (paidRows.results.length === 0 && key && env.BUCKET) {
     await deleteObject(env.BUCKET, key).catch(() => {});
     key = null;
   }
