@@ -180,11 +180,12 @@ async function computePayResult(i: DiscordInteraction, env: Env): Promise<string
     declaredChannelTagId = tagId;
   }
 
-  // Optional screenshot.
+  // Optional screenshot — only when R2 is configured; otherwise ignore the attachment.
   let proof: { body: ArrayBuffer; ext: string; contentType: string } | null = null;
   const attachOpt = getOption(i, "截圖");
   const attachment = attachOpt?.value ? i.data?.resolved?.attachments?.[attachOpt.value] : undefined;
-  if (attachment) {
+  const screenshotIgnored = !!attachment && !env.BUCKET;
+  if (attachment && env.BUCKET) {
     const ct = attachment.content_type ?? "";
     try { assertImageOk(ct, attachment.size ?? 0); }
     catch (e) { if (e instanceof InvalidImage) return "截圖格式不支援或檔案過大，請改用備註或渠道。"; throw e; }
@@ -198,6 +199,7 @@ async function computePayResult(i: DiscordInteraction, env: Env): Promise<string
 
   // At-least-one rule (slash): 渠道 / 截圖 / 備註.
   if (!declaredChannelTagId && !proof && !note) {
+    if (screenshotIgnored) return "本站未開啟截圖功能，請改用「渠道」或「備註」登記繳費。";
     return "請至少選擇「渠道」、附上「截圖」或填寫「備註」其中一項。";
   }
 
@@ -206,7 +208,8 @@ async function computePayResult(i: DiscordInteraction, env: Env): Promise<string
     declaredChannelTagId, paymentNote: note, proof,
   });
   if (r.paidCount === 0) return `本期（${period}）已登記繳費，無需重複操作。`;
-  return `✅ 已登記本期（${period}）繳費 NT$${r.totalAmount.toLocaleString()}（共 ${r.paidCount} 筆）。管理員確認收款後完成。`;
+  const ignoredNote = screenshotIgnored ? "（本站未開啟截圖功能，已記錄你的繳費宣告）" : "";
+  return `✅ 已登記本期（${period}）繳費 NT$${r.totalAmount.toLocaleString()}（共 ${r.paidCount} 筆）。管理員確認收款後完成。${ignoredNote}`;
 }
 
 // ── 發起繳費 (admin): modal open + modal submit ──────────────────────────────
