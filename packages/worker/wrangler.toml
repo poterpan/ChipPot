@@ -17,6 +17,8 @@ database_name = "chippot-db"
 database_id = "your-d1-database-id"
 migrations_dir = "migrations"
 
+# 選填：不需要「成員上傳繳費截圖」可移除整個 [[r2_buckets]] 區塊（未綁 R2 時截圖上傳/檢視/
+# 自動保存清理停用，其餘功能正常）。需要截圖功能就保留，並先 `wrangler r2 bucket create chippot-proofs`。
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "chippot-proofs"
