@@ -238,10 +238,12 @@ async function deleteUser(_req: Request, env: Env, ctx: RouteCtx): Promise<Respo
     "SELECT COUNT(*) AS c FROM payments WHERE subscription_id IN (SELECT id FROM subscriptions WHERE user_id = ? AND workspace_id = ?)"
   ).bind(id, ws).first<{ c: number }>())?.c ?? 0;
 
-  await env.DB.prepare("DELETE FROM payments WHERE subscription_id IN (SELECT id FROM subscriptions WHERE user_id = ? AND workspace_id = ?)").bind(id, ws).run();
-  await env.DB.prepare("DELETE FROM upload_tokens WHERE user_id = ? AND workspace_id = ?").bind(id, ws).run();
-  await env.DB.prepare("DELETE FROM subscriptions WHERE user_id = ? AND workspace_id = ?").bind(id, ws).run();
-  await env.DB.prepare("DELETE FROM users WHERE id = ? AND workspace_id = ?").bind(id, ws).run();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM payments WHERE subscription_id IN (SELECT id FROM subscriptions WHERE user_id = ? AND workspace_id = ?)").bind(id, ws),
+    env.DB.prepare("DELETE FROM upload_tokens WHERE user_id = ? AND workspace_id = ?").bind(id, ws),
+    env.DB.prepare("DELETE FROM subscriptions WHERE user_id = ? AND workspace_id = ?").bind(id, ws),
+    env.DB.prepare("DELETE FROM users WHERE id = ? AND workspace_id = ?").bind(id, ws),
+  ]);
 
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "user.delete", entityType: "user", entityId: id, before: user, after: { deleted: { subscriptions: subCount, payments: payCount } } });
   return json({ ok: true, deleted: { subscriptions: subCount, payments: payCount } });
@@ -254,14 +256,16 @@ async function deleteSubscription(_req: Request, env: Env, ctx: RouteCtx): Promi
   if (!sub) return errorResponse(404, "not found");
 
   if (env.BUCKET) {
-    const keys = await env.DB.prepare("SELECT DISTINCT screenshot_key AS k FROM payments WHERE subscription_id = ? AND screenshot_key IS NOT NULL").bind(id).all<{ k: string }>();
+    const keys = await env.DB.prepare("SELECT DISTINCT screenshot_key AS k FROM payments WHERE subscription_id = ? AND workspace_id = ? AND screenshot_key IS NOT NULL").bind(id, ws).all<{ k: string }>();
     for (const { k } of keys.results) await env.BUCKET.delete(k).catch(() => {});
   }
 
-  const payCount = (await env.DB.prepare("SELECT COUNT(*) AS c FROM payments WHERE subscription_id = ?").bind(id).first<{ c: number }>())?.c ?? 0;
-  await env.DB.prepare("DELETE FROM payments WHERE subscription_id = ?").bind(id).run();
-  await env.DB.prepare("DELETE FROM upload_tokens WHERE subscription_id = ?").bind(id).run();
-  await env.DB.prepare("DELETE FROM subscriptions WHERE id = ? AND workspace_id = ?").bind(id, ws).run();
+  const payCount = (await env.DB.prepare("SELECT COUNT(*) AS c FROM payments WHERE subscription_id = ? AND workspace_id = ?").bind(id, ws).first<{ c: number }>())?.c ?? 0;
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM payments WHERE subscription_id = ? AND workspace_id = ?").bind(id, ws),
+    env.DB.prepare("DELETE FROM upload_tokens WHERE subscription_id = ? AND workspace_id = ?").bind(id, ws),
+    env.DB.prepare("DELETE FROM subscriptions WHERE id = ? AND workspace_id = ?").bind(id, ws),
+  ]);
 
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "subscription.delete", entityType: "subscription", entityId: id, before: sub, after: { deleted: { payments: payCount } } });
   return json({ ok: true, deleted: { payments: payCount } });

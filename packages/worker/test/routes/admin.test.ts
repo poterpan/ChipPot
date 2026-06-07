@@ -373,7 +373,7 @@ describe("admin billing/initiate + declared channel", () => {
     expect(del!.status).toBe(200);
     const body = (await del!.json()) as any;
     expect(body.deleted.subscriptions).toBe(1);
-    expect(body.deleted.payments).toBeGreaterThanOrEqual(1);
+    expect(body.deleted.payments).toBe(1);
     const users = ((await (await call("GET", "/admin/users"))!.json()) as any).users;
     expect(users.find((x: any) => x.id === uid)).toBeUndefined();
     expect(await env.DB.prepare("SELECT id FROM subscriptions WHERE id = ?").bind(sid).first()).toBeNull();
@@ -389,7 +389,7 @@ describe("admin billing/initiate + declared channel", () => {
     const sid = ((await s!.json()) as any).id as number;
     const del = await call("DELETE", `/admin/subscriptions/${sid}`);
     expect(del!.status).toBe(200);
-    expect(((await del!.json()) as any).deleted.payments).toBeGreaterThanOrEqual(1);
+    expect(((await del!.json()) as any).deleted.payments).toBe(1);
     expect(await env.DB.prepare("SELECT id FROM subscriptions WHERE id = ?").bind(sid).first()).toBeNull();
     expect(await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(uid).first()).not.toBeNull();
     expect(await auditCount("subscription.delete", sid)).toBe(1);
