@@ -23,6 +23,7 @@ export interface TokenInfo {
   user?: { display_name: string };
   subscriptions?: SubscriptionChoice[];
   channel_tags?: ChannelTag[];
+  proof_enabled?: boolean;
 }
 
 export async function fetchTokenInfo(token: string): Promise<TokenInfo> {
