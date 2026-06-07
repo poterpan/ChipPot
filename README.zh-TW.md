@@ -159,7 +159,7 @@ pnpm --filter @chippot/admin build
 
 ```bash
 # 1. Worker — 套用 D1 migrations 後部署（含 cron trigger 與 admin.example.com/api 路由）
-pnpm --filter @chippot/worker deploy
+pnpm --filter @chippot/worker run deploy
 
 # 2. 前端 → Pages
 cd packages/web   && pnpm build && wrangler pages deploy dist --project-name chippot-web   --branch main

@@ -169,7 +169,7 @@ so DB tests seed real parents and use a distinct id-space (9001+).
 
 ```bash
 # 1. Worker — applies D1 migrations, then deploys (carries the cron + admin.example.com/api route)
-pnpm --filter @chippot/worker deploy
+pnpm --filter @chippot/worker run deploy
 
 # 2. Frontends → Pages
 cd packages/web   && pnpm build && wrangler pages deploy dist --project-name chippot-web   --branch main

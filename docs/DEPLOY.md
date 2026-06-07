@@ -179,7 +179,7 @@ git update-index --skip-worktree packages/worker/wrangler.toml
 3. **Build configuration** 填：
    - Root directory：（留空，repo 根）
    - Build command：`pnpm install`
-   - Deploy command：`pnpm --filter @chippot/worker deploy`
+   - Deploy command：`pnpm --filter @chippot/worker run deploy`
 4. 儲存並觸發第一次 deploy。
 
    > **deploy 腳本做兩件事**：先用 `wrangler d1 migrations apply chippot-db --remote` 自動套用所有未套用的 migration（idempotent，冪等），再執行 `wrangler deploy`。首次部署會套入 0001–0005 的初始 schema 與示範 seed。
@@ -263,7 +263,7 @@ pnpm --filter @chippot/worker test   # （選用）確認測試全綠
 確認已完成第 5 步（`wrangler.toml` 填好真實值），然後：
 
 ```bash
-pnpm --filter @chippot/worker deploy
+pnpm --filter @chippot/worker run deploy
 ```
 
 此 deploy 腳本等同於：
@@ -395,7 +395,7 @@ DISCORD_BOT_TOKEN=... DISCORD_APPLICATION_ID=... DISCORD_GUILD_ID=... pnpm --fil
 ```bash
 git pull
 pnpm install
-pnpm --filter @chippot/worker deploy          # 含自動套 migration
+pnpm --filter @chippot/worker run deploy          # 含自動套 migration
 
 VITE_API_BASE=https://<你的 worker 網址> pnpm --filter @chippot/web build
 wrangler pages deploy packages/web/dist --project-name chippot-web --branch main
