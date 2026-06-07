@@ -7,10 +7,27 @@ function useForm<T extends Record<string, any>>(initial: T) {
   return [v, (k: keyof T, val: any) => setV((s) => ({ ...s, [k]: val }))] as const;
 }
 
+function ConfirmDelete({ title, message, onClose, onConfirm }: { title: string; message: string; onClose: () => void; onConfirm: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  async function go() {
+    setBusy(true); setErr(null);
+    try { await onConfirm(); } catch (e) { setErr((e as Error).message); setBusy(false); }
+  }
+  return (
+    <Modal title={title} onClose={onClose}>
+      {err && <div className="error-banner">{err}</div>}
+      <p style={{ whiteSpace: "pre-wrap", marginBottom: 16 }}>{message}</p>
+      <button className="btn" onClick={onClose} disabled={busy} style={{ marginRight: 8 }}>取消</button>
+      <button className="btn btn--primary" onClick={go} disabled={busy} style={{ background: "var(--danger, #c0392b)", borderColor: "var(--danger, #c0392b)" }}>{busy ? "刪除中…" : "確認刪除"}</button>
+    </Modal>
+  );
+}
+
 // ── Users ────────────────────────────────────────────────────────────────────
 export function Users() {
   const { data, loading, error, reload } = useAsync(() => api.users(), []);
   const [edit, setEdit] = useState<User | null | undefined>(undefined); // undefined=closed, null=new
+  const [del, setDel] = useState<User | null>(null);
   return (
     <>
       {error && <div className="error-banner">{error}</div>}
@@ -23,7 +40,10 @@ export function Users() {
               {data?.users.map((u) => (
                 <tr key={u.id}>
                   <td>{u.display_name}</td><td className="mono" style={{ fontSize: 12.5 }}>{u.discord_id ?? "—"}</td><td>{u.email ?? "—"}</td>
-                  <td className="right"><button className="btn" onClick={() => setEdit(u)}>編輯</button></td>
+                  <td className="right">
+                    <button className="btn" onClick={() => setEdit(u)}>編輯</button>{" "}
+                    <button className="btn" onClick={() => setDel(u)}>刪除</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -31,6 +51,14 @@ export function Users() {
         </div>
       </Card>
       {edit !== undefined && <UserModal user={edit} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
+      {del && (
+        <ConfirmDelete
+          title={`刪除成員 · ${del.display_name}`}
+          message={`將一併刪除此成員的 ${del.subscription_count ?? 0} 個訂閱、${del.payment_count ?? 0} 筆繳費紀錄。\n此操作無法復原。`}
+          onClose={() => setDel(null)}
+          onConfirm={async () => { await api.deleteUser(del.id); setDel(null); reload(); }}
+        />
+      )}
     </>
   );
 }
@@ -63,6 +91,7 @@ export function Subscriptions() {
   const { data, loading, error, reload } = useAsync(() => api.subscriptions(), []);
   const [add, setAdd] = useState(false);
   const [edit, setEdit] = useState<Subscription | null>(null);
+  const [del, setDel] = useState<Subscription | null>(null);
   return (
     <>
       {error && <div className="error-banner">{error}</div>}
@@ -75,7 +104,10 @@ export function Subscriptions() {
               {data?.subscriptions.map((s) => (
                 <tr key={s.id}>
                   <td>{s.user_name}</td><td>{s.plan_name}</td><td>{s.status}</td><td className="mono">{s.start_date}</td><td className="right mono">{s.billing_day}</td>
-                  <td className="right"><button className="btn" onClick={() => setEdit(s)}>編輯</button></td>
+                  <td className="right">
+                    <button className="btn" onClick={() => setEdit(s)}>編輯</button>{" "}
+                    <button className="btn" onClick={() => setDel(s)}>刪除</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -84,6 +116,14 @@ export function Subscriptions() {
       </Card>
       {add && <SubAddModal onClose={() => setAdd(false)} onDone={() => { setAdd(false); reload(); }} />}
       {edit && <SubEditModal sub={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}
+      {del && (
+        <ConfirmDelete
+          title={`刪除訂閱 · ${del.user_name} · ${del.plan_name}`}
+          message={`將一併刪除此訂閱的 ${del.payment_count ?? 0} 筆繳費紀錄。\n此操作無法復原。（若只想停收可改用「編輯 → 狀態 cancelled」）`}
+          onClose={() => setDel(null)}
+          onConfirm={async () => { await api.deleteSubscription(del.id); setDel(null); reload(); }}
+        />
+      )}
     </>
   );
 }
@@ -134,6 +174,7 @@ function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: ()
 export function Plans() {
   const { data, loading, error, reload } = useAsync(() => api.plans(), []);
   const [edit, setEdit] = useState<Plan | null | undefined>(undefined);
+  const [del, setDel] = useState<Plan | null>(null);
   const [pFilter, setPFilter] = useState("");
   const providers = [...new Set((data?.plans ?? []).map((p) => p.provider).filter(Boolean))].sort();
   const shown = (data?.plans ?? []).filter((p) => !pFilter || p.provider === pFilter);
@@ -158,7 +199,10 @@ export function Plans() {
                 <tr key={p.id}>
                   <td>{p.name}</td><td>{p.provider}</td><td className="right mono">NT${p.monthly_amount}</td>
                   <td className="mono" style={{ fontSize: 12 }}>{p.discord_role_id ?? "—"}</td><td>{p.active ? "✓" : "—"}</td>
-                  <td className="right"><button className="btn" onClick={() => setEdit(p)}>編輯</button></td>
+                  <td className="right">
+                    <button className="btn" onClick={() => setEdit(p)}>編輯</button>{" "}
+                    <button className="btn" disabled={(p.subscription_count ?? 0) > 0} title={(p.subscription_count ?? 0) > 0 ? "使用中，請先刪除訂閱或停用" : ""} onClick={() => setDel(p)}>刪除</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -166,6 +210,14 @@ export function Plans() {
         </div>
       </Card>
       {edit !== undefined && <PlanModal plan={edit} providers={providers} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
+      {del && (
+        <ConfirmDelete
+          title={`刪除方案 · ${del.name}`}
+          message={`確定刪除此方案？此操作無法復原。`}
+          onClose={() => setDel(null)}
+          onConfirm={async () => { await api.deletePlan(del.id); setDel(null); reload(); }}
+        />
+      )}
     </>
   );
 }
@@ -212,6 +264,7 @@ const CHANNEL_TYPE_LABEL: Record<string, string> = Object.fromEntries(CHANNEL_TY
 export function ChannelTags() {
   const { data, loading, error, reload } = useAsync(() => api.channelTags(), []);
   const [edit, setEdit] = useState<ChannelTag | null | undefined>(undefined);
+  const [del, setDel] = useState<ChannelTag | null>(null);
   return (
     <>
       {error && <div className="error-banner">{error}</div>}
@@ -224,7 +277,10 @@ export function ChannelTags() {
               {data?.channel_tags.map((t) => (
                 <tr key={t.id}>
                   <td>{t.name}</td><td>{t.type ? (CHANNEL_TYPE_LABEL[t.type] ?? t.type) : "—"}</td><td className="right mono">{t.sort_order}</td><td>{t.active ? "✓" : "—"}</td>
-                  <td className="right"><button className="btn" onClick={() => setEdit(t)}>編輯</button></td>
+                  <td className="right">
+                    <button className="btn" onClick={() => setEdit(t)}>編輯</button>{" "}
+                    <button className="btn" disabled={(t.usage_count ?? 0) > 0} title={(t.usage_count ?? 0) > 0 ? "已被繳費紀錄參照，請改用停用" : ""} onClick={() => setDel(t)}>刪除</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -232,6 +288,14 @@ export function ChannelTags() {
         </div>
       </Card>
       {edit !== undefined && <TagModal tag={edit} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
+      {del && (
+        <ConfirmDelete
+          title={`刪除渠道 · ${del.name}`}
+          message={`確定刪除此支付渠道？此操作無法復原。`}
+          onClose={() => setDel(null)}
+          onConfirm={async () => { await api.deleteChannelTag(del.id); setDel(null); reload(); }}
+        />
+      )}
     </>
   );
 }

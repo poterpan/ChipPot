@@ -36,10 +36,10 @@ export interface Reconcile {
   by_plan: { plan_id: number; plan_name: string; total: number; pending: number; paid: number; verified: number; rejected: number; amount_due: number; amount_verified: number }[];
   by_channel_tag: { channel_tag_id: number | null; channel_tag_name: string | null; count: number; amount: number }[];
 }
-export interface ChannelTag { id: number; name: string; type: string | null; active: number; sort_order: number }
-export interface Plan { id: number; name: string; provider: string; monthly_amount: number; discord_role_id: string | null; active: number }
-export interface User { id: number; display_name: string; discord_id: string | null; email: string | null; note: string | null }
-export interface Subscription { id: number; user_name: string; plan_name: string; status: string; start_date: string; billing_day: number; custom_cycle: number; user_id: number; plan_id: number }
+export interface ChannelTag { id: number; name: string; type: string | null; active: number; sort_order: number; usage_count?: number }
+export interface Plan { id: number; name: string; provider: string; monthly_amount: number; discord_role_id: string | null; active: number; subscription_count?: number }
+export interface User { id: number; display_name: string; discord_id: string | null; email: string | null; note: string | null; subscription_count?: number; payment_count?: number }
+export interface Subscription { id: number; user_name: string; plan_name: string; status: string; start_date: string; billing_day: number; custom_cycle: number; user_id: number; plan_id: number; payment_count?: number }
 
 export const api = {
   workspace: () => req<{ workspace: any; r2_configured: boolean }>("GET", "/workspace"),
@@ -62,15 +62,19 @@ export const api = {
   users: () => req<{ users: User[] }>("GET", "/users"),
   createUser: (b: unknown) => req("POST", "/users", b),
   updateUser: (id: number, b: unknown) => req("PATCH", `/users/${id}`, b),
+  deleteUser: (id: number) => req<{ ok: boolean; deleted: { subscriptions: number; payments: number } }>("DELETE", `/users/${id}`),
   subscriptions: () => req<{ subscriptions: Subscription[] }>("GET", "/subscriptions"),
   createSubscription: (b: unknown) => req("POST", "/subscriptions", b),
   updateSubscription: (id: number, b: unknown) => req("PATCH", `/subscriptions/${id}`, b),
+  deleteSubscription: (id: number) => req<{ ok: boolean; deleted: { payments: number } }>("DELETE", `/subscriptions/${id}`),
   plans: () => req<{ plans: Plan[] }>("GET", "/plans"),
   createPlan: (b: unknown) => req("POST", "/plans", b),
   updatePlan: (id: number, b: unknown) => req("PATCH", `/plans/${id}`, b),
+  deletePlan: (id: number) => req("DELETE", `/plans/${id}`),
   channelTags: () => req<{ channel_tags: ChannelTag[] }>("GET", "/channel-tags"),
   createChannelTag: (b: unknown) => req("POST", "/channel-tags", b),
   updateChannelTag: (id: number, b: unknown) => req("PATCH", `/channel-tags/${id}`, b),
+  deleteChannelTag: (id: number) => req("DELETE", `/channel-tags/${id}`),
   imageUrl: (key: string) => `${BASE}/image?key=${encodeURIComponent(key)}`,
   importMembers: async (file: File, startDate?: string) => {
     const fd = new FormData();
