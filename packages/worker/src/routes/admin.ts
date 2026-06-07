@@ -307,6 +307,18 @@ async function updatePlan(req: Request, env: Env, ctx: RouteCtx): Promise<Respon
   return json({ ok: true });
 }
 
+async function deletePlan(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const id = Number(ctx.params.id);
+  const ws = wsId(ctx);
+  const plan = await env.DB.prepare("SELECT * FROM plans WHERE id = ? AND workspace_id = ?").bind(id, ws).first();
+  if (!plan) return errorResponse(404, "not found");
+  const ref = await env.DB.prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE plan_id = ? AND workspace_id = ?").bind(id, ws).first<{ c: number }>();
+  if ((ref?.c ?? 0) > 0) return errorResponse(409, "此方案仍有訂閱，請先刪除訂閱或改用停用");
+  await env.DB.prepare("DELETE FROM plans WHERE id = ? AND workspace_id = ?").bind(id, ws).run();
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "plan.delete", entityType: "plan", entityId: id, before: plan });
+  return json({ ok: true });
+}
+
 // ── Subscriptions ─────────────────────────────────────────────────────────────
 
 async function listSubscriptions(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -383,6 +395,20 @@ async function updateChannelTag(req: Request, env: Env, ctx: RouteCtx): Promise<
   ).bind(b.name ?? null, b.type ?? null, b.active ?? null, b.sort_order ?? null, id).run();
   const after = await env.DB.prepare("SELECT * FROM channel_tags WHERE id = ?").bind(id).first();
   await writeAudit(env.DB, { workspaceId: wsId(ctx), actor: actorOf(ctx), action: "channel_tag.update", entityType: "channel_tag", entityId: id, before, after });
+  return json({ ok: true });
+}
+
+async function deleteChannelTag(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const id = Number(ctx.params.id);
+  const ws = wsId(ctx);
+  const tag = await env.DB.prepare("SELECT * FROM channel_tags WHERE id = ? AND workspace_id = ?").bind(id, ws).first();
+  if (!tag) return errorResponse(404, "not found");
+  const ref = await env.DB.prepare(
+    "SELECT COUNT(*) AS c FROM payments WHERE workspace_id = ? AND (verified_channel_tag_id = ? OR declared_channel_tag_id = ?)"
+  ).bind(ws, id, id).first<{ c: number }>();
+  if ((ref?.c ?? 0) > 0) return errorResponse(409, "此渠道已被繳費紀錄參照，請改用停用");
+  await env.DB.prepare("DELETE FROM channel_tags WHERE id = ? AND workspace_id = ?").bind(id, ws).run();
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "channel_tag.delete", entityType: "channel_tag", entityId: id, before: tag });
   return json({ ok: true });
 }
 
@@ -603,6 +629,7 @@ export function buildAdminRouter(): Router<Env> {
     .get("/admin/plans", listPlans)
     .post("/admin/plans", createPlan)
     .patch("/admin/plans/:id", updatePlan)
+    .delete("/admin/plans/:id", deletePlan)
     .get("/admin/subscriptions", listSubscriptions)
     .post("/admin/subscriptions", createSubscription)
     .patch("/admin/subscriptions/:id", updateSubscription)
@@ -610,6 +637,7 @@ export function buildAdminRouter(): Router<Env> {
     .get("/admin/channel-tags", listChannelTags)
     .post("/admin/channel-tags", createChannelTag)
     .patch("/admin/channel-tags/:id", updateChannelTag)
+    .delete("/admin/channel-tags/:id", deleteChannelTag)
     .get("/admin/payments", listPayments)
     .post("/admin/payments/manual", manualPayment)
     .post("/admin/payments/:id/verify", verifyPaymentHandler)
