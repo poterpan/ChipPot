@@ -40,4 +40,31 @@ describe("discordNotifier rendering", () => {
     expect(c).toContain("共 315");
     expect(sent[0].components).toBeTruthy(); // pay button row present
   });
+
+  it("de-dupes allowed_mentions.roles when two plans share a role (Discord rejects duplicate snowflakes)", async () => {
+    const sent = captureFetch();
+    // Standard + Premium both mapped to the same "Claude" role id.
+    const lines: PlanOpenLine[] = [
+      { plan_id: 1, plan_name: "Claude Standard", amount: 251, role_id: "claude" },
+      { plan_id: 2, plan_name: "Claude Premium", amount: 1258, role_id: "claude" },
+    ];
+    await discordNotifier.sendBillingOpened(env, "chan", "2026-06", lines, "{period}\n{plans}");
+    vi.unstubAllGlobals();
+    const roles = sent[0].allowed_mentions.roles as string[];
+    expect(roles).toEqual(["claude"]); // unique — no duplicate that would 400
+    // Both plan lines still render their own mention in the content (display is per-plan).
+    const c = sent[0].content as string;
+    expect(c.match(/<@&claude>/g)?.length).toBe(2);
+  });
+
+  it("de-dupes allowed_mentions.users when a member appears twice in the overdue list", async () => {
+    const sent = captureFetch();
+    const people: OverduePerson[] = [
+      { user_id: 1, discord_id: "d1", user_name: "小明", lines: [{ plan_name: "ChatGPT", amount: 315 }], total: 315 },
+      { user_id: 1, discord_id: "d1", user_name: "小明", lines: [{ plan_name: "Claude", amount: 251 }], total: 251 },
+    ];
+    await discordNotifier.sendOverdue(env, "chan", "2026-06", people, "{period}\n{list}");
+    vi.unstubAllGlobals();
+    expect(sent[0].allowed_mentions.users as string[]).toEqual(["d1"]);
+  });
 });
