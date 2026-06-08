@@ -13,8 +13,9 @@ export const discordNotifier: Notifier = {
     const total = lines.reduce((s, l) => s + l.amount, 0);
     const content = renderTemplate(template, { period, plans, total: total.toLocaleString() });
     // Pin mentions to exactly the plan role ids — so nothing else in the (admin-authored)
-    // template content can be coerced into a ping.
-    const roles = lines.map((l) => l.role_id).filter((r): r is string => !!r);
+    // template content can be coerced into a ping. De-dupe: two plans can share one role
+    // (e.g. Standard + Premium both → @Claude), and Discord 400s on duplicate snowflakes.
+    const roles = [...new Set(lines.map((l) => l.role_id).filter((r): r is string => !!r))];
     await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
       content,
       components: [payButtonRow()],
@@ -32,7 +33,8 @@ export const discordNotifier: Notifier = {
       .join("\n");
     const content = renderTemplate(template, { period, count: String(people.length), list });
     // Pin mentions to exactly the overdue members' ids — template/display-name text can't ping.
-    const users = people.map((p) => p.discord_id).filter((d): d is string => !!d);
+    // De-dupe defensively (same Discord duplicate-snowflake 400 risk as roles above).
+    const users = [...new Set(people.map((p) => p.discord_id).filter((d): d is string => !!d))];
     await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
       content,
       allowed_mentions: { parse: [], users },
