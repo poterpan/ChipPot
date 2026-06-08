@@ -14,6 +14,15 @@ export default defineConfig(async () => {
         wrangler: { configPath: "./wrangler.toml" },
         miniflare: {
           bindings: { TEST_MIGRATIONS: migrations },
+          // Declare the Worker's bindings here, not via wrangler.toml, so the test
+          // harness is decoupled from deployment-specific config. R2 is OPTIONAL in
+          // production (wrangler.toml's [[r2_buckets]] may be removed — see env.ts
+          // `BUCKET?`), so a fork that drops it must still get a working test bucket;
+          // otherwise `env.BUCKET` is undefined and the storage suite breaks. miniflare
+          // options take precedence over (and merge with) the wrangler config, while
+          // compatibility_date/flags + vars still come from wrangler.toml.
+          d1Databases: ["DB"],
+          r2Buckets: ["BUCKET"],
         },
       }),
     ],
