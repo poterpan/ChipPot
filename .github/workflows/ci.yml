@@ -34,4 +34,18 @@ jobs:
       # so it passes here without a .dev.vars (which is gitignored and never in CI).
       - run: pnpm -r test
 
+      # The web build hard-fails without VITE_API_BASE (see packages/web/vite.config.ts).
+      # Supply a throwaway value — CI only verifies the build compiles; admin/worker ignore it.
       - run: pnpm -r build
+        env:
+          VITE_API_BASE: https://example.invalid
+
+      # Regression guard: the web build MUST refuse to build without VITE_API_BASE, so a fork
+      # can never ship an upload page that white-screens at load (no VITE_API_BASE in this step).
+      - name: web build must fail without VITE_API_BASE
+        run: |
+          if pnpm --filter @chippot/web build; then
+            echo "::error::web build succeeded without VITE_API_BASE — the fail-fast guard is broken"
+            exit 1
+          fi
+          echo "OK: web build correctly refused to build without VITE_API_BASE"
