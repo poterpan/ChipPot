@@ -11,4 +11,13 @@ describe("test harness", () => {
     expect(env.DB).toBeDefined();
     expect(env.BUCKET).toBeDefined();
   });
+
+  // A local `.dev.vars` (gitignored) supplies a REAL DISCORD_BOT_TOKEN, but CI has none.
+  // If that token leaked into the test baseline, any code path gated on it (e.g.
+  // billing/initiate → sendBillingOpened) would make a REAL Discord fetch locally while
+  // CI silently takes the no-send branch — tests would behave differently per machine.
+  // The setup file scrubs it; tests that exercise sending set their own dummy token.
+  it("does not leak external secrets from .dev.vars into the test baseline", () => {
+    expect(env.DISCORD_BOT_TOKEN).toBeUndefined();
+  });
 });
