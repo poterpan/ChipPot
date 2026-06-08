@@ -8,7 +8,10 @@ declare global {
   namespace Cloudflare {
     interface Env extends AppEnv {
       TEST_MIGRATIONS: D1Migration[];
-      BUCKET: R2Bucket; // tests always provide R2; override the app's optional binding
+      // The harness always injects R2 (vitest.config.ts `miniflare.r2Buckets`), so override
+      // the app's optional `BUCKET?` to non-optional here. R2-absent behavior is exercised by
+      // tests that locally set `env.BUCKET = undefined`.
+      BUCKET: R2Bucket;
     }
   }
 }
