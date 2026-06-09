@@ -143,8 +143,8 @@ pnpm --filter @chippot/worker test
 pnpm --filter @chippot/worker typecheck
 pnpm --filter @chippot/worker dev          # 本地 wrangler dev
 
-# 前端
-pnpm --filter @chippot/web build
+# 前端 — web build 需要 VITE_API_BASE（你的 worker 網址）；admin 不需要
+VITE_API_BASE=https://chippot.<你的帳號子網域>.workers.dev pnpm --filter @chippot/web build
 pnpm --filter @chippot/admin build
 ```
 
@@ -161,16 +161,16 @@ pnpm --filter @chippot/admin build
 # 1. Worker — 套用 D1 migrations 後部署（含 cron trigger 與 admin.example.com/api 路由）
 pnpm --filter @chippot/worker run deploy
 
-# 2. 前端 → Pages
-cd packages/web   && pnpm build && wrangler pages deploy dist --project-name chippot-web   --branch main
+# 2. 前端 → Pages（web build 需帶 VITE_API_BASE = 你的 worker 網址）
+cd packages/web   && VITE_API_BASE=https://chippot.<你的帳號子網域>.workers.dev pnpm build && wrangler pages deploy dist --project-name chippot-web   --branch main
 cd packages/admin && pnpm build && wrangler pages deploy dist --project-name chippot-admin --branch main
 
 # 3. 註冊 guild slash 指令（/繳費 · /發起繳費 · /綁定）— 需在 packages/worker/.dev.vars 填入 DISCORD_BOT_TOKEN、DISCORD_APPLICATION_ID、DISCORD_GUILD_ID
 pnpm --filter @chippot/worker register
 ```
 
-請自行建立資源（D1、R2、一個 Access application）並把對應值填進 `wrangler.toml`——
-`database_id`、R2 bucket、`ACCESS_*` 與 Discord 相關 vars。
+請自行建立資源（D1 與一個 Access application；**R2 為選填**，只有繳費截圖功能才需要）並把對應值填進
+`wrangler.toml`——`database_id`、R2 bucket（不需要就移除 `[[r2_buckets]]`）、`ACCESS_*` 與 Discord 相關 vars。
 
 ## 設定
 

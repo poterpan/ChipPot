@@ -152,8 +152,8 @@ pnpm --filter @chippot/worker test
 pnpm --filter @chippot/worker typecheck
 pnpm --filter @chippot/worker dev          # local wrangler dev
 
-# Frontends
-pnpm --filter @chippot/web build
+# Frontends — the web build requires VITE_API_BASE (your worker URL); admin does not
+VITE_API_BASE=https://chippot.<your-subdomain>.workers.dev pnpm --filter @chippot/web build
 pnpm --filter @chippot/admin build
 ```
 
@@ -171,16 +171,17 @@ so DB tests seed real parents and use a distinct id-space (9001+).
 # 1. Worker — applies D1 migrations, then deploys (carries the cron + admin.example.com/api route)
 pnpm --filter @chippot/worker run deploy
 
-# 2. Frontends → Pages
-cd packages/web   && pnpm build && wrangler pages deploy dist --project-name chippot-web   --branch main
+# 2. Frontends → Pages (the web build needs VITE_API_BASE = your worker URL)
+cd packages/web   && VITE_API_BASE=https://chippot.<your-subdomain>.workers.dev pnpm build && wrangler pages deploy dist --project-name chippot-web   --branch main
 cd packages/admin && pnpm build && wrangler pages deploy dist --project-name chippot-admin --branch main
 
 # 3. Register the guild slash commands (/繳費 · /發起繳費 · /綁定) — needs DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID, DISCORD_GUILD_ID in packages/worker/.dev.vars
 pnpm --filter @chippot/worker register
 ```
 
-Provision your own resources (D1, R2, an Access application) and fill in `wrangler.toml`
-accordingly — `database_id`, the R2 bucket, `ACCESS_*`, and the Discord vars.
+Provision your own resources (D1 and an Access application; **R2 is optional** — only needed for
+payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, the R2 bucket (drop
+`[[r2_buckets]]` to skip), `ACCESS_*`, and the Discord vars.
 
 ## Configuration
 
