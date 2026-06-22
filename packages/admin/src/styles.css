@@ -64,9 +64,12 @@ button { font-family: inherit; }
 
 /* stat cards */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 22px; }
-.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+/* container-type makes each card a query container so .stat__value can scale to the
+   card's own width (cqi). Large amounts then shrink to fit a narrow card instead of
+   overflowing it; on wide cards the value caps at 26px (unchanged from before). */
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; container-type: inline-size; }
 .stat__label { font-size: 12px; letter-spacing: 1.5px; color: var(--muted); }
-.stat__value { font-family: "Spline Sans Mono", monospace; font-weight: 600; font-size: 26px; margin-top: 6px; }
+.stat__value { font-family: "Spline Sans Mono", monospace; font-weight: 600; font-size: clamp(14px, 9cqi, 26px); margin-top: 6px; white-space: nowrap; }
 .stat--accent .stat__value { color: var(--teal-ink); }
 
 /* card + table */
