@@ -220,3 +220,32 @@ describe("settleUserPeriod → payment notification wiring", () => {
     expect(body.content).toContain(`#payments?id=${r.paymentIds[0]}`);
   });
 });
+
+describe("settleUserPeriod — notification scheduled via waitUntil (Discord 3s budget)", () => {
+  const WS = 70020, USER = 70021, SUB = 70022, PLAN = 70023;
+  const PERIOD = "2027-11";
+  beforeAll(async () => {
+    await env.DB.batch([
+      ws(WS, { payment_webhook_url: "https://discord.com/api/webhooks/9/z" }),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?)`).bind(USER, WS, "阿華", TS, TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(PLAN, WS, "ChatGPT", "openai", 315, TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(SUB, WS, USER, PLAN, "2027-01-01", 1, TS, TS),
+      env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS, SUB, PERIOD, `${PERIOD}-01`, `${PERIOD}-30`, `${PERIOD}-05`, 315, "pending", "cron", TS, TS),
+    ]);
+  });
+
+  it("hands the notification to waitUntil instead of awaiting it inline", async () => {
+    const calls = capture();
+    const scheduled: Promise<unknown>[] = [];
+    const r = await settleUserPeriod(env, {
+      workspaceId: WS, userId: USER, period: PERIOD, source: "user_slash",
+      declaredChannelTagId: null, paymentNote: null, proof: null,
+      waitUntil: (p) => { scheduled.push(p); },
+    });
+    expect(r.paidCount).toBe(1);
+    expect(scheduled.length).toBe(1); // scheduled for the background, not awaited inline
+    await Promise.all(scheduled); // drain the background work
+    vi.unstubAllGlobals();
+    expect(calls.length).toBe(1); // the webhook still fired (in the background)
+  });
+});

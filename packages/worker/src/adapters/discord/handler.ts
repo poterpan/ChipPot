@@ -65,7 +65,7 @@ export function routeInteraction(
     case IT_COMMAND:
       return handleCommand(interaction, env, ctx);
     case IT_COMPONENT:
-      return handleComponent(interaction, env);
+      return handleComponent(interaction, env, ctx);
     case IT_MODAL_SUBMIT:
       return handleModalSubmit(interaction, env, ctx);
     default:
@@ -117,7 +117,7 @@ async function resolveMember(
 function handleCommand(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Response | Promise<Response> {
   if (i.data?.name === "繳費") {
     // Defer immediately (ephemeral); do all work in the background, then edit the reply.
-    ctx.waitUntil(deferredReply(i, env));
+    ctx.waitUntil(deferredReply(i, env, ctx));
     return json({ type: RT_DEFERRED, data: { flags: FLAG_EPHEMERAL } });
   }
   if (i.data?.name === "發起繳費") return handleInitiateCommand(i, env);
@@ -126,10 +126,10 @@ function handleCommand(i: DiscordInteraction, env: Env, ctx: ExecutionContext): 
 }
 
 /** Guarantees exactly one followup edit — never leaves the deferred reply hanging. */
-async function deferredReply(i: DiscordInteraction, env: Env): Promise<void> {
+async function deferredReply(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Promise<void> {
   let content: string;
   try {
-    content = await computePayResult(i, env);
+    content = await computePayResult(i, env, ctx);
   } catch (err) {
     console.error("pay command failed", err);
     content = "處理失敗，請稍後再試。";
@@ -148,7 +148,7 @@ function isDiscordCdnUrl(url: string): boolean {
 }
 
 /** `/繳費`: settle ALL of the user's period subs. 渠道 / 截圖 / 備註 — at least one. */
-async function computePayResult(i: DiscordInteraction, env: Env): Promise<string> {
+async function computePayResult(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Promise<string> {
   const m = await resolveWs(i, env);
   if (m instanceof Response) return ((await m.json()) as any).data.content;
   const { ws, discordId } = m;
@@ -206,6 +206,7 @@ async function computePayResult(i: DiscordInteraction, env: Env): Promise<string
   const r = await settleUserPeriod(env, {
     workspaceId: ws, userId, period, source: "user_slash",
     declaredChannelTagId, paymentNote: note, proof,
+    waitUntil: (p) => ctx.waitUntil(p), // notify in the background (followup reply stays snappy)
   });
   if (r.paidCount === 0) return `本期（${period}）已登記繳費，無需重複操作。`;
   const ignoredNote = screenshotIgnored ? "（本站未開啟截圖功能，已記錄你的繳費宣告）" : "";
@@ -279,10 +280,10 @@ async function deferredInitiate(i: DiscordInteraction, env: Env): Promise<void> 
 
 // ── Components: persistent button → channel select → settle ──────────────────
 
-function handleComponent(i: DiscordInteraction, env: Env): Promise<Response> {
+function handleComponent(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Promise<Response> {
   const cid = i.data?.custom_id ?? "";
   if (cid.startsWith(BIND_SELECT_PREFIX)) return handleBindSelect(i, env);
-  if (cid.startsWith(PAY_SELECT_PREFIX)) return handlePaySelect(i, env);
+  if (cid.startsWith(PAY_SELECT_PREFIX)) return handlePaySelect(i, env, ctx);
   if (cid.startsWith(PAY_BUTTON_PREFIX)) return handlePayButton(i, env);
   return Promise.resolve(ephemeral("未支援的按鈕。"));
 }
@@ -390,7 +391,7 @@ async function handlePayButton(i: DiscordInteraction, env: Env): Promise<Respons
 
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-async function handlePaySelect(i: DiscordInteraction, env: Env): Promise<Response> {
+async function handlePaySelect(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Promise<Response> {
   const m = await resolveMember(i, env);
   if (m instanceof Response) return m;
   const { ws, userId } = m;
@@ -418,6 +419,7 @@ async function handlePaySelect(i: DiscordInteraction, env: Env): Promise<Respons
   try {
     const r = await settleUserPeriod(env, {
       workspaceId: ws, userId, period, declaredChannelTagId: tagId, source: "user_slash",
+      waitUntil: (p) => ctx.waitUntil(p), // notify in the background — keep the interaction < 3s
     });
     if (r.paidCount === 0) {
       return json({ type: RT_UPDATE_MESSAGE, data: { content: "✅ 你本期已登記繳費，無需重複操作。", components: [] } });

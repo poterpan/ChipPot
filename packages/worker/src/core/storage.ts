@@ -98,6 +98,10 @@ export interface SettleInput {
   paymentNote?: string | null;
   proof?: { body: R2Body; ext: string; contentType: string } | null;
   tokenHash?: string | null; // web path only: atomically claim the one-time token
+  // Optional: schedule the post-settle notification in the background instead of awaiting it.
+  // Discord component interactions MUST respond within 3s, so they pass ctx.waitUntil here;
+  // when omitted (e.g. the web upload route), the notification is awaited inline.
+  waitUntil?: (p: Promise<unknown>) => void;
 }
 
 export interface SettleResult {
@@ -225,16 +229,19 @@ export async function settleUserPeriod(env: Env, input: SettleInput): Promise<Se
   const totalAmount = paidRows.results.reduce((s, r) => s + r.amount, 0);
   const paymentIds = paidRows.results.map((r) => r.id);
 
-  // Notify the owner that there's a payment to review (Bark / webhook, if configured). Awaited
-  // here so it completes within the request (reliable without waitUntil), but bounded and
-  // never-throwing inside notifyPaymentSubmitted so it can't fail or stall the settle.
+  // Notify the owner that there's a payment to review (Bark / webhook, if configured).
+  // notifyPaymentSubmitted does external HTTP and never throws. On the Discord component path it
+  // must NOT be awaited (the interaction has a hard 3s budget — awaiting it caused "此交互失敗"
+  // even though the push went out), so callers pass ctx.waitUntil to run it in the background.
+  // Without waitUntil (e.g. the web upload route, no hard limit) we await it inline.
   if (paidCount > 0) {
     const u = await env.DB.prepare("SELECT display_name FROM users WHERE id = ?")
       .bind(userId).first<{ display_name: string }>();
-    await notifyPaymentSubmitted(env, {
+    const notifying = notifyPaymentSubmitted(env, {
       workspaceId, payer: u?.display_name ?? `#${userId}`,
       amount: totalAmount, period, paymentId: paymentIds[0]!, paidCount,
     });
+    if (input.waitUntil) input.waitUntil(notifying); else await notifying;
   }
 
   return {
