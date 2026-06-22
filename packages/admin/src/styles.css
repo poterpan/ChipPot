@@ -154,3 +154,59 @@ tbody tr.click:hover { background: #faf7f0; }
   .content { padding: 18px 14px 48px; }
   .toolbar .grow { display: none; }
 }
+
+/* ── settings redesign ─────────────────────────────────────────────────────── */
+:root { --muted-strong: #6b6253; } /* darker muted for small helper text (>=4.5:1 on --bg) */
+/* fill the content area (capped by .content's max-width) so cards are wide enough that
+   field hints sit on one line and same-row inputs line up — width stays uniform across cards. */
+.settings { max-width: 1040px; padding-bottom: 96px; }
+/* card head can carry a one-line description under the title */
+.card__head-main { min-width: 0; }
+.card__head-desc { font-size: 12.5px; color: var(--muted-strong); margin-top: 2px; font-weight: 400; }
+.card__body { padding: 16px 18px; }
+/* settings field labels read stronger than the default muted form label */
+.settings .field__label { color: var(--ink); font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+.field__hint { display: block; font-size: 12px; color: var(--muted-strong); margin-bottom: 6px; line-height: 1.45; }
+/* two-up grid; same-row inputs bottom-align regardless of hint height (stable across widths) */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 18px; }
+.grid2 .field { display: flex; flex-direction: column; }
+.grid2 .field input, .grid2 .field select { margin-top: auto; }
+.ph { font-family: "Spline Sans Mono", monospace; font-size: 11.5px; background: rgba(31,28,23,.07); border-radius: 4px; padding: 1px 5px; }
+
+/* status chip in a card head */
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.chip--ok { background: #def0e6; color: var(--teal-ink); }
+.chip--off { background: #f3ede0; color: #8a6d2f; }
+
+/* notification preview + disclosures */
+.preview-label { font-size: 12px; color: var(--muted-strong); margin: 4px 0 5px; font-weight: 600; }
+.preview { border: 1px dashed var(--line); background: #faf7f0; border-radius: 9px; padding: 11px 13px; white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+details.custom, details.adv { margin: 4px 0 14px; }
+details.custom > summary, details.adv > summary { cursor: pointer; font-size: 13px; color: var(--teal-ink); list-style: none; user-select: none; }
+details.custom > summary::-webkit-details-marker, details.adv > summary::-webkit-details-marker { display: none; }
+details.custom > summary::before, details.adv > summary::before { content: "\25B8  "; }
+details.custom[open] > summary::before, details.adv[open] > summary::before { content: "\25BE  "; }
+details.custom > .field, details.adv > .field { margin-top: 10px; }
+
+/* one-off action rows */
+.actionrow { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.actionrow:last-child { border-bottom: 0; }
+.actionrow__main { min-width: 0; }
+.actionrow__title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.actionrow__desc { font-size: 12.5px; color: var(--muted-strong); margin-top: 2px; }
+.actionrow__act { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; text-align: right; }
+.actionrow--warn { padding-left: 12px; border-left: 3px solid #ecc98e; margin-left: -12px; }
+.tag { font-size: 10.5px; letter-spacing: .5px; padding: 2px 7px; border-radius: 999px; background: #eee7d8; color: #8a7d63; white-space: nowrap; }
+.tag--warn { background: #f6ead2; color: var(--amber); }
+.act-feedback { font-size: 12.5px; }
+.warnnote { background: #fbf1dd; border: 1px solid #ecc98e; color: #7a5a16; font-size: 12.5px; border-radius: 8px; padding: 8px 11px; margin-bottom: 14px; line-height: 1.5; }
+
+/* sticky save bar: only the saved settings; one-off tools are independent */
+.savebar { position: fixed; left: 232px; right: 0; bottom: 0; display: flex; align-items: center; gap: 12px; padding: 12px 28px; background: rgba(255,255,255,.92); backdrop-filter: blur(6px); border-top: 1px solid var(--line); z-index: 20; }
+.savebar__note { margin-right: auto; font-size: 13px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.savebar__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); flex: 0 0 auto; }
+
+@media (max-width: 720px) {
+  .settings { max-width: none; padding-bottom: 110px; }
+  .savebar { left: 0; padding: 12px 16px; }
+}

@@ -1,10 +1,13 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { buildBarkUrl, pickWebhookBody, notifyPaymentSubmitted, type PaymentNotifyVars } from "../../src/core/payment-notify";
+import {
+  buildBarkUrl, renderMessage, pickWebhookBody, notifyPaymentSubmitted,
+  DEFAULT_NOTIFY_TEMPLATE, type PaymentNotifyVars,
+} from "../../src/core/payment-notify";
 import { settleUserPeriod } from "../../src/core/storage";
 
 const TS = "2026-05-01T00:00:00.000Z";
-const WS_EMPTY = 70000, WS_BARK = 70001, WS_HOOK = 70002, WS_BOTH = 70003;
+const WS_EMPTY = 70000, WS_BARK = 70001, WS_HOOK = 70002, WS_BOTH = 70003, WS_CUSTOM = 70004;
 
 function ws(id: number, settings: object) {
   return env.DB
@@ -15,9 +18,10 @@ function ws(id: number, settings: object) {
 beforeAll(async () => {
   await env.DB.batch([
     ws(WS_EMPTY, {}),
-    ws(WS_BARK, { payment_bark_url: "https://api.day.app/KEY/新繳費 {payer}/NT${amount} {period}?url={admin_url}" }),
+    ws(WS_BARK, { payment_bark_key: "3hGxxKEY" }), // no server → default api.day.app
     ws(WS_HOOK, { payment_webhook_url: "https://discord.com/api/webhooks/1/abc" }),
-    ws(WS_BOTH, { payment_bark_url: "https://api.day.app/KEY/{payer}", payment_webhook_url: "https://chat.googleapis.com/v1/spaces/x" }),
+    ws(WS_BOTH, { payment_bark_key: "K2", payment_webhook_url: "https://chat.googleapis.com/v1/spaces/x" }),
+    ws(WS_CUSTOM, { payment_webhook_url: "https://discord.com/api/webhooks/1/abc", payment_notify_template: "自訂：{payer} 繳了 {amount}" }),
   ]);
 });
 
@@ -35,19 +39,28 @@ const envWith = (origin: string | undefined) => ({ ...env, ADMIN_ORIGIN: origin 
 
 const V: PaymentNotifyVars = { payer: "廖清筆", amount: "1,573", period: "2026-06", admin_url: "https://admin.x/#payments?id=9" };
 
-describe("buildBarkUrl", () => {
-  it("URL-encodes every value and drops the placeholders", () => {
-    const out = buildBarkUrl("https://api.day.app/K/新繳費 {payer}/NT${amount} {period}?url={admin_url}", V);
-    expect(out).toContain(encodeURIComponent("廖清筆"));
-    expect(out).toContain(encodeURIComponent("1,573"));
-    expect(out).toContain(encodeURIComponent("https://admin.x/#payments?id=9"));
-    expect(out).not.toContain("{payer}");
-    expect(out).not.toContain("{admin_url}");
-    // the literal NT$ prefix stays; only {amount} is substituted
-    expect(out).toContain("NT$" + encodeURIComponent("1,573"));
+describe("renderMessage", () => {
+  it("fills placeholders with raw (un-encoded) values", () => {
+    expect(renderMessage("{payer} NT${amount}（{period}）", V)).toBe("廖清筆 NT$1,573（2026-06）");
   });
-  it("leaves unknown placeholders untouched", () => {
-    expect(buildBarkUrl("x/{unknown}/{payer}", V)).toContain("{unknown}");
+  it("substitutes {admin_url} when present", () => {
+    expect(renderMessage("→ {admin_url}", V)).toBe("→ https://admin.x/#payments?id=9");
+  });
+});
+
+describe("buildBarkUrl", () => {
+  it("builds {server}/{key}/{body}?url={click}, encoding body and click link", () => {
+    const out = buildBarkUrl("https://api.day.app", "KEY123", "💳 廖清筆 NT$1,573", "https://admin.x/#payments?id=9");
+    expect(out.startsWith("https://api.day.app/KEY123/")).toBe(true);
+    expect(out).toContain(encodeURIComponent("💳 廖清筆 NT$1,573"));
+    expect(out).toContain("?url=" + encodeURIComponent("https://admin.x/#payments?id=9"));
+  });
+  it("defaults the server when blank and trims a trailing slash", () => {
+    expect(buildBarkUrl("", "K", "hi", "")).toBe("https://api.day.app/K/" + encodeURIComponent("hi"));
+    expect(buildBarkUrl("https://bark.me/", "K", "hi", "")).toBe("https://bark.me/K/" + encodeURIComponent("hi"));
+  });
+  it("omits ?url when there is no click link", () => {
+    expect(buildBarkUrl("https://api.day.app", "K", "hi", "")).not.toContain("?url=");
   });
 });
 
@@ -84,17 +97,19 @@ describe("notifyPaymentSubmitted", () => {
     expect(calls.length).toBe(0);
   });
 
-  it("Bark → one GET carrying the encoded payer and admin deep link", async () => {
+  it("Bark → one GET to {default server}/{key}/... with encoded body + tappable review link", async () => {
     const calls = capture();
     await notifyPaymentSubmitted(envWith("https://admin.panspace.dev"), { workspaceId: WS_BARK, ...baseInput });
     vi.unstubAllGlobals();
     expect(calls.length).toBe(1);
     expect(calls[0]!.init?.method ?? "GET").toBe("GET");
-    expect(calls[0]!.url).toContain(encodeURIComponent("廖清筆"));
-    expect(calls[0]!.url).toContain(encodeURIComponent("https://admin.panspace.dev/#payments?id=1234"));
+    const u = calls[0]!.url;
+    expect(u.startsWith("https://api.day.app/3hGxxKEY/")).toBe(true);
+    expect(u).toContain(encodeURIComponent("廖清筆"));
+    expect(u).toContain("?url=" + encodeURIComponent("https://admin.panspace.dev/#payments?id=1234"));
   });
 
-  it("Discord webhook → one POST with { content } including the review link", async () => {
+  it("Discord webhook → one POST with { content } including the appended review link", async () => {
     const calls = capture();
     await notifyPaymentSubmitted(envWith("https://admin.x"), { workspaceId: WS_HOOK, ...baseInput });
     vi.unstubAllGlobals();
@@ -102,6 +117,15 @@ describe("notifyPaymentSubmitted", () => {
     expect(calls[0]!.init?.method).toBe("POST");
     const body = JSON.parse(calls[0]!.init!.body as string);
     expect(body.content).toContain("廖清筆");
+    expect(body.content).toContain("審核 → https://admin.x/#payments?id=1234");
+  });
+
+  it("uses a custom notify template when set", async () => {
+    const calls = capture();
+    await notifyPaymentSubmitted(envWith("https://admin.x"), { workspaceId: WS_CUSTOM, ...baseInput });
+    vi.unstubAllGlobals();
+    const body = JSON.parse(calls[0]!.init!.body as string);
+    expect(body.content).toContain("自訂：廖清筆 繳了 1,573");
     expect(body.content).toContain("審核 → https://admin.x/#payments?id=1234");
   });
 
@@ -119,6 +143,10 @@ describe("notifyPaymentSubmitted", () => {
     expect(calls.length).toBe(1);
     const body = JSON.parse(calls[0]!.init!.body as string);
     expect(body.content).not.toContain("審核 →");
+  });
+
+  it("the built-in default template is what ships when none is set", () => {
+    expect(DEFAULT_NOTIFY_TEMPLATE).toContain("{payer}");
   });
 });
 

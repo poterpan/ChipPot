@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, currentPeriod, nextBillingPeriod } from "../api";
 import { useAsync, Card, Field, Empty, Modal, IconCheck, IconWarning } from "../ui";
 
@@ -6,15 +6,16 @@ const PLACEHOLDER_RE = /\{(\w+)\}/g;
 const OVERDUE_KEYS = ["period", "count", "list"];
 const BILLING_KEYS = ["period", "plans", "total"];
 const MSG_KEYS = ["period"];
+const NOTIFY_KEYS = ["payer", "amount", "period", "admin_url"];
+// Mirrors DEFAULT_NOTIFY_TEMPLATE in worker/src/core/payment-notify.ts.
+const DEFAULT_NOTIFY = "💳 新繳費待審核：{payer} NT${amount}（{period}）";
 
 function renderTpl(tpl: string, vars: Record<string, string>): string {
   return tpl.replace(PLACEHOLDER_RE, (whole, key) => (key in vars ? vars[key]! : whole));
 }
-// Render a Discord-flavored markdown subset to HTML so the preview matches what Discord shows
-// (the reported case: **bold** rendered literally before). Input is HTML-escaped first, so the
-// returned string is safe to inject. Code is protected before emphasis so markdown inside
-// `code`/```blocks``` stays literal, exactly like Discord — and the default templates use both
-// **bold** and `/繳費`. Newlines are left to the container's white-space: pre-wrap.
+// Render a Discord-flavored markdown subset to HTML so the preview matches what Discord shows.
+// Input is HTML-escaped first, so the returned string is safe to inject; code is protected before
+// emphasis so markdown inside `code`/```blocks``` stays literal, exactly like Discord.
 function renderDiscordMarkdown(src: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const emphasis = (s: string) => s
@@ -23,9 +24,6 @@ function renderDiscordMarkdown(src: string): string {
     .replace(/~~([\s\S]+?)~~/g, "<s>$1</s>")
     .replace(/\*([^*\n]+?)\*/g, "<em>$1</em>")
     .replace(/_([^_\n]+?)_/g, "<em>$1</em>");
-  // Split into code / non-code segments and apply emphasis only outside code, so markdown inside
-  // `code` or ```blocks``` stays literal — exactly how Discord renders it. Each segment is
-  // HTML-escaped before any tags are added, so the result is safe to inject.
   const codeRe = /```[\s\S]*?```|`[^`\n]+?`/g;
   let out = "", last = 0, m: RegExpExecArray | null;
   while ((m = codeRe.exec(src))) {
@@ -62,66 +60,89 @@ function TemplateField({ label, value, onChange, allowed, sample, disabled, rows
         <div className="error-banner" style={{ marginTop: 6 }}>未知的佔位符：{unknown.map((k) => `{${k}}`).join(", ")}（請修正後才能儲存）</div>
       )}
       <div style={{ marginTop: 6, padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", fontSize: 13, color: "var(--muted)" }}>
-        <div className="field__label" style={{ marginBottom: 4 }}>預覽</div>
-        {/* Render the Discord markdown so the preview matches the sent message; HTML is escaped in renderDiscordMarkdown. */}
+        <div className="field__label" style={{ marginBottom: 4, color: "var(--muted)", fontWeight: 400 }}>預覽</div>
         <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(renderTpl(value, sample)) }} />
       </div>
     </Field>
   );
 }
 
+interface Form {
+  billing_day: string; overdue_days: string; proof_retention_months: string;
+  discord_guild_id: string; discord_billing_channel_id: string; admin_discord_ids: string;
+  bark_key: string; bark_server: string; webhook_url: string; notify_template: string;
+  overdue_template: string; billing_opened_template: string; payment_message_template: string;
+}
+const EMPTY: Form = {
+  billing_day: "", overdue_days: "", proof_retention_months: "",
+  discord_guild_id: "", discord_billing_channel_id: "", admin_discord_ids: "",
+  bark_key: "", bark_server: "https://api.day.app", webhook_url: "", notify_template: "",
+  overdue_template: "", billing_opened_template: "", payment_message_template: "",
+};
+
 export function Settings() {
   const { data, loading, error } = useAsync(() => api.workspace(), []);
-  const [billingDay, setBillingDay] = useState("5");
-  const [overdue, setOverdue] = useState("3");
-  const [retention, setRetention] = useState("24");
-  const [guild, setGuild] = useState("");
-  const [channel, setChannel] = useState("");
-  const [adminIds, setAdminIds] = useState("");
-  const [tplOverdue, setTplOverdue] = useState("");
-  const [tplBilling, setTplBilling] = useState("");
-  const [tplMessage, setTplMessage] = useState("");
-  const [barkUrl, setBarkUrl] = useState("");
-  const [webhookUrl, setWebhookUrl] = useState("");
+  const [form, setForm] = useState<Form>(EMPTY);
+  const [saved, setSaved] = useState<Form>(EMPTY);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!data) return;
-    const w = (data as any).workspace;
-    setBillingDay(String(w.billing_day));
-    setOverdue(String(w.settings.overdue_days));
-    setRetention(String(w.settings.proof_retention_months));
-    setGuild(w.settings.discord_guild_id ?? "");
-    setChannel(w.settings.discord_billing_channel_id ?? "");
-    setAdminIds((w.settings.admin_discord_ids ?? []).join(", "));
-    setTplOverdue(w.settings.overdue_template ?? "");
-    setTplBilling(w.settings.billing_opened_template ?? "");
-    setTplMessage(w.settings.payment_message_template ?? "");
-    setBarkUrl(w.settings.payment_bark_url ?? "");
-    setWebhookUrl(w.settings.payment_webhook_url ?? "");
+    const w = (data as any).workspace; const s = w.settings;
+    const f: Form = {
+      billing_day: String(w.billing_day),
+      overdue_days: String(s.overdue_days),
+      proof_retention_months: String(s.proof_retention_months),
+      discord_guild_id: s.discord_guild_id ?? "",
+      discord_billing_channel_id: s.discord_billing_channel_id ?? "",
+      admin_discord_ids: (s.admin_discord_ids ?? []).join(", "),
+      bark_key: s.payment_bark_key ?? "",
+      bark_server: s.payment_bark_server ?? "https://api.day.app",
+      webhook_url: s.payment_webhook_url ?? "",
+      notify_template: s.payment_notify_template ?? "",
+      overdue_template: s.overdue_template ?? "",
+      billing_opened_template: s.billing_opened_template ?? "",
+      payment_message_template: s.payment_message_template ?? "",
+    };
+    setForm(f); setSaved(f);
   }, [data]);
 
+  const set = (k: keyof Form) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(saved), [form, saved]);
+  const samples = sampleVars();
+  const tplInvalid =
+    unknownKeys(form.overdue_template, OVERDUE_KEYS).length > 0 ||
+    unknownKeys(form.billing_opened_template, BILLING_KEYS).length > 0 ||
+    unknownKeys(form.payment_message_template, MSG_KEYS).length > 0 ||
+    unknownKeys(form.notify_template, NOTIFY_KEYS).length > 0;
+  // One-off actions use the SAVED billing day (not the unsaved form value), so the period they
+  // act on always matches what's persisted. Edits only take effect after 儲存變更.
+  const savedBillingDay = Number(saved.billing_day) || 1;
+
+  function flash(msg: string) { setToast(msg); window.setTimeout(() => setToast(null), 2400); }
   async function save() {
-    setBusy(true); setErr(null); setSaved(false);
+    setBusy(true); setErr(null);
     try {
       await api.updateWorkspace({
-        billing_day: Number(billingDay),
+        billing_day: Number(form.billing_day),
         settings: {
-          overdue_days: Number(overdue),
-          proof_retention_months: Number(retention),
-          discord_guild_id: guild,
-          discord_billing_channel_id: channel,
-          admin_discord_ids: adminIds.split(",").map((s) => s.trim()).filter(Boolean),
-          overdue_template: tplOverdue,
-          billing_opened_template: tplBilling,
-          payment_message_template: tplMessage,
-          payment_bark_url: barkUrl.trim(),
-          payment_webhook_url: webhookUrl.trim(),
+          overdue_days: Number(form.overdue_days),
+          proof_retention_months: Number(form.proof_retention_months),
+          discord_guild_id: form.discord_guild_id,
+          discord_billing_channel_id: form.discord_billing_channel_id,
+          admin_discord_ids: form.admin_discord_ids.split(",").map((s) => s.trim()).filter(Boolean),
+          overdue_template: form.overdue_template,
+          billing_opened_template: form.billing_opened_template,
+          payment_message_template: form.payment_message_template,
+          payment_bark_key: form.bark_key.trim(),
+          payment_bark_server: form.bark_server.trim() || "https://api.day.app",
+          payment_webhook_url: form.webhook_url.trim(),
+          payment_notify_template: form.notify_template.trim(),
         },
       });
-      setSaved(true);
+      setSaved(form); flash("已儲存變更");
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }
@@ -129,68 +150,115 @@ export function Settings() {
   if (loading) return <Empty>載入中…</Empty>;
   if (error) return <div className="error-banner">{error}</div>;
 
-  const samples = sampleVars();
-  // Use the form's billing-day value so the 發起繳費 default tracks edits (and saves) immediately.
-  const effBillingDay = Number(billingDay) || 1;
-  const tplInvalid =
-    unknownKeys(tplOverdue, OVERDUE_KEYS).length > 0 ||
-    unknownKeys(tplBilling, BILLING_KEYS).length > 0 ||
-    unknownKeys(tplMessage, MSG_KEYS).length > 0;
+  const r2 = (data as any)?.r2_configured;
+  const notifyTpl = form.notify_template.trim() || DEFAULT_NOTIFY;
+  const notifySample = { payer: "廖清筆", amount: "1,258", period: currentPeriod(), admin_url: `${window.location.origin}/#payments?id=1042` };
+  const notifyPreview = renderTpl(notifyTpl, notifySample) + (/\{admin_url\}/.test(notifyTpl) ? "" : `\n審核 → ${notifySample.admin_url}`);
 
   return (
-    <Card title="設定">
-      <div style={{ padding: "18px 20px", maxWidth: 460 }}>
-        {err && <div className="error-banner">{err}</div>}
-        {saved && <div style={{ color: "var(--teal)", marginBottom: 12 }}>✓ 已儲存</div>}
-        {data && (
-          <div style={{ marginBottom: 14, fontSize: 14 }}>
-            <span className="field__label">截圖儲存（R2）：</span>{" "}
-            {(data as any).r2_configured
-              ? <span style={{ color: "var(--teal)" }}><IconCheck /> 已啟用</span>
-              : <span style={{ color: "var(--muted)" }}><IconWarning /> 未啟用（成員無法上傳截圖；其餘功能正常）</span>}
+    <div className="settings">
+      {err && <div className="error-banner">{err}</div>}
+
+      <Card title="基本計費" desc="收費節奏與截圖保存"
+        action={r2 != null && (r2
+          ? <span className="chip chip--ok"><IconCheck /> 截圖儲存已啟用</span>
+          : <span className="chip chip--off"><IconWarning /> 截圖未啟用</span>)}>
+        <div className="card__body">
+          <div className="grid2">
+            <Field label="每月結帳日"><span className="field__hint">每月幾號向所有成員開帳收費（1–28）。</span><input type="number" min={1} max={28} value={form.billing_day} onChange={(e) => set("billing_day")(e.target.value)} disabled={busy} /></Field>
+            <Field label="逾期天數"><span className="field__hint">開帳後幾天仍未繳就列入催繳。</span><input type="number" min={0} value={form.overdue_days} onChange={(e) => set("overdue_days")(e.target.value)} disabled={busy} /></Field>
+            <Field label="截圖保存月數"><span className="field__hint">超過月數的繳費截圖自動清除（對帳資料保留）。</span><input type="number" min={1} value={form.proof_retention_months} onChange={(e) => set("proof_retention_months")(e.target.value)} disabled={busy} /></Field>
           </div>
-        )}
-        <Field label="統一結帳日 (1-28)"><input type="number" value={billingDay} onChange={(e) => setBillingDay(e.target.value)} disabled={busy} /></Field>
-        <Field label="逾期天數"><input type="number" value={overdue} onChange={(e) => setOverdue(e.target.value)} disabled={busy} /></Field>
-        <Field label="截圖保存月數 (retention)"><input type="number" value={retention} onChange={(e) => setRetention(e.target.value)} disabled={busy} /></Field>
-        <Field label="Discord Guild ID"><input value={guild} onChange={(e) => setGuild(e.target.value)} disabled={busy} /></Field>
-        <Field label="Discord 繳費頻道 ID"><input value={channel} onChange={(e) => setChannel(e.target.value)} disabled={busy} /></Field>
-        <Field label="可發起繳費的管理員 Discord ID（逗號分隔）"><input value={adminIds} onChange={(e) => setAdminIds(e.target.value)} disabled={busy} /></Field>
-
-        <div className="field__label" style={{ marginTop: 4, marginBottom: 6, fontWeight: 700, color: "var(--ink)" }}>繳費通知（選填，有人繳費就推播給你並附審核連結）</div>
-        <Field label="Bark 推播網址（GET 模板）">
-          <input value={barkUrl} onChange={(e) => setBarkUrl(e.target.value)} disabled={busy} placeholder="https://api.day.app/你的KEY/新繳費 {payer}/NT${amount}?url={admin_url}" />
-        </Field>
-        <Field label="Webhook 網址（POST；Discord / Google Chat / Slack / 自訂，依網址自動辨識格式）">
-          <input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} disabled={busy} placeholder="https://discord.com/api/webhooks/..." />
-        </Field>
-        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -6, marginBottom: 14 }}>
-          可用佔位符：<code>{"{payer}"}</code> <code>{"{amount}"}</code> <code>{"{period}"}</code> <code>{"{admin_url}"}</code>（admin_url 為深連到該筆繳費的後台網址）。兩者皆選填，填了才會推播。
         </div>
-        <TemplateField label="逾期催繳文字（{period} {count} {list}）" value={tplOverdue} onChange={setTplOverdue} allowed={OVERDUE_KEYS} sample={samples.overdue} disabled={busy} rows={4} />
-        <TemplateField label="開繳通知文字（{period} {plans} {total}）" value={tplBilling} onChange={setTplBilling} allowed={BILLING_KEYS} sample={samples.billing} disabled={busy} rows={4} />
-        <TemplateField label="常駐繳費訊息文字（{period}）" value={tplMessage} onChange={setTplMessage} allowed={MSG_KEYS} sample={samples.message} disabled={busy} rows={3} />
-        {tplInvalid && <div className="error-banner" style={{ marginBottom: 10 }}>有未知的佔位符，請修正後再儲存。</div>}
-        <button className="btn btn--primary" onClick={save} disabled={busy || tplInvalid}>儲存設定</button>
+      </Card>
 
-        <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
-        <div className="field__label">常駐繳費訊息</div>
-        <RebuildMessage />
+      <Card title="Discord 串接" desc="ID 在 Discord 開「開發者模式」後右鍵複製">
+        <div className="card__body">
+          <div className="grid2">
+            <Field label="伺服器 ID（Guild）"><span className="field__hint">右鍵你的伺服器 → 複製伺服器 ID。</span><input className="mono" value={form.discord_guild_id} onChange={(e) => set("discord_guild_id")(e.target.value)} disabled={busy} /></Field>
+            <Field label="繳費頻道 ID"><span className="field__hint">右鍵繳費頻道 → 複製頻道 ID。</span><input className="mono" value={form.discord_billing_channel_id} onChange={(e) => set("discord_billing_channel_id")(e.target.value)} disabled={busy} /></Field>
+          </div>
+          <Field label="可發起繳費的管理員"><span className="field__hint">能在 Discord 用 <code className="ph">/發起繳費</code> 的人（逗號分隔的 Discord ID）。與「能登入這個後台」是兩回事 —— 後台登入由 Cloudflare Access 控管。</span><input className="mono" value={form.admin_discord_ids} onChange={(e) => set("admin_discord_ids")(e.target.value)} disabled={busy} /></Field>
+        </div>
+      </Card>
 
-        <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
-        <div className="field__label">Discord slash 指令</div>
-        <RegisterCommands />
+      <Card title="繳費通知" desc="有人送出繳費時通知你，並附一鍵直達的審核連結（選填）">
+        <div className="card__body">
+          <Field label="Bark（手機推播）"><span className="field__hint">貼上 Bark App 的裝置金鑰即可，不必自己組網址。</span><input value={form.bark_key} onChange={(e) => set("bark_key")(e.target.value)} disabled={busy} placeholder="例如 3hGxx6xNqpHE7h5keQZNni" /></Field>
+          <details className="adv" open={!!form.bark_server && form.bark_server !== "https://api.day.app"}>
+            <summary>自架 Bark 伺服器</summary>
+            <Field label="Bark 伺服器網址"><input value={form.bark_server} onChange={(e) => set("bark_server")(e.target.value)} disabled={busy} placeholder="https://api.day.app" /></Field>
+          </details>
+          <Field label="Webhook"><span className="field__hint">貼上 Discord／Google Chat／Slack 的 Webhook 網址，格式自動判斷。</span><input value={form.webhook_url} onChange={(e) => set("webhook_url")(e.target.value)} disabled={busy} placeholder="https://discord.com/api/webhooks/..." /></Field>
 
-        <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
-        <InitiateBilling billingDay={effBillingDay} />
+          <div className="preview-label">會送出的內容</div>
+          <div className="preview">{notifyPreview}</div>
 
-        <ImportRoster />
+          <details className="custom" open={!!form.notify_template}>
+            <summary>自訂通知文字</summary>
+            <div className="field">
+              <span className="field__hint">可用 <code className="ph">{"{payer}"}</code> <code className="ph">{"{amount}"}</code> <code className="ph">{"{period}"}</code> <code className="ph">{"{admin_url}"}</code>。留空＝用預設。</span>
+              <textarea value={form.notify_template} onChange={(e) => set("notify_template")(e.target.value)} disabled={busy} rows={3} placeholder={DEFAULT_NOTIFY} style={{ width: "100%", fontFamily: "inherit" }} />
+              {unknownKeys(form.notify_template, NOTIFY_KEYS).length > 0 && (
+                <div className="error-banner" style={{ marginTop: 6 }}>未知的佔位符：{unknownKeys(form.notify_template, NOTIFY_KEYS).map((k) => `{${k}}`).join(", ")}</div>
+              )}
+            </div>
+          </details>
+        </div>
+      </Card>
+
+      <Card title="Discord 訊息文字" desc="機器人在頻道發出的訊息（支援 Discord markdown，即時預覽）">
+        <div className="card__body">
+          <TemplateField label="開繳通知（{period} {plans} {total}）" value={form.billing_opened_template} onChange={set("billing_opened_template")} allowed={BILLING_KEYS} sample={samples.billing} disabled={busy} rows={4} />
+          <TemplateField label="逾期催繳（{period} {count} {list}）" value={form.overdue_template} onChange={set("overdue_template")} allowed={OVERDUE_KEYS} sample={samples.overdue} disabled={busy} rows={4} />
+          <TemplateField label="常駐繳費訊息（{period}）" value={form.payment_message_template} onChange={set("payment_message_template")} allowed={MSG_KEYS} sample={samples.message} disabled={busy} rows={3} />
+        </div>
+      </Card>
+
+      <Card title="工具" desc="點下去立即執行，不受上面的「儲存」控制">
+        <div className="card__body">
+          <ActionRow title="重建常駐繳費訊息" tag="立即執行" desc="在繳費頻道重新貼一則含「繳費」按鈕的常駐訊息。"><RebuildMessage /></ActionRow>
+          <ActionRow title="註冊 Discord 指令" tag="立即執行" desc="更新 /繳費、/發起繳費、/綁定 指令到你的伺服器。"><RegisterCommands /></ActionRow>
+          <ActionRow title="發起繳費" tag="會改價＋發通知" warn desc="確認本期金額並向所有成員發出開繳通知。"><InitiateBilling billingDay={savedBillingDay} dirty={dirty} /></ActionRow>
+          <ActionRow title="匯入名單 CSV" tag="會新增/更新成員" warn desc="用 CSV 批次建立或更新成員與訂閱。"><ImportRoster /></ActionRow>
+        </div>
+      </Card>
+
+      {dirty && (
+        <div className="savebar">
+          <span className="savebar__note"><span className="savebar__dot" />有尚未儲存的變更{tplInvalid && <span style={{ color: "var(--red)" }}>　·　有未知佔位符，請先修正</span>}</span>
+          <button className="btn" onClick={() => setForm(saved)} disabled={busy}>捨棄</button>
+          <button className="btn btn--primary" onClick={save} disabled={busy || tplInvalid}>儲存變更</button>
+        </div>
+      )}
+      {toast && <div style={{ position: "fixed", left: "50%", bottom: 84, transform: "translateX(-50%)", background: "var(--ink)", color: "#fff", padding: "10px 16px", borderRadius: 10, fontSize: 13.5, zIndex: 40 }}>{toast}</div>}
+    </div>
+  );
+}
+
+function ActionRow({ title, tag, desc, warn, children }: { title: string; tag: string; desc: string; warn?: boolean; children: ReactNode }) {
+  return (
+    <div className={`actionrow${warn ? " actionrow--warn" : ""}`}>
+      <div className="actionrow__main">
+        <div className="actionrow__title">{title} <span className={`tag${warn ? " tag--warn" : ""}`}>{tag}</span></div>
+        <div className="actionrow__desc">{desc}</div>
       </div>
-    </Card>
+      <div className="actionrow__act">{children}</div>
+    </div>
   );
 }
 
 function ImportRoster() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button className="btn btn--sm btn--danger" onClick={() => setOpen(true)}>匯入…</button>
+      {open && <ImportModal onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function ImportModal({ onClose }: { onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [start, setStart] = useState("");
   const [busy, setBusy] = useState(false);
@@ -208,34 +276,29 @@ function ImportRoster() {
     setBusy(false);
   }
   return (
-    <>
-      <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "22px 0 18px" }} />
-      <div className="field__label">匯入名單（CSV）</div>
-      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 10px" }}>欄位需為「姓名, 帳號, 方案名…」；方案名須與系統方案一致。空白＝起算當月。</p>
+    <Modal title="匯入名單 CSV" onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      {msg && <div style={{ color: "var(--teal)", marginBottom: 10 }}>{msg}</div>}
-      <input type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={busy} />
-      <div style={{ marginTop: 10 }}>
-        <Field label="起算月份第一天（選填，YYYY-MM-DD）"><input value={start} onChange={(e) => setStart(e.target.value)} placeholder="2026-06-01" disabled={busy} /></Field>
-      </div>
+      {msg && <div style={{ color: "var(--teal)", marginBottom: 12, fontSize: 13 }}>{msg}</div>}
+      <p style={{ color: "var(--muted-strong)", fontSize: 13, margin: "0 0 12px" }}>欄位需為「姓名, 帳號, 方案名…」；方案名須與系統方案一致。空白＝起算當月。</p>
+      <Field label="CSV 檔"><input type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={busy} /></Field>
+      <Field label="起算月份第一天（選填，YYYY-MM-DD）"><input value={start} onChange={(e) => setStart(e.target.value)} placeholder="2026-06-01" disabled={busy} /></Field>
       <button className="btn btn--primary" onClick={run} disabled={busy}>匯入</button>
-    </>
+    </Modal>
   );
 }
 
-function InitiateBilling({ billingDay }: { billingDay: number }) {
+function InitiateBilling({ billingDay, dirty }: { billingDay: number; dirty: boolean }) {
   const plans = useAsync(() => api.plans(), []);
   const [open, setOpen] = useState(false);
   return (
     <>
-      <div className="field__label">發起繳費</div>
-      <button className="btn" onClick={() => setOpen(true)}>確認本期金額並發出開繳通知</button>
-      {open && plans.data && <InitiateModal plans={plans.data.plans.filter((p) => p.active)} billingDay={billingDay} onClose={() => setOpen(false)} />}
+      <button className="btn btn--sm btn--danger" onClick={() => setOpen(true)}>發起繳費…</button>
+      {open && plans.data && <InitiateModal plans={plans.data.plans.filter((p) => p.active)} billingDay={billingDay} dirty={dirty} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function InitiateModal({ plans, billingDay, onClose }: { plans: { id: number; name: string; monthly_amount: number }[]; billingDay: number; onClose: () => void }) {
+function InitiateModal({ plans, billingDay, dirty, onClose }: { plans: { id: number; name: string; monthly_amount: number }[]; billingDay: number; dirty: boolean; onClose: () => void }) {
   const [period, setPeriod] = useState(nextBillingPeriod(billingDay));
   const [amounts, setAmounts] = useState<Record<number, string>>(() => Object.fromEntries(plans.map((p) => [p.id, String(p.monthly_amount)])));
   const [busy, setBusy] = useState(false);
@@ -244,10 +307,7 @@ function InitiateModal({ plans, billingDay, onClose }: { plans: { id: number; na
   async function run() {
     setBusy(true); setErr(null); setMsg(null);
     try {
-      const r = await api.initiateBilling({
-        period,
-        amounts: plans.map((p) => ({ plan_id: p.id, amount: Number(amounts[p.id]) })),
-      });
+      const r = await api.initiateBilling({ period, amounts: plans.map((p) => ({ plan_id: p.id, amount: Number(amounts[p.id]) })) });
       setMsg(r.sent ? `✓ 已發出通知（更新 ${r.updated_plans} 方案 / ${r.updated_payments} 筆）` : `✓ 已更新金額（通知先前已發送）`);
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
@@ -256,7 +316,8 @@ function InitiateModal({ plans, billingDay, onClose }: { plans: { id: number; na
     <Modal title="發起繳費" onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
       {msg && <div style={{ color: "var(--teal)", marginBottom: 10 }}>{msg}</div>}
-      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 12px" }}>修改金額即為該方案的新定價（下期沿用）；已繳／已驗證的紀錄不受影響。</p>
+      {dirty && <div className="warnnote">你有尚未儲存的設定變更。發起繳費使用<b>已儲存</b>的設定（含結帳日）；如要套用新值，請先回上方「儲存變更」。</div>}
+      <p style={{ color: "var(--muted-strong)", fontSize: 13, margin: "0 0 12px" }}>修改金額即為該方案的新定價（下期沿用）；已繳／已驗證的紀錄不受影響。</p>
       <Field label="期別"><input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} disabled={busy} /></Field>
       {plans.map((p) => (
         <Field key={p.id} label={`${p.name} 金額`}>
@@ -274,15 +335,15 @@ function RebuildMessage() {
   const [err, setErr] = useState<string | null>(null);
   async function run() {
     setBusy(true); setErr(null); setMsg(null);
-    try { const r = await api.rebuildPaymentMessage(); setMsg(`✓ 已建立/更新（訊息 id ${r.message_id}）`); }
+    try { const r = await api.rebuildPaymentMessage(); setMsg(`✓ 已建立／更新（id ${r.message_id}）`); }
     catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }
   return (
     <>
-      {err && <div className="error-banner">{err}</div>}
-      {msg && <div style={{ color: "var(--teal)", marginBottom: 10 }}>{msg}</div>}
-      <button className="btn" onClick={run} disabled={busy}>於 #繳費頻道 建立/重建「繳費」按鈕訊息</button>
+      <button className="btn btn--sm" onClick={run} disabled={busy}>{busy ? "處理中…" : "重建"}</button>
+      {err && <span className="act-feedback" style={{ color: "var(--red)" }}>{err}</span>}
+      {msg && <span className="act-feedback" style={{ color: "var(--teal)" }}>{msg}</span>}
     </>
   );
 }
@@ -293,15 +354,15 @@ function RegisterCommands() {
   const [err, setErr] = useState<string | null>(null);
   async function run() {
     setBusy(true); setErr(null); setMsg(null);
-    try { const r = await api.registerCommands(); setMsg(`✓ 已註冊 ${r.registered} 個 slash 指令`); }
+    try { const r = await api.registerCommands(); setMsg(`✓ 已註冊 ${r.registered} 個指令`); }
     catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }
   return (
     <>
-      {err && <div className="error-banner">{err}</div>}
-      {msg && <div style={{ color: "var(--teal)", marginBottom: 10 }}>{msg}</div>}
-      <button className="btn" onClick={run} disabled={busy}>註冊 / 更新 Discord slash 指令（/繳費、/發起繳費、/綁定）</button>
+      <button className="btn btn--sm" onClick={run} disabled={busy}>{busy ? "處理中…" : "註冊"}</button>
+      {err && <span className="act-feedback" style={{ color: "var(--red)" }}>{err}</span>}
+      {msg && <span className="act-feedback" style={{ color: "var(--teal)" }}>{msg}</span>}
     </>
   );
 }

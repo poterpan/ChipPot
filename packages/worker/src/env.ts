@@ -26,11 +26,11 @@ export interface WorkspaceSettings {
   overdue_template: string;
   billing_opened_template: string;
   payment_message_template: string;
-  // Outbound "a member submitted a payment" notifications (both optional, fire if set).
-  // Bark/ntfy-style GET URL template with {payer}{amount}{period}{admin_url} placeholders.
-  payment_bark_url: string;
-  // Incoming webhook URL (Discord / Google Chat / Slack / generic); body shape picked by host.
-  payment_webhook_url: string;
+  // Outbound "a member submitted a payment" notifications (all optional, fire whichever is set).
+  payment_bark_key: string; // Bark device key — we build the push URL + tappable review link
+  payment_bark_server: string; // Bark server base (default https://api.day.app; for self-hosters)
+  payment_webhook_url: string; // incoming webhook (Discord / Google Chat / Slack / generic); body shape by host
+  payment_notify_template: string; // message body; empty = the built-in default
 }
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -44,8 +44,10 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   overdue_template: "⏰ **{period} 催繳**\n以下夥伴本期尚有未繳（共 {count} 位），請儘速處理 🙏\n{list}",
   billing_opened_template: "📢 **{period} 開始繳費**\n{plans}\n\n請點下方「繳費」按鈕，或使用 `/繳費` 指令（可附截圖）。",
   payment_message_template: "💳 **AI 訂閱繳費**\n點下方「繳費」按鈕選擇繳費渠道送出（一次涵蓋你所有訂閱），或使用 `/繳費` 指令（可附截圖／備註）。",
-  payment_bark_url: "",
+  payment_bark_key: "",
+  payment_bark_server: "https://api.day.app",
   payment_webhook_url: "",
+  payment_notify_template: "",
 };
 
 function intInRange(v: unknown, fallback: number, min: number, max: number): number {
@@ -79,7 +81,9 @@ export function parseSettings(json: string): WorkspaceSettings {
     overdue_template: str(raw.overdue_template, DEFAULT_SETTINGS.overdue_template),
     billing_opened_template: str(raw.billing_opened_template, DEFAULT_SETTINGS.billing_opened_template),
     payment_message_template: str(raw.payment_message_template, DEFAULT_SETTINGS.payment_message_template),
-    payment_bark_url: str(raw.payment_bark_url, ""),
+    payment_bark_key: str(raw.payment_bark_key, ""),
+    payment_bark_server: str(raw.payment_bark_server, DEFAULT_SETTINGS.payment_bark_server),
     payment_webhook_url: str(raw.payment_webhook_url, ""),
+    payment_notify_template: str(raw.payment_notify_template, ""),
   };
 }
