@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { nowUtcIso } from "./time";
 import { ensurePeriodPayment } from "./billing";
+import { notifyPaymentSubmitted } from "./payment-notify";
 
 // ── R2 key + image validation ────────────────────────────────────────────────
 
@@ -220,12 +221,28 @@ export async function settleUserPeriod(env: Env, input: SettleInput): Promise<Se
     key = null;
   }
 
+  const paidCount = paidRows.results.length;
+  const totalAmount = paidRows.results.reduce((s, r) => s + r.amount, 0);
+  const paymentIds = paidRows.results.map((r) => r.id);
+
+  // Notify the owner that there's a payment to review (Bark / webhook, if configured). Awaited
+  // here so it completes within the request (reliable without waitUntil), but bounded and
+  // never-throwing inside notifyPaymentSubmitted so it can't fail or stall the settle.
+  if (paidCount > 0) {
+    const u = await env.DB.prepare("SELECT display_name FROM users WHERE id = ?")
+      .bind(userId).first<{ display_name: string }>();
+    await notifyPaymentSubmitted(env, {
+      workspaceId, payer: u?.display_name ?? `#${userId}`,
+      amount: totalAmount, period, paymentId: paymentIds[0]!, paidCount,
+    });
+  }
+
   return {
-    paidCount: paidRows.results.length,
-    totalAmount: paidRows.results.reduce((s, r) => s + r.amount, 0),
+    paidCount,
+    totalAmount,
     alreadyPaidCount: await alreadyPaidCount(env, workspaceId, userId, period),
     screenshotKey: key,
-    paymentIds: paidRows.results.map((r) => r.id),
+    paymentIds,
   };
 }
 

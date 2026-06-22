@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, currentPeriod, periodForBillingDay, type Payment, type ChannelTag } from "../api";
 import { useAsync, Card, Modal, Field, Empty, Money, StatusBadge, IconCheck, IconWarning, IconX } from "../ui";
 
@@ -9,6 +9,14 @@ const STATUS_OPTS = [
   { v: "verified", label: "已驗證" },
   { v: "rejected", label: "已退回" },
 ];
+
+// Read the deep-link payment id from "#payments?id=42"; null if absent or not a positive integer.
+function paymentIdFromHash(): number | null {
+  const q = window.location.hash.split("?")[1];
+  const raw = q ? new URLSearchParams(q).get("id") : null;
+  const id = raw ? Number(raw) : NaN;
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 export function Payments() {
   const ws = useAsync(() => api.workspace(), []);
@@ -24,6 +32,28 @@ export function Payments() {
   const [showLink, setShowLink] = useState(false);
 
   const reload = () => { list.reload(); };
+
+  // Deep link from a payment notification (#payments?id=42): fetch that payment directly (it may be
+  // outside the current period/status filter) and open its review modal, then clean the query so a
+  // refresh doesn't reopen it. Re-runs on hashchange so navigating between links works.
+  const [deepId, setDeepId] = useState<number | null>(() => paymentIdFromHash());
+  useEffect(() => {
+    const onHash = () => setDeepId(paymentIdFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  useEffect(() => {
+    if (deepId == null) return;
+    let cancelled = false;
+    api.payments({}).then((r) => {
+      if (cancelled) return;
+      const p = r.payments.find((x) => x.id === deepId);
+      if (p) setSelected(p);
+      setDeepId(null);
+      if (window.location.hash.includes("?")) history.replaceState(null, "", "#payments");
+    }).catch(() => { if (!cancelled) setDeepId(null); });
+    return () => { cancelled = true; };
+  }, [deepId]);
 
   return (
     <>

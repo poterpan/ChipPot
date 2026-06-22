@@ -81,6 +81,8 @@ export function Settings() {
   const [tplOverdue, setTplOverdue] = useState("");
   const [tplBilling, setTplBilling] = useState("");
   const [tplMessage, setTplMessage] = useState("");
+  const [barkUrl, setBarkUrl] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -97,6 +99,8 @@ export function Settings() {
     setTplOverdue(w.settings.overdue_template ?? "");
     setTplBilling(w.settings.billing_opened_template ?? "");
     setTplMessage(w.settings.payment_message_template ?? "");
+    setBarkUrl(w.settings.payment_bark_url ?? "");
+    setWebhookUrl(w.settings.payment_webhook_url ?? "");
   }, [data]);
 
   async function save() {
@@ -113,6 +117,8 @@ export function Settings() {
           overdue_template: tplOverdue,
           billing_opened_template: tplBilling,
           payment_message_template: tplMessage,
+          payment_bark_url: barkUrl.trim(),
+          payment_webhook_url: webhookUrl.trim(),
         },
       });
       setSaved(true);
@@ -150,6 +156,17 @@ export function Settings() {
         <Field label="Discord Guild ID"><input value={guild} onChange={(e) => setGuild(e.target.value)} disabled={busy} /></Field>
         <Field label="Discord 繳費頻道 ID"><input value={channel} onChange={(e) => setChannel(e.target.value)} disabled={busy} /></Field>
         <Field label="可發起繳費的管理員 Discord ID（逗號分隔）"><input value={adminIds} onChange={(e) => setAdminIds(e.target.value)} disabled={busy} /></Field>
+
+        <div className="field__label" style={{ marginTop: 4, marginBottom: 6, fontWeight: 700, color: "var(--ink)" }}>繳費通知（選填，有人繳費就推播給你並附審核連結）</div>
+        <Field label="Bark 推播網址（GET 模板）">
+          <input value={barkUrl} onChange={(e) => setBarkUrl(e.target.value)} disabled={busy} placeholder="https://api.day.app/你的KEY/新繳費 {payer}/NT${amount}?url={admin_url}" />
+        </Field>
+        <Field label="Webhook 網址（POST；Discord / Google Chat / Slack / 自訂，依網址自動辨識格式）">
+          <input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} disabled={busy} placeholder="https://discord.com/api/webhooks/..." />
+        </Field>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -6, marginBottom: 14 }}>
+          可用佔位符：<code>{"{payer}"}</code> <code>{"{amount}"}</code> <code>{"{period}"}</code> <code>{"{admin_url}"}</code>（admin_url 為深連到該筆繳費的後台網址）。兩者皆選填，填了才會推播。
+        </div>
         <TemplateField label="逾期催繳文字（{period} {count} {list}）" value={tplOverdue} onChange={setTplOverdue} allowed={OVERDUE_KEYS} sample={samples.overdue} disabled={busy} rows={4} />
         <TemplateField label="開繳通知文字（{period} {plans} {total}）" value={tplBilling} onChange={setTplBilling} allowed={BILLING_KEYS} sample={samples.billing} disabled={busy} rows={4} />
         <TemplateField label="常駐繳費訊息文字（{period}）" value={tplMessage} onChange={setTplMessage} allowed={MSG_KEYS} sample={samples.message} disabled={busy} rows={3} />

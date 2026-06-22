@@ -38,10 +38,16 @@ function R2Notice() {
   );
 }
 
+// The hash may carry a query (e.g. "#payments?id=42" from a notification deep link); the view
+// id is just the part before "?". Views read their own params from the hash.
+function viewFromHash(): string {
+  return window.location.hash.slice(1).split("?")[0] || "dashboard";
+}
+
 export default function App() {
-  const [view, setView] = useState(() => window.location.hash.slice(1) || "dashboard");
+  const [view, setView] = useState(viewFromHash);
   useEffect(() => {
-    const onHash = () => setView(window.location.hash.slice(1) || "dashboard");
+    const onHash = () => setView(viewFromHash());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
