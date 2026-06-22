@@ -179,6 +179,9 @@ tbody tr.click:hover { background: #faf7f0; }
 .chip--off { background: #f3ede0; color: #8a6d2f; }
 
 /* notification preview + disclosures */
+.notify-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.notify-row input { flex: 1; width: auto; min-width: 220px; }
+.notify-row .btn { flex: 0 0 auto; }
 .preview-label { font-size: 12px; color: var(--muted-strong); margin: 4px 0 5px; font-weight: 600; }
 .preview { border: 1px dashed var(--line); background: #faf7f0; border-radius: 9px; padding: 11px 13px; white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
 details.custom, details.adv { margin: 4px 0 14px; }
