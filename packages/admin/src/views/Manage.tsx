@@ -265,19 +265,36 @@ export function ChannelTags() {
   const { data, loading, error, reload } = useAsync(() => api.channelTags(), []);
   const [edit, setEdit] = useState<ChannelTag | null | undefined>(undefined);
   const [del, setDel] = useState<ChannelTag | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [actErr, setActErr] = useState<string | null>(null);
+  // Toggle 停用/啟用 inline so disabling a channel is discoverable without opening the edit modal.
+  // Sends only `active`; the worker COALESCEs the other columns, so name/type/sort_order are untouched.
+  async function toggleActive(t: ChannelTag) {
+    setBusyId(t.id); setActErr(null);
+    try { await api.updateChannelTag(t.id, { active: t.active ? 0 : 1 }); reload(); }
+    catch (e) { setActErr((e as Error).message); }
+    finally { setBusyId(null); }
+  }
   return (
     <>
-      {error && <div className="error-banner">{error}</div>}
+      {(error || actErr) && <div className="error-banner">{error || actErr}</div>}
       <Card title="支付渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道</button>}>
         <div className="tbl">
           <table>
-            <thead><tr><th>名稱</th><th>類型</th><th className="right">排序</th><th>啟用</th><th></th></tr></thead>
+            <thead><tr><th>名稱</th><th>類型</th><th className="right">排序</th><th>狀態</th><th></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={5}><Empty>載入中…</Empty></td></tr>}
               {data?.channel_tags.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.name}</td><td>{t.type ? (CHANNEL_TYPE_LABEL[t.type] ?? t.type) : "—"}</td><td className="right mono">{t.sort_order}</td><td>{t.active ? "✓" : "—"}</td>
+                // Disabled channels dim the whole row so it's obvious at a glance which are off.
+                <tr key={t.id} style={t.active ? undefined : { color: "var(--muted)" }}>
+                  <td>{t.name}</td><td>{t.type ? (CHANNEL_TYPE_LABEL[t.type] ?? t.type) : "—"}</td><td className="right mono">{t.sort_order}</td>
+                  <td>
+                    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11.5, whiteSpace: "nowrap", ...(t.active ? { color: "var(--teal-ink)" } : { background: "#efe8da", color: "#8a7d63" }) }}>
+                      {t.active ? "啟用中" : "已停用"}
+                    </span>
+                  </td>
                   <td className="right">
+                    <button className="btn" disabled={busyId === t.id} onClick={() => toggleActive(t)}>{t.active ? "停用" : "啟用"}</button>{" "}
                     <button className="btn" onClick={() => setEdit(t)}>編輯</button>{" "}
                     <button className="btn" disabled={(t.usage_count ?? 0) > 0} title={(t.usage_count ?? 0) > 0 ? "已被繳費紀錄參照，請改用停用" : ""} onClick={() => setDel(t)}>刪除</button>
                   </td>
