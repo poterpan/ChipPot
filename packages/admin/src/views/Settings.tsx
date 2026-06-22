@@ -10,6 +10,34 @@ const MSG_KEYS = ["period"];
 function renderTpl(tpl: string, vars: Record<string, string>): string {
   return tpl.replace(PLACEHOLDER_RE, (whole, key) => (key in vars ? vars[key]! : whole));
 }
+// Render a Discord-flavored markdown subset to HTML so the preview matches what Discord shows
+// (the reported case: **bold** rendered literally before). Input is HTML-escaped first, so the
+// returned string is safe to inject. Code is protected before emphasis so markdown inside
+// `code`/```blocks``` stays literal, exactly like Discord — and the default templates use both
+// **bold** and `/繳費`. Newlines are left to the container's white-space: pre-wrap.
+function renderDiscordMarkdown(src: string): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const emphasis = (s: string) => s
+    .replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([\s\S]+?)__/g, "<u>$1</u>")
+    .replace(/~~([\s\S]+?)~~/g, "<s>$1</s>")
+    .replace(/\*([^*\n]+?)\*/g, "<em>$1</em>")
+    .replace(/_([^_\n]+?)_/g, "<em>$1</em>");
+  // Split into code / non-code segments and apply emphasis only outside code, so markdown inside
+  // `code` or ```blocks``` stays literal — exactly how Discord renders it. Each segment is
+  // HTML-escaped before any tags are added, so the result is safe to inject.
+  const codeRe = /```[\s\S]*?```|`[^`\n]+?`/g;
+  let out = "", last = 0, m: RegExpExecArray | null;
+  while ((m = codeRe.exec(src))) {
+    out += emphasis(esc(src.slice(last, m.index)));
+    const tok = m[0];
+    out += tok.startsWith("```")
+      ? `<code style="display:block;white-space:pre-wrap;font-family:'Spline Sans Mono',monospace;background:rgba(31,28,23,.06);border-radius:6px;padding:6px 8px;margin:2px 0">${esc(tok.slice(3, -3).replace(/^\n/, ""))}</code>`
+      : `<code style="font-family:'Spline Sans Mono',monospace;background:rgba(31,28,23,.08);border-radius:4px;padding:1px 4px">${esc(tok.slice(1, -1))}</code>`;
+    last = m.index + tok.length;
+  }
+  return out + emphasis(esc(src.slice(last)));
+}
 function unknownKeys(tpl: string, allowed: string[]): string[] {
   return [...tpl.matchAll(PLACEHOLDER_RE)].map((m) => m[1]!).filter((k) => !allowed.includes(k));
 }
@@ -35,7 +63,8 @@ function TemplateField({ label, value, onChange, allowed, sample, disabled, rows
       )}
       <div style={{ marginTop: 6, padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", fontSize: 13, color: "var(--muted)" }}>
         <div className="field__label" style={{ marginBottom: 4 }}>預覽</div>
-        {renderTpl(value, sample)}
+        {/* Render the Discord markdown so the preview matches the sent message; HTML is escaped in renderDiscordMarkdown. */}
+        <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(renderTpl(value, sample)) }} />
       </div>
     </Field>
   );
