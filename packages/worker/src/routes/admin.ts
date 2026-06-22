@@ -14,6 +14,7 @@ import { discordNotifier } from "../adapters/discord/notify";
 import { parseRosterCsv, importRoster } from "../core/import";
 import { sendOverdueForPeriod } from "../core/scheduled";
 import { renderTemplate } from "../core/templates";
+import { sendTestNotification } from "../core/payment-notify";
 
 // Single-workspace MVP: default to the seeded workspace, overridable via ?workspace_id=.
 const DEFAULT_WORKSPACE_ID = 1;
@@ -143,6 +144,18 @@ async function notificationsReset(req: Request, env: Env, ctx: RouteCtx): Promis
   const deleted = res.meta.changes ?? 0;
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.reset", entityType: "workspace", entityId: ws, after: { type: b.type, period, deleted } });
   return json({ ok: true, deleted });
+}
+
+// Fire one test notification using the values in the request body (the admin's current, possibly
+// unsaved, input) so they can verify a Bark key / webhook before saving. Always 200 — the outcome
+// (ok / status / error) is in the body so the UI can show it.
+async function testNotification(req: Request, env: Env): Promise<Response> {
+  const b = await readJson<{ kind?: string; bark_key?: string; bark_server?: string; webhook_url?: string; template?: string }>(req) ?? {};
+  if (b.kind !== "bark" && b.kind !== "webhook") return errorResponse(400, "kind must be bark or webhook");
+  const r = await sendTestNotification(env, {
+    kind: b.kind, barkKey: b.bark_key, barkServer: b.bark_server, webhookUrl: b.webhook_url, template: b.template,
+  });
+  return json(r);
 }
 
 async function membersImport(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -634,6 +647,7 @@ export function buildAdminRouter(): Router<Env> {
     .get("/admin/notifications", notificationsStatus)
     .post("/admin/notifications/resend", notificationsResend)
     .post("/admin/notifications/reset", notificationsReset)
+    .post("/admin/notifications/test", testNotification)
     .get("/admin/users", listUsers)
     .post("/admin/users", createUser)
     .patch("/admin/users/:id", updateUser)
