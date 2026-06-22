@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-152%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-195%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -55,11 +55,14 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   one-click verify queue, manual back-fill, and frozen period amounts (price changes never rewrite history).
 - 🔔 **Customizable notifications** — editable templates (with live preview + validation) for the
   billing-opened notice, the batched overdue reminder, and the persistent pay message.
+- 📲 **Submission alerts** — when a member submits a payment, push the owner a Bark and/or webhook
+  notice (Discord / Google Chat / Slack — body shape auto-detected by host) with a deep link
+  straight to that payment's review row.
 - ⏰ **Daily cron, idempotent** — opens billing, sends one batched overdue reminder per period, and
   enforces screenshot retention — all deduped through `notification_logs`.
 - 🛡️ **Access-gated admin** — the whole admin host sits behind Cloudflare Access (email OTP); the
   SPA and its API are same-origin so the Access JWT reaches the Worker.
-- 🧪 **Real-runtime tests** — 152 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
+- 🧪 **Real-runtime tests** — 195 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
   enforced), not mocks.
 
 ## How a payment flows
@@ -191,7 +194,9 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
   `WEB_ORIGIN`, `ADMIN_ORIGIN`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`.
 - **Workspace settings** (in D1, edited from the admin **Settings** page) — billing day, overdue
   days, screenshot retention, Discord guild / channel ids, the admin allow-list
-  (`admin_discord_ids`), and the three editable notification templates.
+  (`admin_discord_ids`), the three editable notification templates, and optional
+  **payment-submission alerts** (a Bark URL template and/or an incoming webhook; the alert's review
+  deep link is built from `ADMIN_ORIGIN`, so no extra config is needed for it).
 - **Discord** — set the app's Interactions Endpoint to the Worker's `/interactions`, then register
   the guild commands with the script above.
 
@@ -205,6 +210,9 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
   then post the billing-opened notice. Triggerable from the admin Settings or Discord's `/發起繳費`.
 - **Push status** — the dashboard shows whether the billing-opened / overdue notices went out, with
   **Resend now** (force) and **Reset** controls.
+- **Submission alerts** — set a Bark URL and/or a webhook (Discord / Google Chat / Slack) under
+  Settings → 繳費通知; each new submission then pushes you a notice with a one-tap deep link to its
+  review row. Both are optional and best-effort (a slow or failing endpoint never blocks the payment).
 - **Daily cron** (01:00 UTC = 09:00 Asia/Taipei) — idempotently opens each period's bills, posts the
   billing-opened notice (tagging plan roles), sends **one batched overdue reminder per period**
   listing all unpaid members, and runs screenshot retention. Everything dedups via `notification_logs`.
