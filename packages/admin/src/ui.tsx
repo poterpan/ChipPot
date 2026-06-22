@@ -58,11 +58,11 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
 }
 
-export function Card({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+export function Card({ title, action, desc, children }: { title: string; action?: ReactNode; desc?: ReactNode; children: ReactNode }) {
   return (
     <div className="card">
       <div className="card__head">
-        <h2>{title}</h2>
+        <div className="card__head-main"><h2>{title}</h2>{desc != null && <div className="card__head-desc">{desc}</div>}</div>
         {action}
       </div>
       {children}
