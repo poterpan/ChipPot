@@ -184,12 +184,26 @@ export function Settings() {
 
       <Card title="繳費通知" desc="有人送出繳費時通知你，並附一鍵直達的審核連結（選填）">
         <div className="card__body">
-          <Field label="Bark（手機推播）"><span className="field__hint">貼上 Bark App 的裝置金鑰即可，不必自己組網址。</span><input value={form.bark_key} onChange={(e) => set("bark_key")(e.target.value)} disabled={busy} placeholder="例如 3hGxx6xNqpHE7h5keQZNni" /></Field>
+          <div className="field">
+            <span className="field__label">Bark（手機推播）</span>
+            <span className="field__hint">貼上 Bark App 的裝置金鑰即可，不必自己組網址。</span>
+            <div className="notify-row">
+              <input value={form.bark_key} onChange={(e) => set("bark_key")(e.target.value)} disabled={busy} placeholder="例如 3hGxx6xNqpHE7h5keQZNni" />
+              <TestButton kind="bark" form={form} />
+            </div>
+          </div>
           <details className="adv" open={!!form.bark_server && form.bark_server !== "https://api.day.app"}>
             <summary>自架 Bark 伺服器</summary>
             <Field label="Bark 伺服器網址"><input value={form.bark_server} onChange={(e) => set("bark_server")(e.target.value)} disabled={busy} placeholder="https://api.day.app" /></Field>
           </details>
-          <Field label="Webhook"><span className="field__hint">貼上 Discord／Google Chat／Slack 的 Webhook 網址，格式自動判斷。</span><input value={form.webhook_url} onChange={(e) => set("webhook_url")(e.target.value)} disabled={busy} placeholder="https://discord.com/api/webhooks/..." /></Field>
+          <div className="field">
+            <span className="field__label">Webhook</span>
+            <span className="field__hint">貼上 Discord／Google Chat／Slack 的 Webhook 網址，格式自動判斷。</span>
+            <div className="notify-row">
+              <input value={form.webhook_url} onChange={(e) => set("webhook_url")(e.target.value)} disabled={busy} placeholder="https://discord.com/api/webhooks/..." />
+              <TestButton kind="webhook" form={form} />
+            </div>
+          </div>
 
           <div className="preview-label">會送出的內容</div>
           <div className="preview">{notifyPreview}</div>
@@ -245,6 +259,33 @@ function ActionRow({ title, tag, desc, warn, children }: { title: string; tag: s
       </div>
       <div className="actionrow__act">{children}</div>
     </div>
+  );
+}
+
+// Fires a real test notification using the CURRENT (possibly unsaved) field values, so the owner
+// can verify a Bark key / webhook before saving.
+function TestButton({ kind, form }: { kind: "bark" | "webhook"; form: Form }) {
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<{ ok: boolean; msg: string } | null>(null);
+  async function run() {
+    setBusy(true); setRes(null);
+    try {
+      const r = await api.testNotification({
+        kind,
+        bark_key: form.bark_key.trim(),
+        bark_server: form.bark_server.trim(),
+        webhook_url: form.webhook_url.trim(),
+        template: form.notify_template.trim(),
+      });
+      setRes(r.ok ? { ok: true, msg: "✓ 已送出，去看看收到沒" } : { ok: false, msg: r.error ?? `送出失敗（${r.status ?? "?"}）` });
+    } catch (e) { setRes({ ok: false, msg: (e as Error).message }); }
+    setBusy(false);
+  }
+  return (
+    <>
+      <button type="button" className="btn btn--sm" onClick={run} disabled={busy}>{busy ? "送出中…" : "送出測試"}</button>
+      {res && <span className="act-feedback" style={{ color: res.ok ? "var(--teal)" : "var(--red)" }} title={res.msg}>{res.msg}</span>}
+    </>
   );
 }
 

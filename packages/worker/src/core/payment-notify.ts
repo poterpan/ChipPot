@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { parseSettings } from "../env";
+import { taipeiPeriod } from "./time";
 
 // Outbound notification when a member submits a payment that needs review. Configured in workspace
 // settings; fire whichever target is set (both optional):
@@ -98,6 +99,53 @@ export async function notifyPaymentSubmitted(env: Env, input: PaymentNotifyInput
     await Promise.allSettled(jobs);
   } catch (e) {
     console.error("payment notify failed", e);
+  }
+}
+
+export interface TestNotifyInput {
+  kind: "bark" | "webhook";
+  barkKey?: string;
+  barkServer?: string;
+  webhookUrl?: string;
+  template?: string; // optional custom message; empty = the built-in default
+}
+export interface TestNotifyResult { ok: boolean; status?: number; error?: string }
+
+/**
+ * Fire a single test notification using the values the admin just typed (not the saved settings),
+ * so they can verify a target before saving. Unlike notifyPaymentSubmitted this RETURNS the
+ * outcome (reached? what status?) so the UI can show success/failure.
+ */
+export async function sendTestNotification(env: Env, input: TestNotifyInput): Promise<TestNotifyResult> {
+  const base = (env.ADMIN_ORIGIN ?? "").replace(/\/+$/, "");
+  const adminUrl = base ? `${base}/#payments` : "";
+  const v: PaymentNotifyVars = { payer: "測試成員", amount: (520).toLocaleString(), period: taipeiPeriod(), admin_url: adminUrl };
+  const template = (input.template ?? "").trim() || DEFAULT_NOTIFY_TEMPLATE;
+  const message = "【測試】" + renderMessage(template, v);
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    if (input.kind === "bark") {
+      const key = (input.barkKey ?? "").trim();
+      if (!key) return { ok: false, error: "請先填 Bark 裝置金鑰" };
+      const res = await fetch(buildBarkUrl(input.barkServer ?? "", key, message, adminUrl), { method: "GET", signal: ctl.signal });
+      return { ok: res.ok, status: res.status };
+    }
+    const url = (input.webhookUrl ?? "").trim();
+    if (!url) return { ok: false, error: "請先填 Webhook 網址" };
+    const linkInTpl = /\{admin_url\}/.test(template);
+    const text = message + (adminUrl && !linkInTpl ? `\n審核 → ${adminUrl}` : "");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(pickWebhookBody(url, text, v, 520)),
+      signal: ctl.signal,
+    });
+    return { ok: res.ok, status: res.status };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message || "送出失敗" };
+  } finally {
+    clearTimeout(t);
   }
 }
 

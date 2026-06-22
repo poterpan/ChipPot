@@ -50,6 +50,8 @@ export const api = {
   notifications: (period: string) => req<{ billing_opened: { sent_at: string } | null; overdue: { sent_at: string } | null }>("GET", `/notifications${qs({ period })}`),
   resendNotification: (type: string, period: string) => req<{ sent?: boolean; count?: number }>("POST", "/notifications/resend", { type, period }),
   resetNotification: (type: string, period: string) => req<{ deleted: number }>("POST", "/notifications/reset", { type, period }),
+  testNotification: (b: { kind: "bark" | "webhook"; bark_key?: string; bark_server?: string; webhook_url?: string; template?: string }) =>
+    req<{ ok: boolean; status?: number; error?: string }>("POST", "/notifications/test", b),
   initiateBilling: (b: { period: string; amounts: { plan_id: number; amount: number }[] }) =>
     req<{ sent: boolean; updated_plans: number; updated_payments: number }>("POST", "/billing/initiate", b),
   payments: (p?: { period?: string; status?: string }) => req<{ payments: Payment[] }>("GET", `/payments${qs(p)}`),

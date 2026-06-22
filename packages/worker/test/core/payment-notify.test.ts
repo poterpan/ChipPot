@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  buildBarkUrl, renderMessage, pickWebhookBody, notifyPaymentSubmitted,
+  buildBarkUrl, renderMessage, pickWebhookBody, notifyPaymentSubmitted, sendTestNotification,
   DEFAULT_NOTIFY_TEMPLATE, type PaymentNotifyVars,
 } from "../../src/core/payment-notify";
 import { settleUserPeriod } from "../../src/core/storage";
@@ -147,6 +147,48 @@ describe("notifyPaymentSubmitted", () => {
 
   it("the built-in default template is what ships when none is set", () => {
     expect(DEFAULT_NOTIFY_TEMPLATE).toContain("{payer}");
+  });
+});
+
+describe("sendTestNotification", () => {
+  it("Bark with a key → fires a GET to {server}/{key}/... and reports ok", async () => {
+    const calls = capture();
+    const r = await sendTestNotification(envWith("https://admin.x"), { kind: "bark", barkKey: "K9" });
+    vi.unstubAllGlobals();
+    expect(r.ok).toBe(true);
+    expect(calls.length).toBe(1);
+    expect(calls[0]!.init?.method ?? "GET").toBe("GET");
+    expect(calls[0]!.url.startsWith("https://api.day.app/K9/")).toBe(true);
+  });
+  it("Bark without a key → no request, ok:false with a hint", async () => {
+    const calls = capture();
+    const r = await sendTestNotification(envWith("https://admin.x"), { kind: "bark", barkKey: "  " });
+    vi.unstubAllGlobals();
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("金鑰");
+    expect(calls.length).toBe(0);
+  });
+  it("Webhook (Discord) → POST { content } marked as a test", async () => {
+    const calls = capture();
+    const r = await sendTestNotification(envWith("https://admin.x"), { kind: "webhook", webhookUrl: "https://discord.com/api/webhooks/1/x" });
+    vi.unstubAllGlobals();
+    expect(r.ok).toBe(true);
+    const body = JSON.parse(calls[0]!.init!.body as string);
+    expect(body.content).toContain("【測試】");
+  });
+  it("Webhook without a URL → no request, ok:false", async () => {
+    const calls = capture();
+    const r = await sendTestNotification(envWith("https://admin.x"), { kind: "webhook", webhookUrl: "" });
+    vi.unstubAllGlobals();
+    expect(r.ok).toBe(false);
+    expect(calls.length).toBe(0);
+  });
+  it("reports a non-2xx response as not ok, with the status", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 500 })));
+    const r = await sendTestNotification(envWith("https://admin.x"), { kind: "bark", barkKey: "K" });
+    vi.unstubAllGlobals();
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(500);
   });
 });
 
