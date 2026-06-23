@@ -246,10 +246,13 @@ async function createUser(req: Request, env: Env, ctx: RouteCtx): Promise<Respon
   const b = await readJson<{ display_name?: string; discord_id?: string; email?: string; note?: string }>(req);
   if (!b?.display_name) return errorResponse(400, "display_name is required");
   const now = nowUtcIso();
+  // Normalize a blank/whitespace discord_id to NULL so "unbound" stays NULL (an empty string would
+  // both break the discord_id IS NULL = unbound invariant and collide under the unique index).
+  const discordId = typeof b.discord_id === "string" && b.discord_id.trim() ? b.discord_id.trim() : null;
   const res = await env.DB
     .prepare(`INSERT INTO users (workspace_id, discord_id, display_name, email, note, created_at, updated_at)
               VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .bind(wsId(ctx), b.discord_id ?? null, b.display_name, b.email ?? null, b.note ?? null, now, now)
+    .bind(wsId(ctx), discordId, b.display_name, b.email ?? null, b.note ?? null, now, now)
     .run();
   const id = res.meta.last_row_id as number;
   await writeAudit(env.DB, { workspaceId: wsId(ctx), actor: actorOf(ctx), action: "user.create", entityType: "user", entityId: id, after: b });

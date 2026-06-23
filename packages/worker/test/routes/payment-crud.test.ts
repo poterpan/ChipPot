@@ -94,6 +94,13 @@ describe("PATCH /admin/users/:id discord_id presence semantics", () => {
     const u = await env.DB.prepare("SELECT discord_id FROM users WHERE id=?").bind(9240).first<{discord_id:string|null}>();
     expect(u?.discord_id).toBeNull();
   });
+  it("createUser stores a blank discord_id as NULL (not empty string)", async () => {
+    const res = await call("POST", "/admin/users", { display_name: "Blank", discord_id: "  " });
+    expect(res!.status).toBe(201);
+    const id = ((await res!.json()) as any).id as number;
+    const u = await env.DB.prepare("SELECT discord_id FROM users WHERE id=?").bind(id).first<{discord_id:string|null}>();
+    expect(u?.discord_id).toBeNull();
+  });
 });
 
 // Route tests run on the shared seeded workspace 1 (wsId()===1), which carries the 0002_seed.sql

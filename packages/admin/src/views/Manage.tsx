@@ -69,19 +69,31 @@ function UserModal({ user, onClose, onDone }: { user: User | null; onClose: () =
     if (!f.display_name) { setErr("請填名稱"); return; }
     setBusy(true); setErr(null);
     try {
-      const body = { display_name: f.display_name, discord_id: f.discord_id || undefined, email: f.email || undefined, note: f.note || undefined };
+      // discord_id: always send the (trimmed) value — an empty string explicitly unbinds (the backend
+      // distinguishes "" = unbind from an omitted field = keep). email/note keep the omit-when-empty
+      // behaviour (they COALESCE on the backend).
+      const body = { display_name: f.display_name, discord_id: f.discord_id.trim(), email: f.email || undefined, note: f.note || undefined };
       if (user) await api.updateUser(user.id, body); else await api.createUser(body);
       onDone();
     } catch (e) { setErr((e as Error).message); setBusy(false); }
+  }
+  async function unbind() {
+    if (!user || !window.confirm("確定解除這位成員的 Discord 綁定？解除後他可重新用綁定按鈕／指令綁定。")) return;
+    setBusy(true); setErr(null);
+    try { await api.updateUser(user.id, { discord_id: "" }); onDone(); }
+    catch (e) { setErr((e as Error).message); setBusy(false); }
   }
   return (
     <Modal title={user ? "編輯成員" : "新增成員"} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
       <Field label="名稱"><input value={f.display_name} onChange={(e) => set("display_name", e.target.value)} disabled={busy} /></Field>
-      <Field label="Discord ID"><input value={f.discord_id} onChange={(e) => set("discord_id", e.target.value)} disabled={busy} /></Field>
+      <Field label="Discord ID"><input value={f.discord_id} onChange={(e) => set("discord_id", e.target.value)} disabled={busy} placeholder="清空並儲存即可解除綁定" /></Field>
       <Field label="Email"><input value={f.email} onChange={(e) => set("email", e.target.value)} disabled={busy} /></Field>
       <Field label="備註"><input value={f.note} onChange={(e) => set("note", e.target.value)} disabled={busy} /></Field>
-      <button className="btn btn--primary" onClick={save} disabled={busy}>儲存</button>
+      <div className="btn-row">
+        <button className="btn btn--primary" onClick={save} disabled={busy}>儲存</button>
+        {user?.discord_id && <button className="btn" onClick={unbind} disabled={busy}>解除綁定</button>}
+      </div>
     </Modal>
   );
 }
