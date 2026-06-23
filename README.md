@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-195%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-234%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -48,11 +48,13 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
 - 💳 **Discord-first payments** — a persistent **繳費** button → pick a channel → done. One submit
   settles *all* of a member's subscriptions for the period (multi-plan aggregation).
 - 🔗 **Self-service linking** — members link their Discord account to the roster themselves
-  (`/綁定` or the pay button); admins can also assign IDs by hand.
+  (`/綁定`, the pay button, or a persistent public **綁定** button posted in the channel); admins can also assign IDs by hand.
 - 📥 **CSV roster import** — onboard an existing roster (e.g. a Google-Forms export) in one upload:
   upsert members + subscriptions, idempotent re-runs.
 - 🧾 **Review queue + reconciliation** — an admin dashboard with per-plan / per-channel totals, a
-  one-click verify queue, manual back-fill, and frozen period amounts (price changes never rewrite history).
+  one-click verify queue, manual back-fill, single-payment delete, undo-verify, and frozen period
+  amounts (price changes never rewrite history). A **重新同步本期帳單** action re-aligns an opened
+  period's bills to the current roster/price (preview before applying), optionally pinging newly-added members.
 - 🔔 **Customizable notifications** — editable templates (with live preview + validation) for the
   billing-opened notice, the batched overdue reminder, and the persistent pay message.
 - 📲 **Submission alerts** — when a member submits a payment, push the owner a Bark and/or webhook
@@ -62,7 +64,7 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   enforces screenshot retention — all deduped through `notification_logs`.
 - 🛡️ **Access-gated admin** — the whole admin host sits behind Cloudflare Access (email OTP); the
   SPA and its API are same-origin so the Access JWT reaches the Worker.
-- 🧪 **Real-runtime tests** — 195 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
+- 🧪 **Real-runtime tests** — 234 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
   enforced), not mocks.
 
 ## How a payment flows
@@ -205,9 +207,15 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
 - **Members & subscriptions** — add manually or bulk-import a CSV; creating a subscription opens
   its first period bill.
 - **Review queue** — Payments → status pills → the **已繳待驗** queue floats to the top → one-click
-  ✅ verify (or open a row for screenshots, channel, reject, amount override, delete proof).
+  ✅ verify (or open a row for screenshots, channel, reject, amount override, delete proof, **撤回驗證**
+  to undo a mistaken verify, or **delete the whole bill**).
+- **重新同步本期帳單** — on Payments, re-align the selected opened period's bills to the current
+  roster/price (add missing · remove de-subscribed · reprice pending · freeze settled), with a preview
+  before applying and an option to ping newly-added members with the pay button.
 - **發起繳費** — confirm this period's per-plan amounts (any change becomes the plan's new price),
   then post the billing-opened notice. Triggerable from the admin Settings or Discord's `/發起繳費`.
+- **綁定按鈕** — Settings → 工具 → post a persistent public **綁定 Discord** button to the channel so
+  members self-link proactively (in addition to binding at first payment).
 - **Push status** — the dashboard shows whether the billing-opened / overdue notices went out, with
   **Resend now** (force) and **Reset** controls.
 - **Submission alerts** — set a Bark URL and/or a webhook (Discord / Google Chat / Slack) under
