@@ -33,7 +33,7 @@ export const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
   pending: ["paid", "verified", "rejected"],
   paid: ["verified", "rejected"],
   rejected: ["paid", "verified"],
-  verified: [],
+  verified: ["pending"], // 撤回驗證：唯一出口，清空驗證欄位（見 unverifyPayment）
 };
 
 export function canTransition(from: PaymentStatus, to: PaymentStatus): boolean {
@@ -151,6 +151,18 @@ export async function rejectPayment(
     db, id, "rejected",
     "rejected_reason = ?, verified_by = ?",
     [o.rejectedReason ?? null, o.verifiedBy ?? null]
+  );
+}
+
+/** Undo a verification: verified -> pending, clearing verification fields. */
+export async function unverifyPayment(
+  db: D1Database,
+  id: number
+): Promise<PaymentRow> {
+  return applyTransition(
+    db, id, "pending",
+    "verified_by = NULL, verified_at = NULL, verified_channel_tag_id = NULL",
+    []
   );
 }
 
