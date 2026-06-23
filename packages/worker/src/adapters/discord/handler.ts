@@ -15,7 +15,7 @@ import { editOriginalResponse } from "./api";
 import {
   IT_COMMAND, IT_COMPONENT, IT_AUTOCOMPLETE, IT_MODAL_SUBMIT,
   RT_MESSAGE, RT_DEFERRED, RT_UPDATE_MESSAGE, RT_AUTOCOMPLETE, FLAG_EPHEMERAL,
-  PAY_BUTTON_PREFIX, PAY_SELECT_PREFIX, PAY_PERIOD_PREFIX, INITIATE_MODAL_PREFIX, BIND_SELECT_PREFIX,
+  PAY_BUTTON_PREFIX, PAY_SELECT_PREFIX, PAY_PERIOD_PREFIX, INITIATE_MODAL_PREFIX, BIND_SELECT_PREFIX, BIND_BUTTON_PREFIX,
   channelSelectRow, periodSelectRow, initiateModal, bindSelectRow,
 } from "./commands";
 
@@ -282,6 +282,7 @@ async function deferredInitiate(i: DiscordInteraction, env: Env): Promise<void> 
 
 function handleComponent(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Promise<Response> {
   const cid = i.data?.custom_id ?? "";
+  if (cid.startsWith(BIND_BUTTON_PREFIX)) return handleBindCommand(i, env); // before BIND_SELECT (prefix overlap)
   if (cid.startsWith(BIND_SELECT_PREFIX)) return handleBindSelect(i, env);
   if (cid.startsWith(PAY_SELECT_PREFIX)) return handlePaySelect(i, env, ctx);
   if (cid.startsWith(PAY_PERIOD_PREFIX)) return handlePayPeriodSelect(i, env); // before PAY_BUTTON (prefix overlap)

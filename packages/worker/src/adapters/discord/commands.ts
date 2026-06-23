@@ -8,6 +8,9 @@ export const PAY_PERIOD_PREFIX = "chippot:payperiod";
 export const INITIATE_MODAL_PREFIX = "chippot:initiate";
 // The self-bind string-select (action:workspace:origin). origin ∈ {pay, cmd}.
 export const BIND_SELECT_PREFIX = "chippot:bind";
+// Persistent public bind button. MUST NOT be "chippot:bind" (would collide with BIND_SELECT_PREFIX);
+// dispatch checks this BEFORE BIND_SELECT_PREFIX because "chippot:bindbtn…" startsWith "chippot:bind".
+export const BIND_BUTTON_PREFIX = "chippot:bindbtn";
 
 // Discord option types we use.
 export const OPT_STRING = 3;
@@ -44,6 +47,14 @@ export function payButtonRow(workspaceId = 1, version = "v1") {
   return {
     type: CT_ACTION_ROW,
     components: [{ type: CT_BUTTON, style: 1, label: "繳費", custom_id: `${PAY_BUTTON_PREFIX}:${workspaceId}:${version}` }],
+  };
+}
+
+/** Persistent public "綁定 Discord" button row. custom_id = action:workspace. */
+export function bindButtonRow(workspaceId = 1) {
+  return {
+    type: CT_ACTION_ROW,
+    components: [{ type: CT_BUTTON, style: 2, label: "綁定 Discord", custom_id: `${BIND_BUTTON_PREFIX}:${workspaceId}` }],
   };
 }
 
