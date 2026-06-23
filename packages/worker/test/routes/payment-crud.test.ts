@@ -63,6 +63,37 @@ describe("DELETE /admin/payments/:id", () => {
     const res = await call("DELETE", "/admin/payments/9298");
     expect(res!.status).toBe(404);
   });
+  it("keeps a shared screenshot object when another payment still references it", async () => {
+    await env.BUCKET.put("shared-9230", "img");
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(9230,WS,U,1,"2027-01-01",5,TS,TS),
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,screenshot_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(9231,WS,SUB,"2027-05","2027-05-01","2027-05-31","2027-05-05",315,"paid","user_slash","shared-9230",TS,TS),
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,screenshot_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(9232,WS,9230,"2027-05","2027-05-01","2027-05-31","2027-05-05",315,"paid","user_slash","shared-9230",TS,TS),
+    ]);
+    await call("DELETE", "/admin/payments/9231");
+    expect(await env.BUCKET.get("shared-9230")).not.toBeNull(); // 9232 still references it
+    await call("DELETE", "/admin/payments/9232");
+    expect(await env.BUCKET.get("shared-9230")).toBeNull(); // last reference gone
+  });
+});
+
+describe("PATCH /admin/users/:id discord_id presence semantics", () => {
+  it("omitting discord_id keeps the existing binding", async () => {
+    await env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,discord_id,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(9240,WS,"Bound","disc-9240",TS,TS).run();
+    const res = await call("PATCH", "/admin/users/9240", { display_name: "Bound2" });
+    expect(res!.status).toBe(200);
+    const u = await env.DB.prepare("SELECT display_name, discord_id FROM users WHERE id=?").bind(9240).first<{display_name:string;discord_id:string|null}>();
+    expect(u?.display_name).toBe("Bound2");
+    expect(u?.discord_id).toBe("disc-9240");
+  });
+  it("explicit empty discord_id unbinds", async () => {
+    const res = await call("PATCH", "/admin/users/9240", { discord_id: "" });
+    expect(res!.status).toBe(200);
+    const u = await env.DB.prepare("SELECT discord_id FROM users WHERE id=?").bind(9240).first<{discord_id:string|null}>();
+    expect(u?.discord_id).toBeNull();
+  });
 });
 
 describe("PATCH /admin/users/:id keeps unspecified email/note", () => {
