@@ -115,7 +115,7 @@ export function Dashboard() {
           </Card>
         </>
       )}
-      {sync && <SyncModal period={effPeriod} onClose={() => setSync(false)} onDone={() => reload()} />}
+      {sync && <SyncModal key={effPeriod} period={effPeriod} onClose={() => setSync(false)} onDone={() => reload()} />}
     </>
   );
 }
@@ -146,10 +146,11 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
     return () => { off = true; };
   }, [period]);
 
-  const boundAdds = diff?.add.filter((a) => a.discord_id) ?? [];
+  const boundAdds = diff?.add?.filter((a) => a.discord_id) ?? [];
   const changes = diff ? diff.add.length + diff.remove.length + diff.reprice.length : 0;
 
   async function apply() {
+    if (busy) return; // belt: button is also disabled while in-flight
     setBusy(true); setErr(null);
     try {
       const r = await api.syncPeriodBills(period, { dry_run: false, notify_added: notify && boundAdds.length > 0 }) as any;

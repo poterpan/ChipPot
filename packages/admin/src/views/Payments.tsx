@@ -202,10 +202,10 @@ function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Payment; t
         className="btn btn--danger"
         disabled={busy}
         onClick={() => {
-          const settled = payment.status === "paid" || payment.status === "verified";
-          const msg = settled
-            ? "這是已收款紀錄，刪除後會從對帳消失且無法復原（仍保留稽核紀錄）。確定刪除？"
-            : "確定刪除這筆繳費紀錄？（保留稽核紀錄）";
+          const hasHistory = payment.status !== "pending"; // paid/verified/rejected all carry real activity
+          const msg = hasHistory
+            ? "這筆已有繳費／審核紀錄，刪除後將從對帳與紀錄中消失且無法復原（仍保留稽核紀錄）。確定刪除？"
+            : "確定刪除這筆待繳紀錄？（保留稽核紀錄）";
           if (window.confirm(msg)) run(() => api.deletePayment(payment.id));
         }}
       >刪除此筆</button>
