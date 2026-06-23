@@ -200,6 +200,28 @@ export async function listUnboundUsers(
   return results;
 }
 
+/**
+ * Unbound users whose display_name contains `query` (case-insensitive for ASCII; substring for CJK),
+ * capped at `limit`. Used when the unbound roster exceeds Discord's 25-option select cap, so members
+ * can type their name (modal search / `/綁定` autocomplete) instead of scrolling a truncated list.
+ * An empty query returns the first `limit` unbound users. LIKE wildcards in the query are escaped.
+ */
+export async function searchUnboundUsers(
+  db: D1Database,
+  workspaceId: number,
+  query: string,
+  limit: number
+): Promise<UnboundUser[]> {
+  const escaped = query.replace(/[\\%_]/g, (m) => "\\" + m);
+  const { results } = await db
+    .prepare(
+      "SELECT id, display_name FROM users WHERE workspace_id = ? AND discord_id IS NULL AND display_name LIKE ? ESCAPE '\\' ORDER BY id LIMIT ?"
+    )
+    .bind(workspaceId, `%${escaped}%`, limit)
+    .all<UnboundUser>();
+  return results;
+}
+
 export interface BindResult {
   status: "ok" | "already_bound_other" | "name_taken" | "not_found";
   boundName?: string;

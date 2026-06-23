@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   getWorkspace, getActivePlans, listActiveChannelTags, listSettleablePayments, listOpenPayablePeriods,
+  searchUnboundUsers,
 } from "../../src/core/db";
 
 const TS = "2026-05-01T00:00:00.000Z";
@@ -79,5 +80,30 @@ describe("listOpenPayablePeriods", () => {
   });
   it("returns only opened-and-owed periods, oldest first", async () => {
     expect(await listOpenPayablePeriods(env.DB, W, U)).toEqual(["2027-06", "2027-07"]);
+  });
+});
+
+describe("searchUnboundUsers", () => {
+  const W = 9040;
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(W,"W","o","discord",1,"{}",TS,TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,discord_id,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(90401,W,"阿明",null,TS,TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,discord_id,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(90402,W,"阿華",null,TS,TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,discord_id,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(90403,W,"小傑",null,TS,TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,discord_id,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(90404,W,"阿傑","disc-bound",TS,TS), // bound — excluded
+    ]);
+  });
+  it("returns unbound users matching the substring", async () => {
+    const r = await searchUnboundUsers(env.DB, W, "阿", 25);
+    expect(r.map((u) => u.display_name)).toEqual(["阿明", "阿華"]); // 阿傑 is bound → excluded
+  });
+  it("excludes bound users and respects the limit", async () => {
+    const r = await searchUnboundUsers(env.DB, W, "", 2); // empty query = all unbound, capped
+    expect(r.length).toBe(2);
+    expect(r.every((u) => u.id !== 90404)).toBe(true);
+  });
+  it("treats LIKE wildcards in the query literally", async () => {
+    expect(await searchUnboundUsers(env.DB, W, "%", 25)).toEqual([]); // no name contains a literal %
   });
 });
