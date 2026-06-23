@@ -581,6 +581,19 @@ async function deleteProof(_req: Request, env: Env, ctx: RouteCtx): Promise<Resp
   return json({ ok: true });
 }
 
+async function deletePayment(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const id = Number(ctx.params.id);
+  const p = await getPayment(env.DB, id);
+  if (!p || p.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  if (p.screenshot_key && env.BUCKET) await env.BUCKET.delete(p.screenshot_key).catch(() => {});
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM upload_tokens WHERE workspace_id = ? AND subscription_id = ? AND period = ?").bind(p.workspace_id, p.subscription_id, p.period),
+    env.DB.prepare("DELETE FROM payments WHERE id = ?").bind(id),
+  ]);
+  await writeAudit(env.DB, { workspaceId: p.workspace_id, actor: actorOf(ctx), action: "payment.delete", entityType: "payment", entityId: id, before: p, after: { deleted: true } });
+  return json({ ok: true });
+}
+
 // ── One-time upload link ─────────────────────────────────────────────────────
 
 async function createUploadLink(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -685,6 +698,7 @@ export function buildAdminRouter(): Router<Env> {
     .post("/admin/payments/:id/amount", overrideAmountHandler)
     .post("/admin/payments/:id/unverify", unverifyPaymentHandler)
     .post("/admin/payments/:id/delete-proof", deleteProof)
+    .delete("/admin/payments/:id", deletePayment)
     .post("/admin/upload-link", createUploadLink)
     .post("/admin/discord/payment-message", discordPaymentMessage)
     .post("/admin/discord/register-commands", discordRegisterCommands);

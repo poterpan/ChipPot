@@ -37,3 +37,30 @@ describe("POST /admin/payments/:id/unverify", () => {
     expect(res!.status).toBe(409);
   });
 });
+
+describe("DELETE /admin/payments/:id", () => {
+  it("hard-deletes any-status payment, cleans token, writes audit", async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(9210,WS,SUB,"2027-03","2027-03-01","2027-03-31","2027-03-05",315,"pending","cron",TS,TS),
+      env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,subscription_id,expires_at,created_at) VALUES (?,?,?,?,?,?,?)`)
+        .bind("h-9210",WS,U,"2027-03",SUB,TS,TS),
+    ]);
+    const res = await call("DELETE", "/admin/payments/9210");
+    expect(res!.status).toBe(200);
+    const gone = await env.DB.prepare("SELECT id FROM payments WHERE id = ?").bind(9210).first();
+    expect(gone).toBeNull();
+    const tok = await env.DB.prepare("SELECT id FROM upload_tokens WHERE token_hash = ?").bind("h-9210").first();
+    expect(tok).toBeNull();
+    const a = await env.DB.prepare("SELECT action FROM audit_logs WHERE entity_type='payment' AND entity_id=9210").first<{action:string}>();
+    expect(a?.action).toBe("payment.delete");
+  });
+  it("404 for a payment outside the workspace", async () => {
+    // a payment under a different workspace (9299); wsId()=1 ≠ 9299 → 404 before any cascade.
+    await env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(9299,"O","o","discord",5,"{}",TS,TS).run();
+    await env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(9298,9299,SUB,"2027-04","2027-04-01","2027-04-30","2027-04-05",315,"pending","cron",TS,TS).run();
+    const res = await call("DELETE", "/admin/payments/9298");
+    expect(res!.status).toBe(404);
+  });
+});
