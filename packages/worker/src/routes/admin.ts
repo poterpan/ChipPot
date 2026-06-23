@@ -224,7 +224,7 @@ async function updateUser(req: Request, env: Env, ctx: RouteCtx): Promise<Respon
   }
   try {
     await env.DB.prepare(
-      `UPDATE users SET display_name = COALESCE(?, display_name), discord_id = ?, email = ?, note = ?, updated_at = ? WHERE id = ?`
+      `UPDATE users SET display_name = COALESCE(?, display_name), discord_id = ?, email = COALESCE(?, email), note = COALESCE(?, note), updated_at = ? WHERE id = ?`
     ).bind(b.display_name ?? null, discordId, b.email ?? null, b.note ?? null, nowUtcIso(), id).run();
   } catch (e) {
     // Belt for the precheck's TOCTOU race: a concurrent bind to the same discord_id.

@@ -64,3 +64,16 @@ describe("DELETE /admin/payments/:id", () => {
     expect(res!.status).toBe(404);
   });
 });
+
+describe("PATCH /admin/users/:id keeps unspecified email/note", () => {
+  it("does not null email/note when omitted", async () => {
+    await env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,email,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
+      .bind(9220,WS,"Keep","keep@x.tw","原備註",TS,TS).run();
+    const res = await call("PATCH", "/admin/users/9220", { display_name: "Keep2" });
+    expect(res!.status).toBe(200);
+    const u = await env.DB.prepare("SELECT display_name,email,note FROM users WHERE id=?").bind(9220).first<{display_name:string;email:string|null;note:string|null}>();
+    expect(u?.display_name).toBe("Keep2");
+    expect(u?.email).toBe("keep@x.tw");
+    expect(u?.note).toBe("原備註");
+  });
+});
