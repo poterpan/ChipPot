@@ -110,7 +110,7 @@ async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<R
 async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
   const period = ctx.params.period;
-  if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
+  if (!period || !PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
   const b = await readJson<{ dry_run?: boolean; notify_added?: boolean }>(req) ?? {};
   const dryRun = b.dry_run !== false; // safe default: preview unless explicitly false
   const diff = await reconcilePeriodBills(env, ws, period, { dryRun });

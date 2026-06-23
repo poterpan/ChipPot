@@ -14,6 +14,7 @@ const sent = { billing: [] as { period: string; lines: PlanOpenLine[] }[], overd
 const notifier: Notifier = {
   async sendBillingOpened(_e, _ch, period, lines, _t) { sent.billing.push({ period, lines }); },
   async sendOverdue(_e, _ch, period, people, _t) { sent.overdue.push({ period, people }); },
+  async sendPaymentNudge() {},
 };
 
 beforeAll(async () => {

@@ -32,11 +32,11 @@ describe("reconcilePeriodBills", () => {
     const d = await reconcilePeriodBills(env, WS, P, { dryRun: true });
     expect(d.opened).toBe(true);
     expect(d.add.map((a) => a.subscription_id)).toEqual([S_ADD]);
-    expect(d.add[0].amount).toBe(320);
+    expect(d.add[0]!.amount).toBe(320);
     expect(d.remove.map((r) => r.subscription_id)).toEqual([S_STALE]);
     expect(d.reprice.map((r) => r.subscription_id)).toEqual([S_PRICE]);
-    expect(d.reprice[0].from).toBe(315);
-    expect(d.reprice[0].to).toBe(320);
+    expect(d.reprice[0]!.from).toBe(315);
+    expect(d.reprice[0]!.to).toBe(320);
     expect(d.frozen_count).toBe(1);
     const cnt = await env.DB.prepare("SELECT COUNT(*) c FROM payments WHERE workspace_id=? AND period=?").bind(WS, P).first<{ c: number }>();
     expect(cnt?.c).toBe(3); // nothing written
