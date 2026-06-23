@@ -11,6 +11,8 @@ export const BIND_SELECT_PREFIX = "chippot:bind";
 // Persistent public bind button. MUST NOT be "chippot:bind" (would collide with BIND_SELECT_PREFIX);
 // dispatch checks this BEFORE BIND_SELECT_PREFIX because "chippot:bindbtn…" startsWith "chippot:bind".
 export const BIND_BUTTON_PREFIX = "chippot:bindbtn";
+// Modal opened from the bind button / pay-bind when unbound members exceed the 25-option select cap.
+export const BIND_SEARCH_MODAL_PREFIX = "chippot:bindsearch";
 
 // Discord option types we use.
 export const OPT_STRING = 3;
@@ -159,9 +161,37 @@ export const INITIATE_COMMAND = {
   default_member_permissions: MANAGE_GUILD,
 };
 
-/** `/綁定` command registration payload. */
+/** `/綁定` command registration payload. The optional 名字 option autocompletes unbound members,
+ * so a roster larger than the 25-option select cap can still self-bind by typing their name. */
 export const BIND_COMMAND = {
   name: "綁定",
   type: 1,
   description: "把你的 Discord 帳號綁定到名單上的成員",
+  options: [
+    { type: OPT_STRING, name: "名字", description: "輸入你的名字搜尋（名單較多時用）", autocomplete: true, required: false },
+  ],
 };
+
+/** Modal (opened from the bind button / pay-bind) to search the unbound roster by name when it
+ * exceeds the 25-option select cap. custom_id = action:workspace:origin. Text input custom_id = "q". */
+export function bindSearchModal(workspaceId: number, origin: "pay" | "cmd") {
+  return {
+    type: RT_MODAL,
+    data: {
+      custom_id: `${BIND_SEARCH_MODAL_PREFIX}:${workspaceId}:${origin}`,
+      title: "綁定 Discord — 搜尋你的名字",
+      components: [{
+        type: CT_ACTION_ROW,
+        components: [{
+          type: CT_TEXT_INPUT,
+          custom_id: "q",
+          label: "輸入你的名字（可只打部分）",
+          style: 1, // short
+          required: true,
+          min_length: 1,
+          max_length: 50,
+        }],
+      }],
+    },
+  };
+}
