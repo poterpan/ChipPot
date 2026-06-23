@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { api, periodForBillingDay, type ReconcileDiff } from "../api";
-import { useAsync, Card, Stat, Empty, Money, Modal } from "../ui";
+import { useState } from "react";
+import { api, periodForBillingDay } from "../api";
+import { useAsync, Card, Stat, Empty, Money } from "../ui";
 
 function PushStatus({ period }: { period: string }) {
   const { data, reload } = useAsync(() => api.notifications(period), [period]);
@@ -43,8 +43,7 @@ export function Dashboard() {
   // null = "follow the billing-day-aware default"; a string = the admin typed a period.
   const [period, setPeriod] = useState<string | null>(null);
   const effPeriod = period ?? periodForBillingDay(billingDay);
-  const { data, loading, error, reload } = useAsync(() => api.reconcile(effPeriod), [effPeriod]);
-  const [sync, setSync] = useState(false);
+  const { data, loading, error } = useAsync(() => api.reconcile(effPeriod), [effPeriod]);
 
   return (
     <>
@@ -53,8 +52,6 @@ export function Dashboard() {
           期別{" "}
           <input type="month" value={effPeriod} onChange={(e) => setPeriod(e.target.value)} style={{ width: 160 }} />
         </label>
-        <div className="grow" style={{ flex: 1 }} />
-        <button className="btn btn--primary" onClick={() => setSync(true)}>重新同步本期帳單</button>
       </div>
       {error && <div className="error-banner">{error}</div>}
       {loading && <Empty>載入中…</Empty>}
@@ -115,78 +112,6 @@ export function Dashboard() {
           </Card>
         </>
       )}
-      {sync && <SyncModal key={effPeriod} period={effPeriod} onClose={() => setSync(false)} onDone={() => reload()} />}
     </>
-  );
-}
-
-function DiffList({ title, rows }: { title: string; rows: string[] }) {
-  return (
-    <details style={{ margin: "6px 0" }}>
-      <summary style={{ cursor: "pointer" }}>{title}（{rows.length}）</summary>
-      <ul style={{ margin: "6px 0 0 18px", color: "var(--muted)", fontSize: 13 }}>
-        {rows.map((r, i) => <li key={i}>{r}</li>)}
-      </ul>
-    </details>
-  );
-}
-
-function SyncModal({ period, onClose, onDone }: { period: string; onClose: () => void; onDone: () => void }) {
-  const [diff, setDiff] = useState<ReconcileDiff | null>(null);
-  const [busy, setBusy] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-  const [notify, setNotify] = useState(true);
-  const [done, setDone] = useState<string | null>(null);
-
-  useEffect(() => {
-    let off = false;
-    api.syncPeriodBills(period, { dry_run: true })
-      .then((d) => { if (!off) { setDiff(d as ReconcileDiff); setBusy(false); } })
-      .catch((e) => { if (!off) { setErr((e as Error).message); setBusy(false); } });
-    return () => { off = true; };
-  }, [period]);
-
-  const boundAdds = diff?.add?.filter((a) => a.discord_id) ?? [];
-  const changes = diff ? diff.add.length + diff.remove.length + diff.reprice.length : 0;
-
-  async function apply() {
-    if (busy) return; // belt: button is also disabled while in-flight
-    setBusy(true); setErr(null);
-    try {
-      const r = await api.syncPeriodBills(period, { dry_run: false, notify_added: notify && boundAdds.length > 0 }) as any;
-      setDone(`已套用：新增 ${r.applied.added}、移除 ${r.applied.removed}、改價 ${r.applied.repriced}、保留 ${r.applied.frozen}` + (r.notified ? `；已通知 ${r.notified} 位新成員` : ""));
-      onDone();
-    } catch (e) { setErr((e as Error).message); setBusy(false); }
-  }
-
-  return (
-    <Modal title={`重新同步本期帳單 · ${period}`} onClose={onClose}>
-      {err && <div className="error-banner">{err}</div>}
-      {busy && !diff && <Empty>計算差異中…</Empty>}
-      {done && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{done}</div>}
-      {diff && !diff.opened && !done && <p style={{ color: "var(--muted)" }}>此期尚未發起繳費，無需同步。</p>}
-      {diff && diff.opened && !done && (
-        <>
-          <div className="stats">
-            <Stat label="➕ 新增" value={diff.add.length} />
-            <Stat label="➖ 移除" value={diff.remove.length} />
-            <Stat label="🔄 改價" value={diff.reprice.length} />
-            <Stat label="🔒 保留(已繳)" value={diff.frozen_count} />
-          </div>
-          {diff.add.length > 0 && <DiffList title="新增" rows={diff.add.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
-          {diff.remove.length > 0 && <DiffList title="移除（已退訂）" rows={diff.remove.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
-          {diff.reprice.length > 0 && <DiffList title="改價" rows={diff.reprice.map((a) => `${a.user_name}·${a.plan_name} ${a.from}→${a.to}`)} />}
-          {boundAdds.length > 0 && (
-            <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
-              <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
-              在頻道 @ 通知這 {boundAdds.length} 位新成員並附繳費按鈕
-            </label>
-          )}
-          {changes === 0
-            ? <p style={{ color: "var(--muted)" }}>本期已是最新，無需變更。</p>
-            : <button className="btn btn--primary" disabled={busy} onClick={apply}>確認套用</button>}
-        </>
-      )}
-    </Modal>
   );
 }
