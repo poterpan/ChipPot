@@ -181,6 +181,7 @@ function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Payment; t
 
       <div className="btn-row">
         {canVerify && <button className="btn btn--primary" disabled={busy} onClick={() => run(() => api.verify(payment.id, tagId === "" ? null : Number(tagId)))}>標記已驗證</button>}
+        {payment.status === "verified" && <button className="btn" disabled={busy} onClick={() => run(() => api.unverify(payment.id))}>撤回驗證</button>}
         {payment.screenshot_key && <button className="btn btn--danger" disabled={busy} onClick={() => run(() => api.deleteProof(payment.id))}>刪除截圖</button>}
       </div>
 
@@ -195,6 +196,19 @@ function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Payment; t
         <Field label="單筆覆寫金額"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={busy} /></Field>
         <button className="btn" disabled={busy} onClick={() => run(() => api.overrideAmount(payment.id, Number(amount)))}>更新金額</button>
       </div>
+
+      <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "18px 0" }} />
+      <button
+        className="btn btn--danger"
+        disabled={busy}
+        onClick={() => {
+          const settled = payment.status === "paid" || payment.status === "verified";
+          const msg = settled
+            ? "這是已收款紀錄，刪除後會從對帳消失且無法復原（仍保留稽核紀錄）。確定刪除？"
+            : "確定刪除這筆繳費紀錄？（保留稽核紀錄）";
+          if (window.confirm(msg)) run(() => api.deletePayment(payment.id));
+        }}
+      >刪除此筆</button>
     </Modal>
   );
 }
