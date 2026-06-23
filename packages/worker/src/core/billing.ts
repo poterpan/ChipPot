@@ -257,11 +257,13 @@ export async function reconcilePeriodBills(
   if (!openedRow) return { opened: false, add: [], remove: [], reprice: [], frozen_count: 0 };
 
   const activeSubs = (await env.DB.prepare(
-    `SELECT s.id AS subscription_id, s.user_id AS user_id, u.display_name AS user_name, u.discord_id AS discord_id,
+    `SELECT s.id AS subscription_id, s.user_id AS user_id, s.billing_day AS billing_day,
+            u.display_name AS user_name, u.discord_id AS discord_id,
             pl.name AS plan_name, pl.monthly_amount AS price
      FROM subscriptions s JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
      WHERE s.workspace_id = ? AND s.status = 'active'`
-  ).bind(workspaceId).all<{ subscription_id: number; user_id: number; user_name: string; discord_id: string | null; plan_name: string; price: number }>()).results;
+  ).bind(workspaceId).all<{ subscription_id: number; user_id: number; billing_day: number; user_name: string; discord_id: string | null; plan_name: string; price: number }>()).results;
+  const activeBySub = new Map(activeSubs.map((s) => [s.subscription_id, s]));
 
   const existing = (await env.DB.prepare(
     `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.amount AS amount, p.status AS status,
@@ -293,20 +295,28 @@ export async function reconcilePeriodBills(
 
   if (opts.dryRun) return { opened: true, add, remove, reprice, frozen_count };
 
+  // Apply add/reprice/remove in ONE batch (implicit transaction) so a partial failure can't leave
+  // the period half-reconciled. Adds are admin-initiated pending bills at the current plan price
+  // (payments.source CHECK allows: user/user_slash/user_web/admin_manual/cron).
   const now = nowUtcIso();
-  for (const a of add) {
-    // admin-initiated bill creation (payments.source CHECK allows: user/user_slash/user_web/admin_manual/cron)
-    const r = await ensurePeriodPayment(env.DB, a.subscription_id, period, { source: "admin_manual" });
-    a.payment_id = r.paymentId; // inserts at the plan's current monthly_amount
-  }
   const stmts: D1PreparedStatement[] = [];
+  for (const a of add) {
+    const s = activeBySub.get(a.subscription_id)!;
+    const dates = buildPeriodDates(period, s.billing_day);
+    stmts.push(env.DB.prepare(
+      `INSERT INTO payments (workspace_id, subscription_id, period, period_start, period_end, due_date, amount, status, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'admin_manual', ?, ?)
+       ON CONFLICT(subscription_id, period) DO NOTHING`
+    ).bind(workspaceId, a.subscription_id, period, dates.period_start, dates.period_end, dates.due_date, a.amount, now, now));
+  }
   for (const rp of reprice) stmts.push(env.DB.prepare("UPDATE payments SET amount = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(rp.to!, now, rp.payment_id!));
   for (const rm of remove) {
     stmts.push(env.DB.prepare("DELETE FROM upload_tokens WHERE workspace_id = ? AND subscription_id = ? AND period = ?").bind(workspaceId, rm.subscription_id, period));
-    stmts.push(env.DB.prepare("DELETE FROM payments WHERE id = ?").bind(rm.payment_id!));
+    // Re-assert status in the DELETE so a concurrent verify/pay between compute and apply isn't clobbered.
+    stmts.push(env.DB.prepare("DELETE FROM payments WHERE id = ? AND status IN ('pending','rejected')").bind(rm.payment_id!));
   }
   if (stmts.length) await env.DB.batch(stmts);
-  // Drop proof objects only for keys no longer referenced by any remaining payment.
+  // Drop proof objects only for keys no longer referenced by any remaining payment (shared proofs).
   if (env.BUCKET) {
     const keys = [...new Set(remove.map((r) => r.screenshot_key).filter((k): k is string => !!k))];
     for (const k of keys) {

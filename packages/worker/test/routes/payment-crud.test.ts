@@ -124,6 +124,17 @@ describe("POST /admin/billing/:period/sync", () => {
     const res = await call("POST", "/admin/billing/2027-9/sync", { dry_run: true });
     expect(res!.status).toBe(400);
   });
+  it("defaults to dry-run (no writes) when the body omits dry_run", async () => {
+    const PER2 = "2027-10";
+    await env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS,"billing_opened",PER2,0,0,0,TS).run();
+    const res = await call("POST", `/admin/billing/${PER2}/sync`); // no body
+    expect(res!.status).toBe(200);
+    const d = await res!.json() as any;
+    expect(d.opened).toBe(true);
+    expect(Array.isArray(d.add)).toBe(true); // preview shape, not an apply result
+    const cnt = (await env.DB.prepare("SELECT COUNT(*) c FROM payments WHERE workspace_id=? AND period=?").bind(WS,PER2).first<{c:number}>())?.c ?? 0;
+    expect(cnt).toBe(0); // safe default wrote nothing
+  });
 });
 
 describe("PATCH /admin/users/:id keeps unspecified email/note", () => {

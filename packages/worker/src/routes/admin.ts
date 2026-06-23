@@ -136,7 +136,11 @@ async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<R
         e.total += a.amount;
       }
       const people = [...byUser.values()];
-      if (people.length) { await discordNotifier.sendPaymentNudge(env, channelId, ws, period, people); notified = people.length; }
+      // The reconcile is already committed; a Discord hiccup must not turn a successful apply into a 500.
+      if (people.length) {
+        try { await discordNotifier.sendPaymentNudge(env, channelId, ws, period, people); notified = people.length; }
+        catch { notified = 0; }
+      }
     }
   }
   return json({ ok: true, applied: { added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count }, notified });
