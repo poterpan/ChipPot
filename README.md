@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-234%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-243%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -64,7 +64,7 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   enforces screenshot retention — all deduped through `notification_logs`.
 - 🛡️ **Access-gated admin** — the whole admin host sits behind Cloudflare Access (email OTP); the
   SPA and its API are same-origin so the Access JWT reaches the Worker.
-- 🧪 **Real-runtime tests** — 234 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
+- 🧪 **Real-runtime tests** — 243 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
   enforced), not mocks.
 
 ## How a payment flows
