@@ -215,3 +215,115 @@ export async function initiateBillingOpened(
 
   return { sent, updatedPlans, updatedPayments };
 }
+
+// ── "重新同步本期帳單" (reconcile a period's bills to the current roster) ──────────
+
+export interface ReconcileLine {
+  payment_id?: number;
+  subscription_id: number;
+  user_id: number;
+  user_name: string;
+  plan_name: string;
+  amount: number;
+  from?: number;
+  to?: number;
+  discord_id: string | null;
+  screenshot_key?: string | null;
+}
+export interface ReconcileDiff {
+  opened: boolean;
+  add: ReconcileLine[];
+  remove: ReconcileLine[];
+  reprice: ReconcileLine[];
+  frozen_count: number;
+}
+
+/**
+ * Reconcile a period's bills against the current active roster (manual "重新同步本期帳單").
+ * add: an active sub with no bill → pending @ current plan price. remove: a pending/rejected bill of
+ * a non-active sub → delete (+ R2 proof + matching upload_token cleanup). reprice: an active sub's
+ * PENDING bill → current plan price. paid/verified are frozen. Only "opened" periods (those with a
+ * billing_opened log) do anything — matches what members can actually pay.
+ */
+export async function reconcilePeriodBills(
+  env: Env,
+  workspaceId: number,
+  period: string,
+  opts: { dryRun: boolean }
+): Promise<ReconcileDiff> {
+  const openedRow = await env.DB
+    .prepare("SELECT 1 AS ok FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ? LIMIT 1")
+    .bind(workspaceId, period).first<{ ok: number }>();
+  if (!openedRow) return { opened: false, add: [], remove: [], reprice: [], frozen_count: 0 };
+
+  const activeSubs = (await env.DB.prepare(
+    `SELECT s.id AS subscription_id, s.user_id AS user_id, s.billing_day AS billing_day,
+            u.display_name AS user_name, u.discord_id AS discord_id,
+            pl.name AS plan_name, pl.monthly_amount AS price
+     FROM subscriptions s JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
+     WHERE s.workspace_id = ? AND s.status = 'active'`
+  ).bind(workspaceId).all<{ subscription_id: number; user_id: number; billing_day: number; user_name: string; discord_id: string | null; plan_name: string; price: number }>()).results;
+  const activeBySub = new Map(activeSubs.map((s) => [s.subscription_id, s]));
+
+  const existing = (await env.DB.prepare(
+    `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.amount AS amount, p.status AS status,
+            p.screenshot_key AS screenshot_key, s.status AS sub_status, s.user_id AS user_id,
+            u.display_name AS user_name, u.discord_id AS discord_id, pl.name AS plan_name
+     FROM payments p JOIN subscriptions s ON s.id = p.subscription_id
+     JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
+     WHERE p.workspace_id = ? AND p.period = ?`
+  ).bind(workspaceId, period).all<{ payment_id: number; subscription_id: number; amount: number; status: string; screenshot_key: string | null; sub_status: string; user_id: number; user_name: string; discord_id: string | null; plan_name: string }>()).results;
+
+  const bySub = new Map(existing.map((e) => [e.subscription_id, e]));
+  const add: ReconcileLine[] = [], reprice: ReconcileLine[] = [], remove: ReconcileLine[] = [];
+  let frozen_count = 0;
+
+  for (const s of activeSubs) {
+    const e = bySub.get(s.subscription_id);
+    if (!e) {
+      add.push({ subscription_id: s.subscription_id, user_id: s.user_id, user_name: s.user_name, plan_name: s.plan_name, amount: s.price, discord_id: s.discord_id });
+    } else if (e.status === "pending" && e.amount !== s.price) {
+      reprice.push({ payment_id: e.payment_id, subscription_id: s.subscription_id, user_id: s.user_id, user_name: s.user_name, plan_name: s.plan_name, amount: s.price, from: e.amount, to: s.price, discord_id: s.discord_id });
+    }
+  }
+  for (const e of existing) {
+    if (e.status === "paid" || e.status === "verified") { frozen_count++; continue; }
+    if (e.sub_status !== "active") {
+      remove.push({ payment_id: e.payment_id, subscription_id: e.subscription_id, user_id: e.user_id, user_name: e.user_name, plan_name: e.plan_name, amount: e.amount, discord_id: e.discord_id, screenshot_key: e.screenshot_key });
+    }
+  }
+
+  if (opts.dryRun) return { opened: true, add, remove, reprice, frozen_count };
+
+  // Apply add/reprice/remove in ONE batch (implicit transaction) so a partial failure can't leave
+  // the period half-reconciled. Adds are admin-initiated pending bills at the current plan price
+  // (payments.source CHECK allows: user/user_slash/user_web/admin_manual/cron).
+  const now = nowUtcIso();
+  const stmts: D1PreparedStatement[] = [];
+  for (const a of add) {
+    const s = activeBySub.get(a.subscription_id)!;
+    const dates = buildPeriodDates(period, s.billing_day);
+    stmts.push(env.DB.prepare(
+      `INSERT INTO payments (workspace_id, subscription_id, period, period_start, period_end, due_date, amount, status, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'admin_manual', ?, ?)
+       ON CONFLICT(subscription_id, period) DO NOTHING`
+    ).bind(workspaceId, a.subscription_id, period, dates.period_start, dates.period_end, dates.due_date, a.amount, now, now));
+  }
+  for (const rp of reprice) stmts.push(env.DB.prepare("UPDATE payments SET amount = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(rp.to!, now, rp.payment_id!));
+  for (const rm of remove) {
+    stmts.push(env.DB.prepare("DELETE FROM upload_tokens WHERE workspace_id = ? AND subscription_id = ? AND period = ?").bind(workspaceId, rm.subscription_id, period));
+    // Re-assert status in the DELETE so a concurrent verify/pay between compute and apply isn't clobbered.
+    stmts.push(env.DB.prepare("DELETE FROM payments WHERE id = ? AND status IN ('pending','rejected')").bind(rm.payment_id!));
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+  // Drop proof objects only for keys no longer referenced by any remaining payment (shared proofs).
+  if (env.BUCKET) {
+    const keys = [...new Set(remove.map((r) => r.screenshot_key).filter((k): k is string => !!k))];
+    for (const k of keys) {
+      const still = await env.DB.prepare("SELECT 1 AS ok FROM payments WHERE screenshot_key = ? LIMIT 1").bind(k).first<{ ok: number }>();
+      if (!still) await env.BUCKET.delete(k).catch(() => {});
+    }
+  }
+
+  return { opened: true, add, remove, reprice, frozen_count };
+}

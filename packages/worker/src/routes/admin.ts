@@ -5,8 +5,9 @@ import { parseSettings } from "../env";
 import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
-import { getPayment, verifyPayment, rejectPayment, overrideAmount, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened } from "../core/billing";
+import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, InvalidPaymentTransition } from "../core/payments";
+import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills } from "../core/billing";
+import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
 import { payButtonRow, PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
@@ -99,6 +100,50 @@ async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<R
     env, ws, period, { amounts: b!.amounts }, actorOf(ctx), discordNotifier
   );
   return json({ ok: true, sent: r.sent, updated_plans: r.updatedPlans, updated_payments: r.updatedPayments });
+}
+
+/**
+ * "重新同步本期帳單": reconcile a period's bills to the current roster. dry_run defaults to true (safe
+ * preview) — only an explicit { dry_run: false } applies. With { notify_added: true }, after applying it
+ * pings the newly-added BOUND members in the billing channel with a pay button.
+ */
+async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const period = ctx.params.period;
+  if (!period || !PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
+  const b = await readJson<{ dry_run?: boolean; notify_added?: boolean }>(req) ?? {};
+  const dryRun = b.dry_run !== false; // safe default: preview unless explicitly false
+  const diff = await reconcilePeriodBills(env, ws, period, { dryRun });
+  if (dryRun) return json(diff);
+
+  await writeAudit(env.DB, {
+    workspaceId: ws, actor: actorOf(ctx), action: "billing.reconcile", entityType: "workspace", entityId: ws,
+    after: { period, added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count },
+  });
+
+  let notified = 0;
+  if (b.notify_added && diff.add.length) {
+    const wsRow = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
+    const settings = parseSettings(wsRow!.settings);
+    const channelId = settings.discord_billing_channel_id;
+    if (channelId && env.DISCORD_BOT_TOKEN) {
+      const byUser = new Map<number, OverduePerson>();
+      for (const a of diff.add) {
+        if (!a.discord_id) continue; // only bound members can be pinged
+        let e = byUser.get(a.user_id);
+        if (!e) { e = { user_id: a.user_id, discord_id: a.discord_id, user_name: a.user_name, lines: [], total: 0 }; byUser.set(a.user_id, e); }
+        e.lines.push({ plan_name: a.plan_name, amount: a.amount });
+        e.total += a.amount;
+      }
+      const people = [...byUser.values()];
+      // The reconcile is already committed; a Discord hiccup must not turn a successful apply into a 500.
+      if (people.length) {
+        try { await discordNotifier.sendPaymentNudge(env, channelId, ws, period, people); notified = people.length; }
+        catch { notified = 0; }
+      }
+    }
+  }
+  return json({ ok: true, applied: { added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count }, notified });
 }
 
 const NOTIF_TYPES = ["billing_opened", "overdue"] as const;
@@ -216,16 +261,21 @@ async function updateUser(req: Request, env: Env, ctx: RouteCtx): Promise<Respon
   const before = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
   if (!before) return errorResponse(404, "not found");
   const b = await readJson<{ display_name?: string; discord_id?: string; email?: string; note?: string }>(req) ?? {};
+  // Distinguish "field omitted" (keep current binding) from "field present-and-empty" (explicit
+  // unbind). Without this, a display-name-only PATCH would silently null discord_id.
+  const discordProvided = b.discord_id !== undefined;
   const discordId = typeof b.discord_id === "string" && b.discord_id.trim() ? b.discord_id.trim() : null;
-  if (discordId) {
+  if (discordProvided && discordId) {
     const clash = await env.DB.prepare("SELECT id FROM users WHERE workspace_id = ? AND discord_id = ? AND id <> ?")
       .bind(wsId(ctx), discordId, id).first<{ id: number }>();
     if (clash) return errorResponse(400, "此 Discord ID 已綁定其他成員");
   }
   try {
     await env.DB.prepare(
-      `UPDATE users SET display_name = COALESCE(?, display_name), discord_id = ?, email = ?, note = ?, updated_at = ? WHERE id = ?`
-    ).bind(b.display_name ?? null, discordId, b.email ?? null, b.note ?? null, nowUtcIso(), id).run();
+      `UPDATE users SET display_name = COALESCE(?, display_name),
+         discord_id = CASE WHEN ? = 1 THEN ? ELSE discord_id END,
+         email = COALESCE(?, email), note = COALESCE(?, note), updated_at = ? WHERE id = ?`
+    ).bind(b.display_name ?? null, discordProvided ? 1 : 0, discordId, b.email ?? null, b.note ?? null, nowUtcIso(), id).run();
   } catch (e) {
     // Belt for the precheck's TOCTOU race: a concurrent bind to the same discord_id.
     if (String((e as Error).message).includes("UNIQUE")) return errorResponse(400, "此 Discord ID 已綁定其他成員");
@@ -485,7 +535,7 @@ async function verifyPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
 async function rejectPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await getPayment(env.DB, id);
-  if (!before) return errorResponse(404, "not found");
+  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
   const b = await readJson<{ rejected_reason?: string }>(req) ?? {};
   try {
     const after = await rejectPayment(env.DB, id, { rejectedReason: b.rejected_reason ?? null, verifiedBy: actorOf(ctx) });
@@ -500,7 +550,7 @@ async function rejectPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
 async function overrideAmountHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await getPayment(env.DB, id);
-  if (!before) return errorResponse(404, "not found");
+  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
   const b = await readJson<{ amount?: number }>(req);
   if (typeof b?.amount !== "number" || !Number.isInteger(b.amount) || b.amount < 0) {
     return errorResponse(400, "integer amount required");
@@ -508,6 +558,20 @@ async function overrideAmountHandler(req: Request, env: Env, ctx: RouteCtx): Pro
   const after = await overrideAmount(env.DB, id, b.amount);
   await writeAudit(env.DB, { workspaceId: before.workspace_id, actor: actorOf(ctx), action: "amount.override", entityType: "payment", entityId: id, before: { amount: before.amount }, after: { amount: after.amount } });
   return json({ ok: true, payment: after });
+}
+
+async function unverifyPaymentHandler(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const id = Number(ctx.params.id);
+  const before = await getPayment(env.DB, id);
+  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  try {
+    const after = await unverifyPayment(env.DB, id);
+    await writeAudit(env.DB, { workspaceId: before.workspace_id, actor: actorOf(ctx), action: "payment.unverify", entityType: "payment", entityId: id, before, after });
+    return json({ ok: true, payment: after });
+  } catch (e) {
+    if (e instanceof InvalidPaymentTransition) return errorResponse(409, e.message);
+    throw e;
+  }
 }
 
 async function manualPayment(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -559,11 +623,29 @@ async function manualPayment(req: Request, env: Env, ctx: RouteCtx): Promise<Res
 async function deleteProof(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const p = await getPayment(env.DB, id);
-  if (!p) return errorResponse(404, "not found");
+  if (!p || p.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
   if (p.screenshot_key && env.BUCKET) await env.BUCKET.delete(p.screenshot_key);
   await env.DB.prepare("UPDATE payments SET screenshot_key = NULL, proof_deleted_at = ?, updated_at = ? WHERE id = ?")
     .bind(taipeiDate(), nowUtcIso(), id).run();
   await writeAudit(env.DB, { workspaceId: p.workspace_id, actor: actorOf(ctx), action: "proof.delete", entityType: "payment", entityId: id, before: { screenshot_key: p.screenshot_key } });
+  return json({ ok: true });
+}
+
+async function deletePayment(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const id = Number(ctx.params.id);
+  const p = await getPayment(env.DB, id);
+  if (!p || p.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM upload_tokens WHERE workspace_id = ? AND subscription_id = ? AND period = ?").bind(p.workspace_id, p.subscription_id, p.period),
+    env.DB.prepare("DELETE FROM payments WHERE id = ?").bind(id),
+  ]);
+  // Drop the proof object only once NO remaining payment references it — a single settlement can
+  // attach one screenshot to several subs' payments, so deleting one row must not orphan the rest.
+  if (p.screenshot_key && env.BUCKET) {
+    const still = await env.DB.prepare("SELECT 1 AS ok FROM payments WHERE screenshot_key = ? LIMIT 1").bind(p.screenshot_key).first<{ ok: number }>();
+    if (!still) await env.BUCKET.delete(p.screenshot_key).catch(() => {});
+  }
+  await writeAudit(env.DB, { workspaceId: p.workspace_id, actor: actorOf(ctx), action: "payment.delete", entityType: "payment", entityId: id, before: p, after: { deleted: true } });
   return json({ ok: true });
 }
 
@@ -643,6 +725,7 @@ export function buildAdminRouter(): Router<Env> {
     .patch("/admin/workspace", updateWorkspace)
     .get("/admin/reconcile", reconcile)
     .post("/admin/billing/initiate", billingInitiate)
+    .post("/admin/billing/:period/sync", syncPeriodBills)
     .post("/admin/members/import", membersImport)
     .get("/admin/notifications", notificationsStatus)
     .post("/admin/notifications/resend", notificationsResend)
@@ -669,7 +752,9 @@ export function buildAdminRouter(): Router<Env> {
     .post("/admin/payments/:id/verify", verifyPaymentHandler)
     .post("/admin/payments/:id/reject", rejectPaymentHandler)
     .post("/admin/payments/:id/amount", overrideAmountHandler)
+    .post("/admin/payments/:id/unverify", unverifyPaymentHandler)
     .post("/admin/payments/:id/delete-proof", deleteProof)
+    .delete("/admin/payments/:id", deletePayment)
     .post("/admin/upload-link", createUploadLink)
     .post("/admin/discord/payment-message", discordPaymentMessage)
     .post("/admin/discord/register-commands", discordRegisterCommands);

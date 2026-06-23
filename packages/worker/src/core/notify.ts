@@ -19,6 +19,8 @@ export interface OverduePerson {
 export interface Notifier {
   sendBillingOpened(env: Env, channelId: string, period: string, lines: PlanOpenLine[], template: string): Promise<void>;
   sendOverdue(env: Env, channelId: string, period: string, people: OverduePerson[], template: string): Promise<void>;
+  /** Targeted nudge for members newly added to a period (e.g. after reconcile): @-mention them + pay button. */
+  sendPaymentNudge(env: Env, channelId: string, workspaceId: number, period: string, people: OverduePerson[]): Promise<void>;
 }
 
 export interface NotificationKey {
