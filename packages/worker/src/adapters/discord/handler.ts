@@ -4,7 +4,7 @@ import { json } from "../../http";
 import { periodForBillingDay, nextBillingPeriod } from "../../core/time";
 import {
   getWorkspaceIdByGuild, getUserByDiscordId, listActiveSubscriptions,
-  listActiveChannelTags, listSettleablePayments, listUnboundUsers, bindDiscordId,
+  listActiveChannelTags, listSettleablePayments, listOpenPayablePeriods, listUnboundUsers, bindDiscordId,
 } from "../../core/db";
 import { ensurePeriodPayment, initiateBillingOpened } from "../../core/billing";
 import { isBillingOpened } from "../../core/notify";
@@ -15,8 +15,8 @@ import { editOriginalResponse } from "./api";
 import {
   IT_COMMAND, IT_COMPONENT, IT_AUTOCOMPLETE, IT_MODAL_SUBMIT,
   RT_MESSAGE, RT_DEFERRED, RT_UPDATE_MESSAGE, RT_AUTOCOMPLETE, FLAG_EPHEMERAL,
-  PAY_BUTTON_PREFIX, PAY_SELECT_PREFIX, INITIATE_MODAL_PREFIX, BIND_SELECT_PREFIX,
-  channelSelectRow, initiateModal, bindSelectRow,
+  PAY_BUTTON_PREFIX, PAY_SELECT_PREFIX, PAY_PERIOD_PREFIX, INITIATE_MODAL_PREFIX, BIND_SELECT_PREFIX,
+  channelSelectRow, periodSelectRow, initiateModal, bindSelectRow,
 } from "./commands";
 
 export interface DiscordAttachment {
@@ -158,16 +158,16 @@ async function computePayResult(i: DiscordInteraction, env: Env, ctx: ExecutionC
 
   const subs = await listActiveSubscriptions(env.DB, ws, userId);
   if (subs.length === 0) return "你目前沒有有效訂閱。";
+  const { period: current, opened } = await ensureCurrentPeriodRows(env, ws, subs);
 
-  // The period currently being collected (billing-day aware), so before the billing day we still
-  // settle last month rather than jumping to the calendar month.
-  const wsRow = await env.DB.prepare("SELECT billing_day FROM workspaces WHERE id = ?").bind(ws).first<{ billing_day: number }>();
-  const period = periodForBillingDay(wsRow?.billing_day ?? 1);
-  // Members may only pay once billing for the period has been opened (cron or 發起繳費). Block
-  // self-pay before then so nobody locks in a stale amount before the admin finalises it.
-  if (!(await isBillingOpened(env.DB, ws, period))) {
-    return `本期（${period}）繳費尚未開放，待管理員發出開繳通知後即可繳費。`;
+  // Payable = opened AND still owed (oldest first); includes a pre-opened next month. The slash
+  // command settles one period, so if several are owed we send them to the button (which can pick).
+  const periods = await listOpenPayablePeriods(env.DB, ws, userId);
+  if (periods.length === 0) {
+    return opened ? "✅ 你已登記繳費，目前沒有待繳項目。" : `本期（${current}）繳費尚未開放，待管理員發出開繳通知後即可繳費。`;
   }
+  if (periods.length > 1) return `你有多個月份待繳：${periods.join("、")}。請改用下方「繳費」按鈕選擇要繳的月份。`;
+  const period = periods[0]!;
   const note = getOption(i, "備註")?.value?.trim() || null;
 
   // Resolve declared channel (autocomplete value is a channel_tag id).
@@ -284,6 +284,7 @@ function handleComponent(i: DiscordInteraction, env: Env, ctx: ExecutionContext)
   const cid = i.data?.custom_id ?? "";
   if (cid.startsWith(BIND_SELECT_PREFIX)) return handleBindSelect(i, env);
   if (cid.startsWith(PAY_SELECT_PREFIX)) return handlePaySelect(i, env, ctx);
+  if (cid.startsWith(PAY_PERIOD_PREFIX)) return handlePayPeriodSelect(i, env); // before PAY_BUTTON (prefix overlap)
   if (cid.startsWith(PAY_BUTTON_PREFIX)) return handlePayButton(i, env);
   return Promise.resolve(ephemeral("未支援的按鈕。"));
 }
@@ -341,30 +342,73 @@ async function handleBindSelect(i: DiscordInteraction, env: Env): Promise<Respon
   return updateErr(`✅ 已綁定為 ${result.boundName}。之後點「繳費」按鈕或用 \`/繳費\` 即可登記繳費。`);
 }
 
-/** The pay prompt shown after the button (or after a button-originated bind). */
+// Make sure the current collection period has rows for these subs when it's open, so a member who
+// joined mid-period can still pay it. Pre-opened future periods already got their rows at 發起繳費
+// time, so listOpenPayablePeriods will surface them too.
+async function ensureCurrentPeriodRows(env: Env, ws: number, subs: { id: number }[]): Promise<{ period: string; opened: boolean }> {
+  const wsRow = await env.DB.prepare("SELECT billing_day FROM workspaces WHERE id = ?").bind(ws).first<{ billing_day: number }>();
+  const current = periodForBillingDay(wsRow?.billing_day ?? 1);
+  const opened = await isBillingOpened(env.DB, ws, current);
+  if (opened) for (const s of subs) await ensurePeriodPayment(env.DB, s.id, current);
+  return { period: current, opened };
+}
+
+/** The pay prompt shown after the button (or after a button-originated bind). Offers the periods
+ *  the member can pay (opened + owed): none → done; one → straight to the channel select; many →
+ *  pick the month first. */
 async function buildPayPrompt(
   env: Env, ws: number, userId: number
 ): Promise<{ content: string; components: unknown[] }> {
   const subs = await listActiveSubscriptions(env.DB, ws, userId);
   if (subs.length === 0) return { content: "你目前沒有有效訂閱。", components: [] };
-  // Billing-day-aware collection period (matches the dashboard + the channel-select custom_id).
-  const wsRow = await env.DB.prepare("SELECT billing_day FROM workspaces WHERE id = ?").bind(ws).first<{ billing_day: number }>();
-  const period = periodForBillingDay(wsRow?.billing_day ?? 1);
-  // Gate: no self-pay (and no on-demand bill creation) until billing is opened for the period.
-  if (!(await isBillingOpened(env.DB, ws, period))) {
-    return { content: `本期（${period}）繳費尚未開放，待管理員發出開繳通知後即可繳費。`, components: [] };
+  const { period: current, opened } = await ensureCurrentPeriodRows(env, ws, subs);
+  const periods = await listOpenPayablePeriods(env.DB, ws, userId);
+  if (periods.length === 0) {
+    return {
+      content: opened ? "✅ 你已登記繳費，目前沒有待繳項目。" : `本期（${current}）繳費尚未開放，待管理員發出開繳通知後即可繳費。`,
+      components: [],
+    };
   }
-  for (const s of subs) await ensurePeriodPayment(env.DB, s.id, period);
-  const settleable = await listSettleablePayments(env.DB, ws, userId, period);
-  if (settleable.length === 0) return { content: "✅ 你本期已登記繳費，無需重複操作。", components: [] };
   const tags = await listActiveChannelTags(env.DB, ws);
   if (tags.length === 0) return { content: "管理員尚未設定繳費渠道，請改用 `/繳費` 指令（可附截圖或備註）。", components: [] };
+  if (periods.length > 1) {
+    return {
+      content: `你有多個月份待繳：${periods.join("、")}。\n請先選擇要繳的月份。`,
+      components: [periodSelectRow(ws, periods)],
+    };
+  }
+  return payChannelPrompt(env, ws, userId, periods[0]!, tags);
+}
+
+/** The channel-select prompt for one specific period (shared by the single-period button path and
+ *  the period chooser). */
+async function payChannelPrompt(
+  env: Env, ws: number, userId: number, period: string, tags: { id: number; name: string }[]
+): Promise<{ content: string; components: unknown[] }> {
+  const settleable = await listSettleablePayments(env.DB, ws, userId, period);
+  if (settleable.length === 0) return { content: "✅ 這個月份已登記繳費，無需重複操作。", components: [] };
   const total = settleable.reduce((s, r) => s + r.amount, 0);
   const lines = settleable.map((r) => `・${r.plan_name}：NT$${r.amount.toLocaleString()}`).join("\n");
   return {
-    content: `本期（${period}）應繳：\n${lines}\n**合計 NT$${total.toLocaleString()}**\n\n請選擇繳費渠道送出。想附截圖／備註？改用 \`/繳費\`。`,
+    content: `${period} 應繳：\n${lines}\n**合計 NT$${total.toLocaleString()}**\n\n請選擇繳費渠道送出。想附截圖／備註？改用 \`/繳費\`。`,
     components: [channelSelectRow(ws, period, tags)],
   };
+}
+
+/** Member owed >1 period and picked a month → show that month's channel select. */
+async function handlePayPeriodSelect(i: DiscordInteraction, env: Env): Promise<Response> {
+  const m = await resolveMember(i, env);
+  if (m instanceof Response) return m;
+  const { ws, userId } = m;
+  const updateErr = (content: string) => json({ type: RT_UPDATE_MESSAGE, data: { content, components: [] } });
+  if (Number((i.data?.custom_id ?? "").split(":")[2]) !== ws) return updateErr("這個選單已失效，請重新點「繳費」按鈕。");
+  const period = i.data?.values?.[0] ?? "";
+  const periods = await listOpenPayablePeriods(env.DB, ws, userId);
+  if (!periods.includes(period)) return updateErr("這個月份已無待繳項目，請重新點「繳費」按鈕。");
+  const tags = await listActiveChannelTags(env.DB, ws);
+  if (tags.length === 0) return updateErr("管理員尚未設定繳費渠道，請改用 `/繳費` 指令。");
+  const prompt = await payChannelPrompt(env, ws, userId, period, tags);
+  return json({ type: RT_UPDATE_MESSAGE, data: { content: prompt.content, components: prompt.components } });
 }
 
 async function handlePayButton(i: DiscordInteraction, env: Env): Promise<Response> {

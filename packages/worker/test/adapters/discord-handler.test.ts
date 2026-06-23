@@ -77,13 +77,19 @@ describe("Discord interaction routing", () => {
   });
 
   it("/繳費 with nothing (no 渠道/截圖/備註) is rejected", async () => {
+    // A fresh, unpaid member so we actually reach the at-least-one rule (DISC's period is paid by an earlier test).
+    const U3 = 90093, S3 = 90094, DISC3 = "disc3-9009";
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,discord_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(U3, WS, DISC3, "Member3", TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(S3, WS, U3, WS, "2026-05-01", 5, TS, TS),
+    ]);
     const captured: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_u: unknown, init: RequestInit | undefined) => {
       if (typeof init?.body === "string") captured.push(JSON.parse(init.body).content);
       return new Response("{}", { status: 200 });
     }));
     const i: DiscordInteraction = {
-      type: 2, id: "1", token: "tok2", guild_id: GUILD, ...member(DISC),
+      type: 2, id: "1", token: "tok2", guild_id: GUILD, ...member(DISC3),
       data: { name: "繳費", options: [] },
     };
     await routeInteraction(i, env, CTX);

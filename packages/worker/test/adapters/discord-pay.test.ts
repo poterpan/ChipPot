@@ -97,6 +97,12 @@ describe("button → channel select → settle", () => {
 
 describe("/繳費 with no R2 ignores the screenshot", () => {
   it("tells the member to use channel/note when only a screenshot is given and R2 is off", async () => {
+    // A fresh, unpaid member so we reach the screenshot-ignored rule (DISC's period is paid by an earlier test).
+    const U4 = 90245, S4 = 90246, DISC4 = "disc4-9024";
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,discord_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(U4, WS, DISC4, "Member4", TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(S4, WS, U4, WS, "2026-05-01", 5, TS, TS),
+    ]);
     const prevB = (env as any).BUCKET;
     const prevApp = (env as any).DISCORD_APPLICATION_ID;
     (env as any).BUCKET = undefined;
@@ -104,7 +110,7 @@ describe("/繳費 with no R2 ignores the screenshot", () => {
     let captured = "";
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: any) => { captured = JSON.parse(init.body).content; return new Response("{}", { status: 200 }); }));
     const i: DiscordInteraction = {
-      type: 2, id: "1", token: "tok", guild_id: GUILD, ...member(DISC),
+      type: 2, id: "1", token: "tok", guild_id: GUILD, ...member(DISC4),
       data: { name: "繳費", options: [{ name: "截圖", value: "att1" }], resolved: { attachments: { att1: { url: "https://cdn.discordapp.com/x.png", content_type: "image/png", size: 100 } } } },
     } as any;
     const res = await routeInteraction(i, env, CTX);
@@ -140,5 +146,40 @@ describe("/繳費 with no R2 ignores the screenshot", () => {
     (env as any).DISCORD_APPLICATION_ID = prevApp;
     expect(captured).toContain("已登記本期");
     expect(captured).toContain("已記錄你的繳費宣告");
+  });
+});
+
+describe("button → month chooser when more than one opened period is owed", () => {
+  const U5 = 90251, S5 = 90252, DISC5 = "disc5-9024", FUTURE = "2099-01";
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,discord_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(U5, WS, DISC5, "Member5", TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(S5, WS, U5, WS, "2026-05-01", 5, TS, TS),
+      // a pre-opened future period with a pending bill → second owed period (current PERIOD is the first)
+      env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS, "billing_opened", FUTURE, 0, 0, 0, TS),
+      env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS, S5, FUTURE, `${FUTURE}-01`, `${FUTURE}-31`, `${FUTURE}-05`, 315, "pending", "cron", TS, TS),
+    ]);
+  });
+
+  it("the button shows a month select; picking one shows that month's channel select", async () => {
+    const btn: DiscordInteraction = {
+      type: 3, id: "1", token: "t", guild_id: GUILD, ...member(DISC5),
+      data: { custom_id: `chippot:pay:${WS}:v1`, component_type: 2 },
+    };
+    const body = (await (await routeInteraction(btn, env, CTX)).json()) as any;
+    const sel = body.data.components[0].components[0];
+    expect(sel.custom_id).toBe(`chippot:payperiod:${WS}`);
+    const values = sel.options.map((o: any) => o.value);
+    expect(values).toContain(FUTURE);
+    expect(values).toContain(PERIOD);
+
+    const pick: DiscordInteraction = {
+      type: 3, id: "2", token: "t", guild_id: GUILD, ...member(DISC5),
+      data: { custom_id: `chippot:payperiod:${WS}`, component_type: 3, values: [FUTURE] },
+    };
+    const body2 = (await (await routeInteraction(pick, env, CTX)).json()) as any;
+    expect(body2.type).toBe(7); // UPDATE_MESSAGE
+    const chsel = body2.data.components[0].components[0];
+    expect(chsel.custom_id).toBe(`chippot:paysel:${WS}:${FUTURE}`);
   });
 });

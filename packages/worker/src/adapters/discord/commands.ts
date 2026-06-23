@@ -2,6 +2,8 @@
 export const PAY_BUTTON_PREFIX = "chippot:pay";
 // The channel string-select shown after the button (action:workspace:period).
 export const PAY_SELECT_PREFIX = "chippot:paysel";
+// The period string-select shown when the member owes more than one opened period (action:workspace).
+export const PAY_PERIOD_PREFIX = "chippot:payperiod";
 // The 發起繳費 modal (action:workspace:period). Text inputs use custom_id `amt:<plan_id>`.
 export const INITIATE_MODAL_PREFIX = "chippot:initiate";
 // The self-bind string-select (action:workspace:origin). origin ∈ {pay, cmd}.
@@ -42,6 +44,21 @@ export function payButtonRow(workspaceId = 1, version = "v1") {
   return {
     type: CT_ACTION_ROW,
     components: [{ type: CT_BUTTON, style: 1, label: "繳費", custom_id: `${PAY_BUTTON_PREFIX}:${workspaceId}:${version}` }],
+  };
+}
+
+/** String-select of payable periods (months), shown when the member owes more than one. */
+export function periodSelectRow(workspaceId: number, periods: string[]) {
+  return {
+    type: CT_ACTION_ROW,
+    components: [{
+      type: CT_STRING_SELECT,
+      custom_id: `${PAY_PERIOD_PREFIX}:${workspaceId}`,
+      placeholder: "選擇要繳的月份",
+      min_values: 1,
+      max_values: 1,
+      options: periods.slice(0, 25).map((p) => ({ label: p, value: p })),
+    }],
   };
 }
 

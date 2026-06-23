@@ -156,6 +156,33 @@ export async function listSettleablePayments(
   return results;
 }
 
+/**
+ * Periods the member can pay right now = billing-opened AND still owed (pending/rejected) for
+ * their active subs, oldest first. This intentionally includes a pre-opened *next* month, so once
+ * an admin runs 發起繳費 members can register that period immediately (not only once the calendar
+ * reaches it).
+ */
+export async function listOpenPayablePeriods(
+  db: D1Database,
+  workspaceId: number,
+  userId: number
+): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT p.period AS period
+       FROM payments p
+       JOIN subscriptions s ON s.id = p.subscription_id
+       WHERE p.workspace_id = ? AND s.user_id = ? AND s.status = 'active'
+         AND p.status IN ('pending','rejected')
+         AND EXISTS (SELECT 1 FROM notification_logs n
+                     WHERE n.workspace_id = p.workspace_id AND n.type = 'billing_opened' AND n.period = p.period)
+       ORDER BY p.period`
+    )
+    .bind(workspaceId, userId)
+    .all<{ period: string }>();
+  return results.map((r) => r.period);
+}
+
 export interface UnboundUser {
   id: number;
   display_name: string;

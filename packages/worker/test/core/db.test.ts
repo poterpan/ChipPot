@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
-  getWorkspace, getActivePlans, listActiveChannelTags, listSettleablePayments,
+  getWorkspace, getActivePlans, listActiveChannelTags, listSettleablePayments, listOpenPayablePeriods,
 } from "../../src/core/db";
 
 const TS = "2026-05-01T00:00:00.000Z";
@@ -54,5 +54,30 @@ describe("channel tags + settleable payments", () => {
     expect(rows.length).toBe(2);
     expect(rows.reduce((s, r) => s + r.amount, 0)).toBe(566);
     expect(rows[0]).toHaveProperty("plan_name");
+  });
+});
+
+describe("listOpenPayablePeriods", () => {
+  const W = 9030, U = 9030, P = 9030, S = 9030;
+  const pmt = (period: string, status: string) =>
+    env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(W, S, period, `${period}-01`, `${period}-28`, `${period}-05`, 315, status, "cron", TS, TS);
+  const opened = (period: string) =>
+    env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`)
+      .bind(W, "billing_opened", period, 0, 0, 0, TS);
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(W, "W", "o", "discord", 1, "{}", TS, TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?)`).bind(U, W, "U", TS, TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(P, W, "ChatGPT", "openai", 315, TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(S, W, U, P, "2027-01-01", 1, TS, TS),
+      pmt("2027-06", "pending"), opened("2027-06"),  // opened + owed → payable
+      pmt("2027-07", "pending"), opened("2027-07"),  // opened + owed (newer) → payable
+      pmt("2027-05", "pending"),                      // owed but NOT opened → excluded
+      pmt("2027-04", "paid"), opened("2027-04"),      // opened but paid → excluded
+    ]);
+  });
+  it("returns only opened-and-owed periods, oldest first", async () => {
+    expect(await listOpenPayablePeriods(env.DB, W, U)).toEqual(["2027-06", "2027-07"]);
   });
 });
