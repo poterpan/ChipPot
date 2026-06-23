@@ -10,7 +10,7 @@ import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills } from 
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
-import { payButtonRow, PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
+import { payButtonRow, bindButtonRow, PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
 import { discordNotifier } from "../adapters/discord/notify";
 import { parseRosterCsv, importRoster } from "../core/import";
 import { sendOverdueForPeriod } from "../core/scheduled";
@@ -699,6 +699,34 @@ async function discordPaymentMessage(_req: Request, env: Env, ctx: RouteCtx): Pr
   return json({ ok: true, message_id: messageId });
 }
 
+async function discordBindMessage(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const row = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
+  if (!row) return errorResponse(404, "not found");
+  const settings = parseSettings(row.settings);
+  const channelId = settings.discord_billing_channel_id;
+  if (!channelId) return errorResponse(400, "discord_billing_channel_id is not set");
+  if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "bot token not configured");
+
+  const body = {
+    content: "👋 還沒綁定的成員，點下方按鈕綁定你的 Discord 帳號；綁定後開繳／催繳才能 @ 到你。",
+    components: [bindButtonRow(ws)],
+  };
+  let messageId = settings.discord_bind_message_id;
+  let ok = false;
+  if (messageId) ok = await editChannelMessage(env.DISCORD_BOT_TOKEN, channelId, messageId, body);
+  if (!ok) {
+    messageId = (await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body)) ?? "";
+    ok = !!messageId;
+  }
+  if (!ok) return errorResponse(502, "failed to post Discord message");
+
+  await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_bind_message_id', ?), updated_at = ? WHERE id = ?")
+    .bind(messageId, nowUtcIso(), ws).run();
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "discord.bind_message", entityType: "workspace", entityId: ws, after: { message_id: messageId } });
+  return json({ ok: true, message_id: messageId });
+}
+
 async function discordRegisterCommands(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
   const row = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
@@ -757,5 +785,6 @@ export function buildAdminRouter(): Router<Env> {
     .delete("/admin/payments/:id", deletePayment)
     .post("/admin/upload-link", createUploadLink)
     .post("/admin/discord/payment-message", discordPaymentMessage)
+    .post("/admin/discord/bind-message", discordBindMessage)
     .post("/admin/discord/register-commands", discordRegisterCommands);
 }

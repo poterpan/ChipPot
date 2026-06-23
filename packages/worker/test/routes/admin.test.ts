@@ -470,3 +470,25 @@ describe("admin billing/initiate + declared channel", () => {
     expect(await auditCount("channel_tag.delete", tid)).toBe(1);
   });
 });
+
+describe("POST /admin/discord/bind-message", () => {
+  it("400 without a billing channel configured", async () => {
+    await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_billing_channel_id', '') WHERE id = 1").run();
+    const res = await call("POST", "/admin/discord/bind-message");
+    expect(res!.status).toBe(400);
+  });
+  it("posts a bind-button message and stores discord_bind_message_id", async () => {
+    (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
+    await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_billing_channel_id', ?) WHERE id = 1").bind("chan-1").run();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "msg-bind-1" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await call("POST", "/admin/discord/bind-message");
+    vi.unstubAllGlobals();
+    delete (env as any).DISCORD_BOT_TOKEN;
+    expect(res!.status).toBe(200);
+    const r = await res!.json() as any;
+    expect(r.message_id).toBe("msg-bind-1");
+    const s = await env.DB.prepare("SELECT json_extract(settings,'$.discord_bind_message_id') AS m FROM workspaces WHERE id=1").first<{ m: string }>();
+    expect(s?.m).toBe("msg-bind-1");
+  });
+});
