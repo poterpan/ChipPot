@@ -6,7 +6,8 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened } from "../core/billing";
+import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills } from "../core/billing";
+import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
 import { payButtonRow, PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
@@ -99,6 +100,46 @@ async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<R
     env, ws, period, { amounts: b!.amounts }, actorOf(ctx), discordNotifier
   );
   return json({ ok: true, sent: r.sent, updated_plans: r.updatedPlans, updated_payments: r.updatedPayments });
+}
+
+/**
+ * "重新同步本期帳單": reconcile a period's bills to the current roster. dry_run defaults to true (safe
+ * preview) — only an explicit { dry_run: false } applies. With { notify_added: true }, after applying it
+ * pings the newly-added BOUND members in the billing channel with a pay button.
+ */
+async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const period = ctx.params.period;
+  if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
+  const b = await readJson<{ dry_run?: boolean; notify_added?: boolean }>(req) ?? {};
+  const dryRun = b.dry_run !== false; // safe default: preview unless explicitly false
+  const diff = await reconcilePeriodBills(env, ws, period, { dryRun });
+  if (dryRun) return json(diff);
+
+  await writeAudit(env.DB, {
+    workspaceId: ws, actor: actorOf(ctx), action: "billing.reconcile", entityType: "workspace", entityId: ws,
+    after: { period, added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count },
+  });
+
+  let notified = 0;
+  if (b.notify_added && diff.add.length) {
+    const wsRow = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
+    const settings = parseSettings(wsRow!.settings);
+    const channelId = settings.discord_billing_channel_id;
+    if (channelId && env.DISCORD_BOT_TOKEN) {
+      const byUser = new Map<number, OverduePerson>();
+      for (const a of diff.add) {
+        if (!a.discord_id) continue; // only bound members can be pinged
+        let e = byUser.get(a.user_id);
+        if (!e) { e = { user_id: a.user_id, discord_id: a.discord_id, user_name: a.user_name, lines: [], total: 0 }; byUser.set(a.user_id, e); }
+        e.lines.push({ plan_name: a.plan_name, amount: a.amount });
+        e.total += a.amount;
+      }
+      const people = [...byUser.values()];
+      if (people.length) { await discordNotifier.sendPaymentNudge(env, channelId, ws, period, people); notified = people.length; }
+    }
+  }
+  return json({ ok: true, applied: { added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count }, notified });
 }
 
 const NOTIF_TYPES = ["billing_opened", "overdue"] as const;
@@ -680,6 +721,7 @@ export function buildAdminRouter(): Router<Env> {
     .patch("/admin/workspace", updateWorkspace)
     .get("/admin/reconcile", reconcile)
     .post("/admin/billing/initiate", billingInitiate)
+    .post("/admin/billing/:period/sync", syncPeriodBills)
     .post("/admin/members/import", membersImport)
     .get("/admin/notifications", notificationsStatus)
     .post("/admin/notifications/resend", notificationsResend)

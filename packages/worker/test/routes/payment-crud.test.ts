@@ -96,6 +96,36 @@ describe("PATCH /admin/users/:id discord_id presence semantics", () => {
   });
 });
 
+// Route tests run on the shared seeded workspace 1 (wsId()===1), which carries the 0002_seed.sql
+// baseline roster. Assert RELATIVE behavior (our SUB + dry-run-writes-nothing), not exact totals —
+// precise add/remove/reprice/freeze counts live in the isolated core test (billing-reconcile.test.ts).
+describe("POST /admin/billing/:period/sync", () => {
+  const PER = "2027-09"; // a fresh opened period where our active SUB has no bill yet
+  it("dry_run returns diff including our sub and writes nothing", async () => {
+    await env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS,"billing_opened",PER,0,0,0,TS).run();
+    const before = (await env.DB.prepare("SELECT COUNT(*) c FROM payments WHERE workspace_id=? AND period=?").bind(WS,PER).first<{c:number}>())?.c ?? 0;
+    const res = await call("POST", `/admin/billing/${PER}/sync`, { dry_run: true });
+    expect(res!.status).toBe(200);
+    const d = await res!.json() as any;
+    expect(d.opened).toBe(true);
+    expect(d.add.some((a: any) => a.subscription_id === SUB)).toBe(true);
+    const after = (await env.DB.prepare("SELECT COUNT(*) c FROM payments WHERE workspace_id=? AND period=?").bind(WS,PER).first<{c:number}>())?.c ?? 0;
+    expect(after).toBe(before); // dry run wrote nothing
+  });
+  it("apply creates the missing bill and returns counts", async () => {
+    const res = await call("POST", `/admin/billing/${PER}/sync`, { dry_run: false });
+    const r = await res!.json() as any;
+    expect(r.ok).toBe(true);
+    expect(r.applied.added).toBeGreaterThanOrEqual(1);
+    const mine = await env.DB.prepare("SELECT id FROM payments WHERE subscription_id=? AND period=?").bind(SUB,PER).first();
+    expect(mine).not.toBeNull();
+  });
+  it("rejects a malformed period", async () => {
+    const res = await call("POST", "/admin/billing/2027-9/sync", { dry_run: true });
+    expect(res!.status).toBe(400);
+  });
+});
+
 describe("PATCH /admin/users/:id keeps unspecified email/note", () => {
   it("does not null email/note when omitted", async () => {
     await env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,email,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
