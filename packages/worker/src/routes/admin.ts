@@ -5,7 +5,7 @@ import { parseSettings } from "../env";
 import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
-import { getPayment, verifyPayment, rejectPayment, overrideAmount, InvalidPaymentTransition } from "../core/payments";
+import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, InvalidPaymentTransition } from "../core/payments";
 import { ensureFirstPayment, initiateBillingOpened } from "../core/billing";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
@@ -510,6 +510,20 @@ async function overrideAmountHandler(req: Request, env: Env, ctx: RouteCtx): Pro
   return json({ ok: true, payment: after });
 }
 
+async function unverifyPaymentHandler(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const id = Number(ctx.params.id);
+  const before = await getPayment(env.DB, id);
+  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  try {
+    const after = await unverifyPayment(env.DB, id);
+    await writeAudit(env.DB, { workspaceId: before.workspace_id, actor: actorOf(ctx), action: "payment.unverify", entityType: "payment", entityId: id, before, after });
+    return json({ ok: true, payment: after });
+  } catch (e) {
+    if (e instanceof InvalidPaymentTransition) return errorResponse(409, e.message);
+    throw e;
+  }
+}
+
 async function manualPayment(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const b = await readJson<{
     subscription_id?: number; period?: string; amount?: number; status?: string;
@@ -669,6 +683,7 @@ export function buildAdminRouter(): Router<Env> {
     .post("/admin/payments/:id/verify", verifyPaymentHandler)
     .post("/admin/payments/:id/reject", rejectPaymentHandler)
     .post("/admin/payments/:id/amount", overrideAmountHandler)
+    .post("/admin/payments/:id/unverify", unverifyPaymentHandler)
     .post("/admin/payments/:id/delete-proof", deleteProof)
     .post("/admin/upload-link", createUploadLink)
     .post("/admin/discord/payment-message", discordPaymentMessage)
