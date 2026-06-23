@@ -48,6 +48,7 @@ export const api = {
   workspace: () => req<{ workspace: any; r2_configured: boolean }>("GET", "/workspace"),
   updateWorkspace: (b: unknown) => req("PATCH", "/workspace", b),
   rebuildPaymentMessage: () => req<{ message_id: string }>("POST", "/discord/payment-message"),
+  rebuildBindMessage: () => req<{ message_id: string }>("POST", "/discord/bind-message"),
   registerCommands: () => req<{ ok: boolean; registered: number }>("POST", "/discord/register-commands"),
   reconcile: (period: string) => req<Reconcile>("GET", `/reconcile${qs({ period })}`),
   notifications: (period: string) => req<{ billing_opened: { sent_at: string } | null; overdue: { sent_at: string } | null }>("GET", `/notifications${qs({ period })}`),

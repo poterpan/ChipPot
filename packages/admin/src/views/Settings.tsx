@@ -232,6 +232,7 @@ export function Settings() {
       <Card title="工具" desc="點下去立即執行，不受上面的「儲存」控制">
         <div className="card__body">
           <ActionRow title="重建常駐繳費訊息" tag="立即執行" desc="在繳費頻道重新貼一則含「繳費」按鈕的常駐訊息。"><RebuildMessage /></ActionRow>
+          <ActionRow title="張貼／更新綁定按鈕訊息" tag="立即執行" desc="在帳單頻道貼一則含「綁定 Discord」按鈕的公開訊息，讓成員主動綁定（開繳／催繳才能 @ 到他）。"><RebuildBindMessage /></ActionRow>
           <ActionRow title="註冊 Discord 指令" tag="立即執行" desc="更新 /繳費、/發起繳費、/綁定 指令到你的伺服器。"><RegisterCommands /></ActionRow>
           <ActionRow title="發起繳費" tag="會改價＋發通知" warn desc="確認本期金額並向所有成員發出開繳通知。"><InitiateBilling billingDay={savedBillingDay} dirty={dirty} /></ActionRow>
           <ActionRow title="匯入名單 CSV" tag="會新增/更新成員" warn desc="用 CSV 批次建立或更新成員與訂閱。"><ImportRoster /></ActionRow>
@@ -383,6 +384,25 @@ function RebuildMessage() {
   return (
     <>
       <button className="btn btn--sm" onClick={run} disabled={busy}>{busy ? "處理中…" : "重建"}</button>
+      {err && <span className="act-feedback" style={{ color: "var(--red)" }}>{err}</span>}
+      {msg && <span className="act-feedback" style={{ color: "var(--teal)" }}>{msg}</span>}
+    </>
+  );
+}
+
+function RebuildBindMessage() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  async function run() {
+    setBusy(true); setErr(null); setMsg(null);
+    try { const r = await api.rebuildBindMessage(); setMsg(`✓ 已張貼／更新（id ${r.message_id}）`); }
+    catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }
+  return (
+    <>
+      <button className="btn btn--sm" onClick={run} disabled={busy}>{busy ? "處理中…" : "張貼／更新"}</button>
       {err && <span className="act-feedback" style={{ color: "var(--red)" }}>{err}</span>}
       {msg && <span className="act-feedback" style={{ color: "var(--teal)" }}>{msg}</span>}
     </>
