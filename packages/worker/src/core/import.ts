@@ -5,7 +5,10 @@ import { ensureFirstPayment } from "./billing";
 export interface RosterRow {
   name: string;
   email: string;
+  /** Plan columns whose cell is explicitly TRUE. */
   plans: string[];
+  /** Plan columns whose cell is explicitly FALSE (an un-subscription). Blank/other = untouched. */
+  plansOff: string[];
 }
 
 /** Split a simple CSV line on commas (the club roster has no quoted/embedded commas). */
@@ -15,7 +18,9 @@ function splitCsvLine(line: string): string[] {
 
 /**
  * Parse a Google-Forms roster CSV: header `姓名,帳號,<plan name…>`. A row subscribes to a plan
- * column when its cell is "TRUE" (case-insensitive). Blank lines are skipped.
+ * column when its cell is "TRUE" and un-subscribes when it is explicitly "FALSE" (both
+ * case-insensitive). Any other value — including blank — is recorded in neither list and means
+ * "don't touch this subscription". Blank lines are skipped.
  */
 export function parseRosterCsv(text: string): RosterRow[] {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -25,10 +30,13 @@ export function parseRosterCsv(text: string): RosterRow[] {
   for (const line of lines.slice(1)) {
     const cells = splitCsvLine(line);
     const plans: string[] = [];
+    const plansOff: string[] = [];
     planCols.forEach((col, idx) => {
-      if ((cells[idx + 2] ?? "").toUpperCase() === "TRUE") plans.push(col);
+      const v = (cells[idx + 2] ?? "").toUpperCase();
+      if (v === "TRUE") plans.push(col);
+      else if (v === "FALSE") plansOff.push(col);
     });
-    rows.push({ name: cells[0] ?? "", email: cells[1] ?? "", plans });
+    rows.push({ name: cells[0] ?? "", email: cells[1] ?? "", plans, plansOff });
   }
   return rows;
 }

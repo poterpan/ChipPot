@@ -10,13 +10,18 @@ Bob,bob@example.com,FALSE,TRUE,FALSE
 Carol,carol@example.com,true,false,false`;
 
 describe("parseRosterCsv", () => {
-  it("extracts name, email, and TRUE plan columns (case-insensitive); skips blank lines", () => {
+  it("extracts name, email, TRUE plans and explicitly-FALSE plans (case-insensitive); skips blank lines", () => {
     const rows = parseRosterCsv(CSV);
     expect(rows.length).toBe(4);
-    expect(rows[0]).toEqual({ name: "Alice", email: "alice@example.com", plans: ["ChatGPT", "Claude Premium"] });
-    expect(rows[1]).toEqual({ name: "Bob", email: "bob@example.com", plans: ["Claude Standard"] });
-    expect(rows[2]).toEqual({ name: "", email: "blank@example.com", plans: ["ChatGPT"] });
-    expect(rows[3]).toEqual({ name: "Carol", email: "carol@example.com", plans: ["ChatGPT"] }); // lowercase "true" counts
+    expect(rows[0]).toEqual({ name: "Alice", email: "alice@example.com", plans: ["ChatGPT", "Claude Premium"], plansOff: ["Claude Standard"] });
+    expect(rows[1]).toEqual({ name: "Bob", email: "bob@example.com", plans: ["Claude Standard"], plansOff: ["ChatGPT", "Claude Premium"] });
+    expect(rows[2]).toEqual({ name: "", email: "blank@example.com", plans: ["ChatGPT"], plansOff: ["Claude Standard", "Claude Premium"] });
+    expect(rows[3]).toEqual({ name: "Carol", email: "carol@example.com", plans: ["ChatGPT"], plansOff: ["Claude Standard", "Claude Premium"] }); // lowercase true/false count
+  });
+
+  it("leaves blank and non-boolean cells out of BOTH lists (they mean 'untouched')", () => {
+    const rows = parseRosterCsv("姓名,帳號,ChatGPT,Claude Standard,Claude Premium\nDana,dana@example.com,,1,FALSE");
+    expect(rows[0]).toEqual({ name: "Dana", email: "dana@example.com", plans: [], plansOff: ["Claude Premium"] });
   });
 
   it("returns [] for empty or header-only input", () => {
@@ -42,9 +47,9 @@ beforeAll(async () => {
 describe("importRoster", () => {
   it("upserts by email (keeps discord_id), creates subs + first payments, reports unmatched plans", async () => {
     const rows = [
-      { name: "Amy New", email: "amy@x.tw", plans: ["ChatGPT", "Claude Standard"] },
-      { name: "Ben", email: "ben@x.tw", plans: ["Claude Standard", "Gemini"] },
-      { name: "NoEmail", email: "", plans: ["ChatGPT"] },
+      { name: "Amy New", email: "amy@x.tw", plans: ["ChatGPT", "Claude Standard"], plansOff: [] },
+      { name: "Ben", email: "ben@x.tw", plans: ["Claude Standard", "Gemini"], plansOff: [] },
+      { name: "NoEmail", email: "", plans: ["ChatGPT"], plansOff: [] },
     ];
     const s = await importRoster(env, WS, rows, { startDate: "2026-06-01" });
     expect(s).toMatchObject({ usersCreated: 1, usersUpdated: 1, subsCreated: 2, subsSkipped: 1, rowsSkipped: 1 });
@@ -61,7 +66,7 @@ describe("importRoster", () => {
   });
 
   it("is idempotent on a re-run (no new users/subs)", async () => {
-    const rows = [{ name: "Amy New", email: "amy@x.tw", plans: ["ChatGPT", "Claude Standard"] }];
+    const rows = [{ name: "Amy New", email: "amy@x.tw", plans: ["ChatGPT", "Claude Standard"], plansOff: [] }];
     const s = await importRoster(env, WS, rows, { startDate: "2026-06-01" });
     expect(s).toMatchObject({ usersCreated: 0, usersUpdated: 1, subsCreated: 0, subsSkipped: 2 });
   });
