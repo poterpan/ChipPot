@@ -57,7 +57,7 @@ export interface PaymentNotifyInput {
   payer: string;
   amount: number; // raw total just settled
   period: string;
-  paymentId: number; // first settled row — the deep link target
+  userId: number; // deep-link target: one submit settles N rows, so we link to the member × period
   paidCount: number;
 }
 
@@ -77,7 +77,10 @@ export async function notifyPaymentSubmitted(env: Env, input: PaymentNotifyInput
     if (!barkKey && !webhook) return;
 
     const base = (env.ADMIN_ORIGIN ?? "").replace(/\/+$/, "");
-    const adminUrl = base ? `${base}/#payments?id=${input.paymentId}` : "";
+    // Review deep link: the member's whole period, because one submit settles one payment row per
+    // active subscription (all sharing one screenshot). The admin SPA still accepts the older
+    // "#payments?id=<paymentId>" form so pushes already sitting in the owner's history keep working.
+    const adminUrl = base ? `${base}/#payments?user=${input.userId}&period=${input.period}` : "";
     const amountStr = input.amount.toLocaleString();
     const v: PaymentNotifyVars = { payer: input.payer, amount: amountStr, period: input.period, admin_url: adminUrl };
     const template = s.payment_notify_template.trim() || DEFAULT_NOTIFY_TEMPLATE;
