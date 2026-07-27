@@ -10,6 +10,10 @@ const STATUS_OPTS = [
   { v: "rejected", label: "已退回" },
 ];
 
+// Fixed table columns: 成員·方案·期別·金額·狀態·申報渠道 + the actions column. 憑證 is conditional
+// (R2-only) and adds one on top — see colCount in Payments(), which every colSpan must use.
+const BASE_COLS = 7;
+
 // Read the deep-link payment id from "#payments?id=42"; null if absent or not a positive integer.
 function paymentIdFromHash(): number | null {
   const q = window.location.hash.split("?")[1];
@@ -21,6 +25,11 @@ function paymentIdFromHash(): number | null {
 export function Payments() {
   const ws = useAsync(() => api.workspace(), []);
   const billingDay = (ws.data as any)?.workspace?.billing_day ?? 1;
+  // Without R2 no payment can ever have a screenshot, so the 憑證 column is dead weight — hide it.
+  // Matches App.tsx's `r2_configured === false` check: while the workspace is still loading the flag
+  // is undefined and we show the column (the configured case is the common one).
+  const showProof = ws.data?.r2_configured !== false;
+  const colCount = BASE_COLS + (showProof ? 1 : 0);
   // null = "follow the billing-day-aware default"; "" = the admin cleared it (全部); a string = typed.
   const [period, setPeriod] = useState<string | null>(null);
   const effPeriod = period ?? periodForBillingDay(billingDay);
@@ -76,10 +85,10 @@ export function Payments() {
       <Card title="繳費紀錄">
         <div className="tbl">
           <table>
-            <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>申報渠道</th><th>憑證</th><th></th></tr></thead>
+            <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>申報渠道</th>{showProof && <th>憑證</th>}<th></th></tr></thead>
             <tbody>
-              {list.loading && <tr><td colSpan={8}><Empty>載入中…</Empty></td></tr>}
-              {list.data?.payments.length === 0 && <tr><td colSpan={8}><Empty>沒有符合的紀錄</Empty></td></tr>}
+              {list.loading && <tr><td colSpan={colCount}><Empty>載入中…</Empty></td></tr>}
+              {list.data?.payments.length === 0 && <tr><td colSpan={colCount}><Empty>沒有符合的紀錄</Empty></td></tr>}
               {list.data?.payments.map((p) => (
                 <tr key={p.id} className="click" onClick={() => setSelected(p)}>
                   <td>{p.user_name}</td>
@@ -88,11 +97,11 @@ export function Payments() {
                   <td className="right"><Money v={p.amount} /></td>
                   <td><StatusBadge status={p.status} /></td>
                   <td>{p.declared_channel_tag_name || <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                  <td>{
+                  {showProof && <td>{
                     ["paid", "verified"].includes(p.status)
                       ? (p.has_proof ? <span className="proof-yes iconlbl"><IconCheck />有截圖</span> : <span className="proof-no iconlbl"><IconWarning />純聲明</span>)
                       : <span style={{ color: "var(--muted)" }}>—</span>
-                  }</td>
+                  }</td>}
                   <td className="right" onClick={(e) => e.stopPropagation()}>
                     {p.status === "paid" && <QuickVerify id={p.id} onDone={reload} />}
                   </td>
