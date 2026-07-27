@@ -138,3 +138,67 @@ describe("importRoster dryRun", () => {
     expect(subs?.c).toBe(0);
   });
 });
+
+// FALSE = un-subscribe → pause (reversible; the owner chose paused over cancelled). Own workspace:
+// storage is isolated per FILE, so ids/emails must not collide with the blocks above. Every id here
+// is derived as W*10+n, above the AUTOINCREMENT high-water marks the describes above leave behind
+// (users 90291, subscriptions 9032) — an import that INSERTs raises those, so nothing low is safe.
+describe("importRoster FALSE pauses an active subscription", () => {
+  const W = 9030, PL_A = 90300, PL_B = 90301;
+  const U = 90302, S_ACTIVE = 90303, S_KEEP = 90304, P = "2026-06";
+  const PAY_OFF = 90305, PAY_KEEP = 90306;
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(W, "W", "o", "discord", 5, "{}", TS, TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(PL_A, W, "ChatGPT", "openai", 315, TS, TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(PL_B, W, "Claude Standard", "anthropic", 251, TS, TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,email,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(U, W, "退訂者", "off@x.tw", TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_ACTIVE, W, U, PL_A, "2026-01-01", 5, "active", TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_KEEP, W, U, PL_B, "2026-01-01", 5, "active", TS, TS),
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(PAY_OFF, W, S_ACTIVE, P, `${P}-01`, `${P}-30`, `${P}-05`, 315, "pending", "cron", TS, TS),
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(PAY_KEEP, W, S_KEEP, P, `${P}-01`, `${P}-30`, `${P}-05`, 251, "pending", "cron", TS, TS),
+    ]);
+  });
+
+  // FALSE on ChatGPT, nothing at all for Claude Standard (absent from the header → untouched).
+  const rows = () => [{ name: "退訂者", email: "off@x.tw", plans: [], plansOff: ["ChatGPT"] }];
+
+  it("dry run reports the pause + this period's unpaid bill, and writes nothing", async () => {
+    const d = await importRoster(env, W, rows(), { startDate: `${P}-01`, dryRun: true });
+    expect(d.subs_paused.map((s) => s.subscription_id)).toEqual([S_ACTIVE]);
+    expect(d.subs_paused[0]).toMatchObject({ user_name: "退訂者", plan_name: "ChatGPT", amount: 315 });
+    expect(d.affected_pending_bills).toEqual([
+      { payment_id: PAY_OFF, subscription_id: S_ACTIVE, user_name: "退訂者", plan_name: "ChatGPT", period: P, amount: 315, status: "pending" },
+    ]);
+    const s = await env.DB.prepare("SELECT status FROM subscriptions WHERE id=?").bind(S_ACTIVE).first<{ status: string }>();
+    expect(s?.status).toBe("active"); // dry run wrote nothing
+  });
+
+  it("apply pauses only the FALSE sub, leaves every payment row untouched", async () => {
+    const d = await importRoster(env, W, rows(), { startDate: `${P}-01`, dryRun: false });
+    expect(d.subs_paused.map((s) => s.subscription_id)).toEqual([S_ACTIVE]);
+    expect(d.affected_pending_bills.map((b) => b.payment_id)).toEqual([PAY_OFF]);
+
+    const a = await env.DB.prepare("SELECT status FROM subscriptions WHERE id=?").bind(S_ACTIVE).first<{ status: string }>();
+    expect(a?.status).toBe("paused");
+    const keep = await env.DB.prepare("SELECT status FROM subscriptions WHERE id=?").bind(S_KEEP).first<{ status: string }>();
+    expect(keep?.status).toBe("active"); // plan column absent from the CSV header → never touched
+
+    // Report-only: the paused sub's bill is still exactly where it was.
+    const bills = (await env.DB.prepare("SELECT id, status, amount FROM payments WHERE workspace_id=? AND period=? ORDER BY id").bind(W, P).all<{ id: number; status: string; amount: number }>()).results;
+    expect(bills.map((b) => b.id)).toEqual([PAY_OFF, PAY_KEEP]);
+    expect(bills[0]).toMatchObject({ status: "pending", amount: 315 });
+  });
+
+  it("a paused sub is not re-paused and reports no bills on a re-run", async () => {
+    const d = await importRoster(env, W, rows(), { startDate: `${P}-01`, dryRun: false });
+    expect(d.subs_paused).toEqual([]);
+    expect(d.affected_pending_bills).toEqual([]);
+  });
+
+  it("a FALSE column whose plan name matches nothing is reported as unmatched", async () => {
+    const d = await importRoster(env, W, [{ name: "退訂者", email: "off@x.tw", plans: [], plansOff: ["Gemini"] }], { startDate: `${P}-01`, dryRun: true });
+    expect(d.unmatched_plans).toEqual(["Gemini"]);
+    expect(d.subs_paused).toEqual([]);
+  });
+});
