@@ -292,15 +292,57 @@ describe("admin billing/initiate + declared channel", () => {
     expect((await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [{ plan_id: 1, amount: -1 }] }))!.status).toBe(400);
   });
 
-  it("imports a CSV (JSON body) and returns a summary", async () => {
-    const csv = "姓名,帳號,ChatGPT,Claude Standard,Claude Premium\nNewMember,newmember@x.tw,TRUE,FALSE,FALSE";
+  it("defaults to a dry run: returns the diff and writes nothing", async () => {
+    const csv = "姓名,帳號,ChatGPT\nPreviewOnly,previewonly@x.tw,TRUE";
     const res = await call("POST", "/admin/members/import", { csv, start_date: "2027-11-01" });
     expect(res!.status).toBe(200);
     const body = (await res!.json()) as any;
-    expect(body.summary.users_created.length).toBe(1);
-    expect(body.summary.subs_added.length).toBe(1);
+    expect(body.diff.dry_run).toBe(true);
+    expect(body.diff.period).toBe("2027-11");
+    expect(body.diff.users_created.map((u: any) => u.email)).toEqual(["previewonly@x.tw"]);
+    expect(await env.DB.prepare("SELECT id FROM users WHERE email='previewonly@x.tw'").first()).toBeNull();
+    expect(await auditCount("roster.import", 1)).toBe(0); // a preview never audits
+  });
+
+  it("applies with dry_run:false, creates the member, and audits with diff counts", async () => {
+    const csv = "姓名,帳號,ChatGPT,Claude Standard,Claude Premium\nNewMember,newmember@x.tw,TRUE,FALSE,FALSE";
+    const res = await call("POST", "/admin/members/import", { csv, start_date: "2027-11-01", dry_run: false });
+    expect(res!.status).toBe(200);
+    const body = (await res!.json()) as any;
+    expect(body.diff.dry_run).toBe(false);
+    expect(body.diff.users_created.length).toBe(1);
+    expect(body.diff.subs_added.length).toBe(1);
     const u = await env.DB.prepare("SELECT id FROM users WHERE email='newmember@x.tw'").first<{ id: number }>();
     expect(u).not.toBeNull();
+    expect(await auditCount("roster.import", 1)).toBe(1);
+    const audit = await env.DB.prepare(
+      "SELECT after_json FROM audit_logs WHERE action='roster.import' ORDER BY id DESC LIMIT 1"
+    ).first<{ after_json: string }>();
+    expect(JSON.parse(audit!.after_json)).toMatchObject({
+      start_date: "2027-11-01", users_created: 1, subs_added: 1, subs_paused: 0, subs_reactivated: 0,
+    });
+  });
+
+  it("accepts a multipart upload and honours dry_run=false as a form field", async () => {
+    const fd = new FormData();
+    fd.append("file", new Blob(["姓名,帳號,ChatGPT\nMultipart,multipart@x.tw,TRUE"], { type: "text/csv" }), "roster.csv");
+    fd.append("start_date", "2027-11-01");
+    fd.append("dry_run", "false");
+    const res = await router.handle(new Request("https://x/admin/members/import", { method: "POST", body: fd }), env, { identity: IDENT });
+    expect(res!.status).toBe(200);
+    const body = (await res!.json()) as any;
+    expect(body.diff.dry_run).toBe(false);
+    expect(await env.DB.prepare("SELECT id FROM users WHERE email='multipart@x.tw'").first()).not.toBeNull();
+  });
+
+  it("defaults a multipart upload with no dry_run field to a preview", async () => {
+    const fd = new FormData();
+    fd.append("file", new Blob(["姓名,帳號,ChatGPT\nMultipartPreview,multipartpreview@x.tw,TRUE"], { type: "text/csv" }), "roster.csv");
+    fd.append("start_date", "2027-11-01");
+    const res = await router.handle(new Request("https://x/admin/members/import", { method: "POST", body: fd }), env, { identity: IDENT });
+    expect(res!.status).toBe(200);
+    expect(((await res!.json()) as any).diff.dry_run).toBe(true);
+    expect(await env.DB.prepare("SELECT id FROM users WHERE email='multipartpreview@x.tw'").first()).toBeNull();
   });
 
   it("rejects a missing csv, a non-string csv, and a bad start_date", async () => {

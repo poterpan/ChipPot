@@ -203,10 +203,16 @@ async function testNotification(req: Request, env: Env): Promise<Response> {
   return json(r);
 }
 
+/**
+ * CSV roster import. dry_run defaults to true (safe preview) — only an explicit false applies,
+ * matching POST /admin/billing/:period/sync. Both modes return the same ImportDiff so the admin's
+ * preview and applied summary render from one shape; only an apply writes the audit entry.
+ */
 async function membersImport(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
   let csv: string | null = null;
   let startDate: string | undefined;
+  let dryRun = true;
   const ct = req.headers.get("content-type") ?? "";
   if (ct.includes("multipart/form-data")) {
     let form: FormData;
@@ -215,17 +221,38 @@ async function membersImport(req: Request, env: Env, ctx: RouteCtx): Promise<Res
     if (f && typeof f !== "string") csv = await (f as Blob).text();
     const sd = form.get("start_date");
     if (typeof sd === "string" && sd.trim()) startDate = sd.trim();
+    dryRun = form.get("dry_run") !== "false";
   } else {
-    const b = await readJson<{ csv?: unknown; start_date?: unknown }>(req);
+    const b = await readJson<{ csv?: unknown; start_date?: unknown; dry_run?: unknown }>(req);
     if (typeof b?.csv === "string") csv = b.csv;
     if (typeof b?.start_date === "string" && b.start_date.trim()) startDate = b.start_date.trim();
+    dryRun = b?.dry_run !== false;
   }
   if (!csv) return errorResponse(400, "csv is required");
   if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return errorResponse(400, "start_date must be YYYY-MM-DD");
   const start = startDate ?? `${taipeiPeriod()}-01`;
-  const diff = await importRoster(env, ws, parseRosterCsv(csv), { startDate: start, dryRun: false });
-  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "roster.import", entityType: "workspace", entityId: ws, after: diff });
-  return json({ ok: true, summary: diff });
+  const diff = await importRoster(env, ws, parseRosterCsv(csv), { startDate: start, dryRun });
+  if (!dryRun) {
+    // Counts, not the diff's line arrays: an audit row must stay small and readable even for a
+    // few-hundred-member roster. The full lines are what the response already returns to the admin.
+    await writeAudit(env.DB, {
+      workspaceId: ws, actor: actorOf(ctx), action: "roster.import", entityType: "workspace", entityId: ws,
+      after: {
+        start_date: start,
+        users_created: diff.users_created.length,
+        users_updated: diff.users_updated,
+        subs_added: diff.subs_added.length,
+        subs_reactivated: diff.subs_reactivated.length,
+        subs_paused: diff.subs_paused.length,
+        cancelled_conflicts: diff.cancelled_conflicts.length,
+        subs_skipped: diff.subs_skipped,
+        rows_skipped: diff.rows_skipped,
+        unmatched_plans: diff.unmatched_plans,
+        affected_pending_bills: diff.affected_pending_bills.length,
+      },
+    });
+  }
+  return json({ ok: true, diff });
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────
