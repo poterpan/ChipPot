@@ -297,7 +297,8 @@ describe("admin billing/initiate + declared channel", () => {
     const res = await call("POST", "/admin/members/import", { csv, start_date: "2027-11-01" });
     expect(res!.status).toBe(200);
     const body = (await res!.json()) as any;
-    expect(body.summary).toMatchObject({ usersCreated: 1, subsCreated: 1 });
+    expect(body.summary.users_created.length).toBe(1);
+    expect(body.summary.subs_added.length).toBe(1);
     const u = await env.DB.prepare("SELECT id FROM users WHERE email='newmember@x.tw'").first<{ id: number }>();
     expect(u).not.toBeNull();
   });

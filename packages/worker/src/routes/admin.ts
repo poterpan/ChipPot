@@ -223,9 +223,9 @@ async function membersImport(req: Request, env: Env, ctx: RouteCtx): Promise<Res
   if (!csv) return errorResponse(400, "csv is required");
   if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return errorResponse(400, "start_date must be YYYY-MM-DD");
   const start = startDate ?? `${taipeiPeriod()}-01`;
-  const summary = await importRoster(env, ws, parseRosterCsv(csv), { startDate: start });
-  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "roster.import", entityType: "workspace", entityId: ws, after: summary });
-  return json({ ok: true, summary });
+  const diff = await importRoster(env, ws, parseRosterCsv(csv), { startDate: start, dryRun: false });
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "roster.import", entityType: "workspace", entityId: ws, after: diff });
+  return json({ ok: true, summary: diff });
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────

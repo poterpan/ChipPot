@@ -51,9 +51,21 @@ describe("importRoster", () => {
       { name: "Ben", email: "ben@x.tw", plans: ["Claude Standard", "Gemini"], plansOff: [] },
       { name: "NoEmail", email: "", plans: ["ChatGPT"], plansOff: [] },
     ];
-    const s = await importRoster(env, WS, rows, { startDate: "2026-06-01" });
-    expect(s).toMatchObject({ usersCreated: 1, usersUpdated: 1, subsCreated: 2, subsSkipped: 1, rowsSkipped: 1 });
-    expect(s.unmatchedPlans).toEqual(["Gemini"]);
+    const d = await importRoster(env, WS, rows, { startDate: "2026-06-01", dryRun: false });
+    expect(d.dry_run).toBe(false);
+    expect(d.period).toBe("2026-06");
+    expect(d.users_created.map((u) => u.email)).toEqual(["ben@x.tw"]);
+    expect(d.users_created[0]!.user_id).toBeGreaterThan(0); // filled in by the apply pass
+    expect(d.users_updated).toBe(1);
+    expect(d.subs_added.map((s) => s.plan_name).sort()).toEqual(["Claude Standard", "Claude Standard"]);
+    expect(d.subs_added.every((s) => s.subscription_id !== null)).toBe(true);
+    expect(d.subs_skipped).toBe(1);   // Amy already has an active ChatGPT sub
+    expect(d.rows_skipped).toBe(1);   // the row with no email
+    expect(d.unmatched_plans).toEqual(["Gemini"]);
+    expect(d.subs_paused).toEqual([]);
+    expect(d.subs_reactivated).toEqual([]);
+    expect(d.cancelled_conflicts).toEqual([]);
+    expect(d.affected_pending_bills).toEqual([]);
 
     const amy = await env.DB.prepare("SELECT display_name, discord_id FROM users WHERE email='amy@x.tw'").first<{ display_name: string; discord_id: string }>();
     expect(amy).toMatchObject({ display_name: "Amy New", discord_id: "disc-amy" });
@@ -67,7 +79,62 @@ describe("importRoster", () => {
 
   it("is idempotent on a re-run (no new users/subs)", async () => {
     const rows = [{ name: "Amy New", email: "amy@x.tw", plans: ["ChatGPT", "Claude Standard"], plansOff: [] }];
-    const s = await importRoster(env, WS, rows, { startDate: "2026-06-01" });
-    expect(s).toMatchObject({ usersCreated: 0, usersUpdated: 1, subsCreated: 0, subsSkipped: 2 });
+    const d = await importRoster(env, WS, rows, { startDate: "2026-06-01", dryRun: false });
+    expect(d.users_created).toEqual([]);
+    expect(d.users_updated).toBe(1);
+    expect(d.subs_added).toEqual([]);
+    expect(d.subs_skipped).toBe(2);
+  });
+
+  it("merges duplicate rows for the same email into one member (no double insert)", async () => {
+    const rows = [
+      { name: "", email: "dupe@x.tw", plans: ["ChatGPT"], plansOff: [] },
+      { name: "Dupe Later", email: "dupe@x.tw", plans: ["ChatGPT", "Claude Standard"], plansOff: [] },
+    ];
+    const d = await importRoster(env, WS, rows, { startDate: "2026-06-01", dryRun: false });
+    expect(d.users_created.length).toBe(1);
+    expect(d.subs_added.map((s) => s.plan_name).sort()).toEqual(["ChatGPT", "Claude Standard"]);
+    const n = await env.DB.prepare("SELECT COUNT(*) c FROM users WHERE workspace_id=? AND email='dupe@x.tw'").bind(WS).first<{ c: number }>();
+    expect(n?.c).toBe(1);
+    const u = await env.DB.prepare("SELECT id, display_name FROM users WHERE workspace_id=? AND email='dupe@x.tw'").bind(WS).first<{ id: number; display_name: string }>();
+    expect(u!.display_name).toBe("Dupe Later"); // the last non-empty name in the CSV wins
+    const subs = await env.DB.prepare("SELECT COUNT(*) c FROM subscriptions WHERE workspace_id=? AND user_id=?").bind(WS, u!.id).first<{ c: number }>();
+    expect(subs?.c).toBe(2);
+  });
+});
+
+// dryRun must compute exactly the same diff while writing nothing. Own workspace: storage is
+// isolated per FILE, so this fixture must not collide with the WS=9028 rows above.
+describe("importRoster dryRun", () => {
+  // U_OLD sits above the users AUTOINCREMENT high-water mark: the describes above insert members
+  // without an explicit id, and the first of those takes 9029 (one past the WS=9028 fixture).
+  const W = 9029, PL = 9029, U_OLD = 90291;
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(W, "W", "o", "discord", 5, "{}", TS, TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(PL, W, "ChatGPT", "openai", 315, TS, TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,email,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(U_OLD, W, "Old", "old@x.tw", TS, TS),
+    ]);
+  });
+
+  it("reports what it would do and writes nothing", async () => {
+    const rows = [
+      { name: "Old Renamed", email: "old@x.tw", plans: ["ChatGPT"], plansOff: [] },
+      { name: "Fresh", email: "fresh@x.tw", plans: ["ChatGPT"], plansOff: [] },
+    ];
+    const d = await importRoster(env, W, rows, { startDate: "2026-06-01", dryRun: true });
+    expect(d.dry_run).toBe(true);
+    expect(d.users_created).toEqual([{ user_id: null, user_name: "Fresh", email: "fresh@x.tw" }]);
+    expect(d.users_updated).toBe(1);
+    expect(d.subs_added.length).toBe(2);
+    expect(d.subs_added.every((s) => s.subscription_id === null)).toBe(true);
+    expect(d.subs_added[0]).toMatchObject({ plan_id: PL, plan_name: "ChatGPT", amount: 315 });
+
+    const users = await env.DB.prepare("SELECT COUNT(*) c FROM users WHERE workspace_id=?").bind(W).first<{ c: number }>();
+    expect(users?.c).toBe(1);                 // "Fresh" was NOT inserted
+    const name = await env.DB.prepare("SELECT display_name FROM users WHERE id=?").bind(U_OLD).first<{ display_name: string }>();
+    expect(name?.display_name).toBe("Old");   // the rename was NOT written
+    const subs = await env.DB.prepare("SELECT COUNT(*) c FROM subscriptions WHERE workspace_id=?").bind(W).first<{ c: number }>();
+    expect(subs?.c).toBe(0);
   });
 });
