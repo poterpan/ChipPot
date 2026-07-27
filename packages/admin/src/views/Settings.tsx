@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, currentPeriod, nextBillingPeriod } from "../api";
-import { useAsync, Card, Field, Empty, Modal, IconCheck, IconWarning } from "../ui";
+import { api, currentPeriod, nextBillingPeriod, type ImportDiff, type ImportSubLine } from "../api";
+import { useAsync, Card, Field, Empty, Modal, Stat, IconCheck, IconWarning } from "../ui";
+import { DiffList } from "../components/DiffList";
 
 const PLACEHOLDER_RE = /\{(\w+)\}/g;
 const OVERDUE_KEYS = ["period", "count", "list"];
@@ -235,7 +236,7 @@ export function Settings() {
           <ActionRow title="張貼／更新綁定按鈕訊息" tag="立即執行" desc="在帳單頻道貼一則含「綁定 Discord」按鈕的公開訊息，讓成員主動綁定（開繳／催繳才能 @ 到他）。"><RebuildBindMessage /></ActionRow>
           <ActionRow title="註冊 Discord 指令" tag="立即執行" desc="更新 /繳費、/發起繳費、/綁定 指令到你的伺服器。"><RegisterCommands /></ActionRow>
           <ActionRow title="發起繳費" tag="會改價＋發通知" warn desc="確認本期金額並向所有成員發出開繳通知。"><InitiateBilling billingDay={savedBillingDay} dirty={dirty} /></ActionRow>
-          <ActionRow title="匯入名單 CSV" tag="會新增/更新成員" warn desc="用 CSV 批次建立或更新成員與訂閱。"><ImportRoster /></ActionRow>
+          <ActionRow title="匯入名單 CSV" tag="會新增/暫停訂閱" warn desc="用 CSV 批次建立或更新成員與訂閱；FALSE 的方案會暫停該訂閱。套用前先看差異預覽。"><ImportRoster /></ActionRow>
         </div>
       </Card>
 
@@ -300,31 +301,103 @@ function ImportRoster() {
   );
 }
 
+const subLine = (l: ImportSubLine) => `${l.user_name || l.email}·${l.plan_name} NT$${l.amount.toLocaleString()}`;
+const BILL_STATUS: Record<string, string> = { pending: "待繳", rejected: "已退回" };
+
 function ImportModal({ onClose }: { onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [start, setStart] = useState("");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [diff, setDiff] = useState<ImportDiff | null>(null);
+  const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  async function run() {
+
+  async function preview() {
     if (!file) { setErr("請選擇 CSV 檔"); return; }
-    setBusy(true); setErr(null); setMsg(null);
+    setBusy(true); setErr(null);
     try {
-      const r = await api.importMembers(file, start || undefined);
-      const s = r.summary;
-      setMsg(`✓ 建立 ${s.usersCreated} 人 / 更新 ${s.usersUpdated} 人 / 新增 ${s.subsCreated} 訂閱 / 跳過 ${s.subsSkipped} 訂閱 / 略過 ${s.rowsSkipped} 列` +
-        (s.unmatchedPlans.length ? ` · 對不到的方案：${s.unmatchedPlans.join(", ")}` : ""));
+      const r = await api.importMembers(file, { startDate: start || undefined, dryRun: true });
+      setDiff(r.diff);
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }
+
+  async function apply() {
+    if (!file || busy) return; // belt: the button is also disabled while in flight
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.importMembers(file, { startDate: start || undefined, dryRun: false });
+      const d = r.diff;
+      setDiff(d);
+      setDone(`✓ 已套用：新增 ${d.users_created.length} 人 / 新增 ${d.subs_added.length} 訂閱 / 恢復 ${d.subs_reactivated.length} / 暫停 ${d.subs_paused.length}`);
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }
+
+  const changes = diff
+    ? diff.users_created.length + diff.subs_added.length + diff.subs_reactivated.length + diff.subs_paused.length
+    : 0;
+
   return (
     <Modal title="匯入名單 CSV" onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      {msg && <div style={{ color: "var(--teal)", marginBottom: 12, fontSize: 13 }}>{msg}</div>}
-      <p style={{ color: "var(--muted-strong)", fontSize: 13, margin: "0 0 12px" }}>欄位需為「姓名, 帳號, 方案名…」；方案名須與系統方案一致。空白＝起算當月。</p>
-      <Field label="CSV 檔"><input type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={busy} /></Field>
-      <Field label="起算月份第一天（選填，YYYY-MM-DD）"><input value={start} onChange={(e) => setStart(e.target.value)} placeholder="2026-06-01" disabled={busy} /></Field>
-      <button className="btn btn--primary" onClick={run} disabled={busy}>匯入</button>
+
+      {!diff && (
+        <>
+          <p style={{ color: "var(--muted-strong)", fontSize: 13, margin: "0 0 12px" }}>
+            欄位需為「姓名, 帳號, 方案名…」；方案名須與系統方案一致。方案格 <b>TRUE</b>＝訂閱、<b>FALSE</b>＝暫停該訂閱、<b>留空</b>＝不變動。起算月份留空＝當月。
+          </p>
+          <Field label="CSV 檔"><input type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={busy} /></Field>
+          <Field label="起算月份第一天（選填，YYYY-MM-DD）"><input value={start} onChange={(e) => setStart(e.target.value)} placeholder="2026-06-01" disabled={busy} /></Field>
+          <button className="btn btn--primary" onClick={preview} disabled={busy}>{busy ? "計算差異中…" : "預覽差異"}</button>
+        </>
+      )}
+
+      {diff && (
+        <>
+          {done && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{done}</div>}
+          <div className="stats">
+            <Stat label="新成員" value={diff.users_created.length} />
+            <Stat label="新增訂閱" value={diff.subs_added.length} />
+            <Stat label="恢復訂閱" value={diff.subs_reactivated.length} />
+            <Stat label="暫停訂閱" value={diff.subs_paused.length} />
+          </div>
+
+          {diff.users_created.length > 0 && <DiffList title="新成員" rows={diff.users_created.map((u) => `${u.user_name || "（未填姓名）"}·${u.email}`)} />}
+          {diff.subs_added.length > 0 && <DiffList title="新增訂閱" rows={diff.subs_added.map(subLine)} />}
+          {diff.subs_reactivated.length > 0 && <DiffList title="恢復訂閱（暫停→啟用）" rows={diff.subs_reactivated.map(subLine)} />}
+          {diff.subs_paused.length > 0 && <DiffList title="暫停訂閱（CSV 為 FALSE）" rows={diff.subs_paused.map(subLine)} />}
+          {diff.cancelled_conflicts.length > 0 && (
+            <>
+              <div className="warnnote">下列訂閱已被<b>取消</b>（不是暫停），匯入不會自動恢復；如要恢復請到「成員／訂閱」手動改狀態。</div>
+              <DiffList title="需人工處理（已取消）" rows={diff.cancelled_conflicts.map(subLine)} />
+            </>
+          )}
+          {diff.affected_pending_bills.length > 0 && (
+            <>
+              <div className="warnnote">
+                被暫停的訂閱在 {diff.period} 還有 {diff.affected_pending_bills.length} 筆未繳帳單。匯入<b>不會</b>變更任何帳單；請到「繳費審核」按<b>重新同步本期帳單</b>清理。
+              </div>
+              <DiffList
+                title={`${diff.period} 未繳帳單（匯入不會變更）`}
+                rows={diff.affected_pending_bills.map((b) => `${b.user_name}·${b.plan_name} NT$${b.amount.toLocaleString()}（${BILL_STATUS[b.status] ?? b.status}）`)}
+              />
+            </>
+          )}
+
+          <p style={{ color: "var(--muted)", fontSize: 13, margin: "10px 0" }}>
+            同步姓名 {diff.users_updated} 人 · 已訂閱跳過 {diff.subs_skipped} · 略過 {diff.rows_skipped} 列
+            {diff.unmatched_plans.length > 0 && ` · 對不到的方案：${diff.unmatched_plans.join(", ")}`}
+          </p>
+
+          {!done && (
+            <>
+              {changes === 0 && <p style={{ color: "var(--muted)" }}>沒有新增／暫停／恢復；套用只會同步 {diff.users_updated} 位成員的姓名。</p>}
+              <button className="btn btn--primary" onClick={apply} disabled={busy}>{busy ? "套用中…" : "確認套用"}</button>
+            </>
+          )}
+        </>
+      )}
     </Modal>
   );
 }
