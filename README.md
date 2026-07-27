@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-243%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-263%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -49,8 +49,10 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   settles *all* of a member's subscriptions for the period (multi-plan aggregation).
 - 🔗 **Self-service linking** — members link their Discord account to the roster themselves
   (`/綁定`, the pay button, or a persistent public **綁定** button posted in the channel); admins can also assign IDs by hand.
-- 📥 **CSV roster import** — onboard an existing roster (e.g. a Google-Forms export) in one upload:
-  upsert members + subscriptions, idempotent re-runs.
+- 📥 **CSV roster import** — onboard *and* maintain a roster (e.g. a Google-Forms export) from one
+  upload: a plan cell of `TRUE` subscribes (or un-pauses), `FALSE` pauses that subscription, blank
+  leaves it alone. Every run previews a full diff (new members, added / paused / reactivated subs,
+  plans it couldn't match, cancelled subs that need a human) before you apply it; idempotent re-runs.
 - 🧾 **Review queue + reconciliation** — an admin dashboard with per-plan / per-channel totals, a
   one-click verify queue, manual back-fill, single-payment delete, undo-verify, and frozen period
   amounts (price changes never rewrite history). A **重新同步本期帳單** action re-aligns an opened
@@ -64,7 +66,7 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   enforces screenshot retention — all deduped through `notification_logs`.
 - 🛡️ **Access-gated admin** — the whole admin host sits behind Cloudflare Access (email OTP); the
   SPA and its API are same-origin so the Access JWT reaches the Worker.
-- 🧪 **Real-runtime tests** — 243 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
+- 🧪 **Real-runtime tests** — 263 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
   enforced), not mocks.
 
 ## How a payment flows
