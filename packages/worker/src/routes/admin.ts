@@ -5,7 +5,7 @@ import { parseSettings } from "../env";
 import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
-import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, InvalidPaymentTransition } from "../core/payments";
+import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
 import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills } from "../core/billing";
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
@@ -578,6 +578,43 @@ async function verifyPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
   }
 }
 
+/**
+ * 一鍵全部核准: verify every reviewable payment this member has in the period. A single member
+ * submit settles one row per active subscription (one shared screenshot), so the review that used
+ * to take N clicks is one call. Channel defaulting and the state machine match single verify — see
+ * verifyUserPeriod. Audit trail: one payment.verify per row (identical to single verify) plus one
+ * payment.verify_all summary on the member, mirroring billing.reconcile's workspace-level summary.
+ * The per-row audits come from the rows verifyUserPeriod reports as committed, so a row that raced
+ * with a single verify is absent from both the count and the audit log rather than assumed done.
+ */
+async function verifyAllHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const b = await readJson<{ user_id?: number; period?: string }>(req) ?? {};
+  const userId = b.user_id;
+  if (!Number.isInteger(userId) || (userId as number) <= 0) return errorResponse(400, "user_id must be a positive integer");
+  if (!b.period || !PERIOD_RE.test(b.period)) return errorResponse(400, "period must be YYYY-MM");
+  const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND workspace_id = ?")
+    .bind(userId, ws).first<{ id: number }>();
+  if (!user) return errorResponse(404, "not found");
+
+  const actor = actorOf(ctx);
+  const { verified } = await verifyUserPeriod(env.DB, {
+    workspaceId: ws, userId: userId as number, period: b.period, verifiedBy: actor,
+  });
+  for (const v of verified) {
+    await writeAudit(env.DB, {
+      workspaceId: ws, actor, action: "payment.verify", entityType: "payment", entityId: v.after.id,
+      before: v.before, after: v.after,
+    });
+  }
+  const paymentIds = verified.map((v) => v.after.id);
+  await writeAudit(env.DB, {
+    workspaceId: ws, actor, action: "payment.verify_all", entityType: "user", entityId: userId as number,
+    after: { period: b.period, verified: paymentIds.length, payment_ids: paymentIds },
+  });
+  return json({ ok: true, verified: paymentIds.length, payment_ids: paymentIds });
+}
+
 async function rejectPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await getPayment(env.DB, id);
@@ -823,6 +860,7 @@ export function buildAdminRouter(): Router<Env> {
     .delete("/admin/channel-tags/:id", deleteChannelTag)
     .get("/admin/payments", listPayments)
     .post("/admin/payments/manual", manualPayment)
+    .post("/admin/payments/verify-all", verifyAllHandler)
     .post("/admin/payments/:id/verify", verifyPaymentHandler)
     .post("/admin/payments/:id/reject", rejectPaymentHandler)
     .post("/admin/payments/:id/amount", overrideAmountHandler)
