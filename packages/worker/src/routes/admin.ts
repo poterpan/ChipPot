@@ -519,6 +519,14 @@ async function deleteChannelTag(_req: Request, env: Env, ctx: RouteCtx): Promise
 
 // ── Payments ─────────────────────────────────────────────────────────────────
 
+/**
+ * The review list. Filters are all optional and combine:
+ *   period / status — the admin's toolbar filters
+ *   user_id         — one member's rows (the member × period aggregate review view)
+ *   id              — one specific payment, joined exactly like the list, so a legacy
+ *                     "#payments?id=" notification link can resolve a row that sits outside
+ *                     the current toolbar filters without a second endpoint shape.
+ */
 async function listPayments(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
   const period = ctx.url.searchParams.get("period");
@@ -527,8 +535,16 @@ async function listPayments(_req: Request, env: Env, ctx: RouteCtx): Promise<Res
   const binds: unknown[] = [ws];
   if (period) { conds.push("p.period = ?"); binds.push(period); }
   if (status) { conds.push("p.status = ?"); binds.push(status); }
+  for (const [param, column] of [["id", "p.id"], ["user_id", "s.user_id"]] as const) {
+    const raw = ctx.url.searchParams.get(param);
+    if (raw === null || raw === "") continue;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0) return errorResponse(400, `${param} must be a positive integer`);
+    conds.push(`${column} = ?`);
+    binds.push(n);
+  }
   const { results } = await env.DB.prepare(
-    `SELECT p.*, u.display_name AS user_name, pl.name AS plan_name,
+    `SELECT p.*, s.user_id AS user_id, u.display_name AS user_name, pl.name AS plan_name,
             ct.name AS channel_tag_name, dct.name AS declared_channel_tag_name
      FROM payments p
      JOIN subscriptions s ON s.id = p.subscription_id
