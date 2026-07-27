@@ -76,7 +76,7 @@ export function Payments() {
       <Card title="繳費紀錄">
         <div className="tbl">
           <table>
-            <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>憑證</th><th>來源</th><th></th></tr></thead>
+            <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>申報渠道</th><th>憑證</th><th></th></tr></thead>
             <tbody>
               {list.loading && <tr><td colSpan={8}><Empty>載入中…</Empty></td></tr>}
               {list.data?.payments.length === 0 && <tr><td colSpan={8}><Empty>沒有符合的紀錄</Empty></td></tr>}
@@ -87,12 +87,12 @@ export function Payments() {
                   <td className="mono">{p.period}</td>
                   <td className="right"><Money v={p.amount} /></td>
                   <td><StatusBadge status={p.status} /></td>
+                  <td>{p.declared_channel_tag_name || <span style={{ color: "var(--muted)" }}>—</span>}</td>
                   <td>{
                     ["paid", "verified"].includes(p.status)
                       ? (p.has_proof ? <span className="proof-yes iconlbl"><IconCheck />有截圖</span> : <span className="proof-no iconlbl"><IconWarning />純聲明</span>)
                       : <span style={{ color: "var(--muted)" }}>—</span>
                   }</td>
-                  <td style={{ fontSize: 12.5, color: "var(--muted)" }}>{p.source}</td>
                   <td className="right" onClick={(e) => e.stopPropagation()}>
                     {p.status === "paid" && <QuickVerify id={p.id} onDone={reload} />}
                   </td>
