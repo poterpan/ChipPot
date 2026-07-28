@@ -89,9 +89,13 @@ export function Payments() {
 
   // Aggregate review takes over the whole view — it IS the notification landing page. Leaving it
   // via 返回 rewrites the hash, which fires hashchange and drops us back to the list.
+  // The key remounts on every member × period: App.tsx keys the content wrapper on the view id
+  // ("payments" for both links), so tapping notification B while looking at A would otherwise reuse
+  // this instance and keep A's success line, open modal and — until the refetch lands — A's rows.
   if (deep?.kind === "member") {
     return (
       <MemberReview
+        key={`${deep.userId}:${deep.period}`}
         userId={deep.userId}
         period={deep.period}
         tags={tags.data?.channel_tags ?? []}
