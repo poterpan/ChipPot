@@ -136,16 +136,30 @@ export async function verifyPayment(
   );
 }
 
+export interface VerifiedPair {
+  before: PaymentRow;
+  after: PaymentRow;
+}
+
 export interface VerifyUserPeriodOpts {
   workspaceId: number;
   userId: number;
   period: string;
   verifiedBy: string;
+  /**
+   * Awaited right after each row's transition commits and before the next row is touched, so the
+   * caller can record commits as they happen. The sweep is NOT atomic (one guarded UPDATE per row),
+   * so the return value is worthless when a later row hard-errors — everything already committed
+   * would be invisible to the caller and end up with no audit trail at all. Throwing from here
+   * aborts the sweep on purpose: if a committed row cannot be recorded, stopping beats sweeping
+   * more rows we would not be able to record either.
+   */
+  onVerified?: (pair: VerifiedPair) => Promise<void> | void;
 }
 
 export interface VerifyUserPeriodResult {
   /** One entry per row actually verified, so the caller can audit each before/after. */
-  verified: { before: PaymentRow; after: PaymentRow }[];
+  verified: VerifiedPair[];
 }
 
 /**
@@ -160,6 +174,11 @@ export interface VerifyUserPeriodResult {
  * workspace is dropped to NULL rather than failing the batch (the single-verify handler 400s on one,
  * so we must never store one either). Rows that lose the guarded UPDATE race to a concurrent verify
  * are silently skipped.
+ *
+ * The sweep is deliberately non-atomic — one guarded UPDATE per row, no transaction — so a hard D1
+ * error partway through leaves the earlier rows committed and throws. Callers that must record every
+ * commit (the admin route writes one audit row per payment) pass `onVerified` instead of relying on
+ * the return value, which never arrives in that case.
  */
 export async function verifyUserPeriod(
   db: D1Database,
@@ -180,18 +199,22 @@ export async function verifyUserPeriod(
     .all<{ id: number }>();
   const tagIds = new Set(ownTags.results.map((t) => t.id));
 
-  const verified: { before: PaymentRow; after: PaymentRow }[] = [];
+  const verified: VerifiedPair[] = [];
   for (const { id } of targets.results) {
     const before = await getPayment(db, id);
     if (!before) continue;
     const declared = before.declared_channel_tag_id;
     const tagId = declared != null && tagIds.has(declared) ? declared : null;
+    let after: PaymentRow;
     try {
-      const after = await verifyPayment(db, id, { verifiedBy: o.verifiedBy, verifiedChannelTagId: tagId });
-      verified.push({ before, after });
+      after = await verifyPayment(db, id, { verifiedBy: o.verifiedBy, verifiedChannelTagId: tagId });
     } catch (e) {
-      if (!(e instanceof InvalidPaymentTransition)) throw e; // raced with another verify → skip
+      if (e instanceof InvalidPaymentTransition) continue; // raced with another verify → skip
+      throw e;
     }
+    verified.push({ before, after });
+    // Outside the try: an error from the hook is the caller's, never a race to swallow.
+    await o.onVerified?.({ before, after });
   }
   return { verified };
 }

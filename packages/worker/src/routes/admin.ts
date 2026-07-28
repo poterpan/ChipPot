@@ -586,6 +586,13 @@ async function verifyPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
  * payment.verify_all summary on the member, mirroring billing.reconcile's workspace-level summary.
  * The per-row audits come from the rows verifyUserPeriod reports as committed, so a row that raced
  * with a single verify is absent from both the count and the audit log rather than assumed done.
+ *
+ * The sweep commits row by row and is not atomic (by design), so the per-row audit is written from
+ * verifyUserPeriod's onVerified hook as each row commits, not from the return value: a hard D1 error
+ * on row N must still leave rows 1..N-1 audited (#35). Such a batch answers 500 with the partial
+ * `{ verified, payment_ids }` — never the ok:true shape — and its summary audit is flagged
+ * `partial: true` with the failure message, so the trail shows the batch aborted rather than
+ * claiming those were all the member's rows.
  */
 async function verifyAllHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
@@ -593,25 +600,42 @@ async function verifyAllHandler(req: Request, env: Env, ctx: RouteCtx): Promise<
   const userId = b.user_id;
   if (!Number.isInteger(userId) || (userId as number) <= 0) return errorResponse(400, "user_id must be a positive integer");
   if (!b.period || !PERIOD_RE.test(b.period)) return errorResponse(400, "period must be YYYY-MM");
+  const period = b.period;
   const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND workspace_id = ?")
     .bind(userId, ws).first<{ id: number }>();
   if (!user) return errorResponse(404, "not found");
 
   const actor = actorOf(ctx);
-  const { verified } = await verifyUserPeriod(env.DB, {
-    workspaceId: ws, userId: userId as number, period: b.period, verifiedBy: actor,
-  });
-  for (const v of verified) {
-    await writeAudit(env.DB, {
-      workspaceId: ws, actor, action: "payment.verify", entityType: "payment", entityId: v.after.id,
-      before: v.before, after: v.after,
+  const paymentIds: number[] = [];
+  const writeSummary = (extra?: Record<string, unknown>) =>
+    writeAudit(env.DB, {
+      workspaceId: ws, actor, action: "payment.verify_all", entityType: "user", entityId: userId as number,
+      after: { period, verified: paymentIds.length, payment_ids: paymentIds, ...extra },
+    });
+  try {
+    await verifyUserPeriod(env.DB, {
+      workspaceId: ws, userId: userId as number, period, verifiedBy: actor,
+      onVerified: async (v) => {
+        // Count the row before auditing it: it is already committed, so if the audit write is what
+        // fails, the response must still name it as changed rather than imply it was untouched.
+        paymentIds.push(v.after.id);
+        await writeAudit(env.DB, {
+          workspaceId: ws, actor, action: "payment.verify", entityType: "payment", entityId: v.after.id,
+          before: v.before, after: v.after,
+        });
+      },
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    // Best effort: with D1 down hard this write fails too, and the honest partial response still
+    // matters more than the summary row (the per-row audits above are already committed).
+    await writeSummary({ partial: true, error: message })
+      .catch((err) => console.error("verify_all partial summary audit failed", err));
+    return errorResponse(500, `批次核准中斷，已核准 ${paymentIds.length} 筆：${message}`, {
+      verified: paymentIds.length, payment_ids: paymentIds,
     });
   }
-  const paymentIds = verified.map((v) => v.after.id);
-  await writeAudit(env.DB, {
-    workspaceId: ws, actor, action: "payment.verify_all", entityType: "user", entityId: userId as number,
-    after: { period: b.period, verified: paymentIds.length, payment_ids: paymentIds },
-  });
+  await writeSummary();
   return json({ ok: true, verified: paymentIds.length, payment_ids: paymentIds });
 }
 
