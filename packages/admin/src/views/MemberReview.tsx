@@ -36,8 +36,11 @@ export function MemberReview({ userId, period, tags, onBack }: {
 
   async function run(fn: () => Promise<string | null>) {
     setBusy(true); setErr(null); setDone(null);
-    try { setDone(await fn()); list.reload(); }
+    try { setDone(await fn()); }
     catch (e) { setErr((e as Error).message); }
+    // Reload on failure too: 一鍵全部核准 commits row by row, so an aborted batch really did verify
+    // part of the list (the banner says how many) and the rows must not stay stale.
+    list.reload();
     setBusy(false);
   }
 

@@ -6,17 +6,49 @@ const TS = "2026-05-01T00:00:00.000Z";
 const WS = 1;                    // wsId() ALWAYS returns the seeded default workspace 1
 const U_A = 9400, U_B = 9401;    // two members, so the user filter has something to exclude
 const WS_OTHER = 9490, U_OTHER_WS = 9402; // a member of another workspace: must be invisible here
+const U_C = 9403;                // the fault-injection member, untouched by every other test
 const SUB_A1 = 9410, SUB_A2 = 9411, SUB_B1 = 9412;
+const SUB_C1 = 9413, SUB_C2 = 9414, SUB_C3 = 9415;
 const P_A1 = 9420, P_A2 = 9421, P_B1 = 9422, P_A_OTHER = 9423;
+const P_C1 = 9430, P_C2 = 9431, P_C3 = 9432;
 const PERIOD = "2028-03";
+const PERIOD_C = "2028-05";      // U_C's own period, so the toolbar-filter tests never see these rows
 const router = buildAdminRouter();
 const IDENT = { email: "owner@example.com" };
 
 // Mirrors test/routes/admin.test.ts: ctx is { identity }, no workspace header (wsId ignores it).
-function call(method: string, path: string, body?: unknown) {
+// `db` swaps the DB binding for a fault-injecting handle (see dbFailingOn).
+function call(method: string, path: string, body?: unknown, db?: D1Database) {
   const init: RequestInit = { method };
   if (body !== undefined) { init.body = JSON.stringify(body); init.headers = { "content-type": "application/json" }; }
-  return router.handle(new Request(`https://x${path}`, init), env, { identity: IDENT });
+  const e = db ? ({ ...env, DB: db } as typeof env) : env;
+  return router.handle(new Request(`https://x${path}`, init), e, { identity: IDENT });
+}
+
+/**
+ * A DB handle that lets exactly one statement blow up: the `nth` prepare whose SQL contains
+ * `sqlFragment` fails on .run(). D1 can't be faulted from inside the real runtime any other way,
+ * and the verify-all sweep is deliberately non-atomic, so this is how a batch gets cut in half
+ * mid-flight. Only the methods the worker actually calls are forwarded.
+ */
+function dbFailingOn(sqlFragment: string, nth: number): D1Database {
+  let matched = 0;
+  const wrap = (stmt: D1PreparedStatement, doomed: boolean): D1PreparedStatement => ({
+    bind: (...args: unknown[]) => wrap(stmt.bind(...args), doomed),
+    run: async () => {
+      if (doomed) throw new Error("D1_ERROR: 模擬硬錯誤");
+      return stmt.run();
+    },
+    first: (col?: string) => (col === undefined ? stmt.first() : stmt.first(col)),
+    all: () => stmt.all(),
+    raw: (opts?: unknown) => (stmt.raw as (o?: unknown) => unknown)(opts),
+  } as unknown as D1PreparedStatement);
+  return {
+    prepare: (sql: string) =>
+      sql.includes(sqlFragment) ? wrap(env.DB.prepare(sql), ++matched === nth) : env.DB.prepare(sql),
+    batch: (stmts: D1PreparedStatement[]) => env.DB.batch(stmts),
+    exec: (sql: string) => env.DB.exec(sql),
+  } as unknown as D1Database;
 }
 
 async function auditCount(action: string, entityId: number): Promise<number> {
@@ -51,11 +83,16 @@ beforeAll(async () => {
       `INSERT INTO workspaces (id,name,owner_id,channel_type,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`
     ).bind(WS_OTHER, "別人的工作區", "someone-else", "discord", "{}", TS, TS),
     env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?)`).bind(U_OTHER_WS, WS_OTHER, "外人", TS, TS),
+    env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?)`).bind(U_C, WS, "小美", TS, TS),
     sub(SUB_A1, U_A), sub(SUB_A2, U_A), sub(SUB_B1, U_B),
+    sub(SUB_C1, U_C), sub(SUB_C2, U_C), sub(SUB_C3, U_C),
     pay(P_A1, SUB_A1, PERIOD, "paid", 1),      // declared LINE Pay
     pay(P_A2, SUB_A2, PERIOD, "paid", null),   // no declared channel
     pay(P_B1, SUB_B1, PERIOD, "paid", 1),      // another member, same period
     pay(P_A_OTHER, SUB_A1, "2028-04", "paid", 1), // same member, another period
+    pay(P_C1, SUB_C1, PERIOD_C, "paid", 1),    // three rows for the mid-batch failure test
+    pay(P_C2, SUB_C2, PERIOD_C, "paid", 1),
+    pay(P_C3, SUB_C3, PERIOD_C, "paid", 1),
   ]);
 });
 
@@ -162,5 +199,57 @@ describe("POST /admin/payments/verify-all", () => {
   it("404s for an unknown member or one outside the workspace", async () => {
     expect((await call("POST", "/admin/payments/verify-all", { user_id: 999999, period: PERIOD }))!.status).toBe(404);
     expect((await call("POST", "/admin/payments/verify-all", { user_id: U_OTHER_WS, period: PERIOD }))!.status).toBe(404);
+  });
+});
+
+// #35: the sweep commits row by row, so a hard D1 error mid-batch must neither lose the audit of
+// what already committed nor answer with a full-success shape.
+describe("POST /admin/payments/verify-all mid-batch hard error", () => {
+  it("keeps the committed row's audit and answers with the partial result, not ok", async () => {
+    // The sweep's 2nd guarded UPDATE dies: row 1 committed, row 2 never flipped, row 3 unreached.
+    const res = await call("POST", "/admin/payments/verify-all", { user_id: U_C, period: PERIOD_C },
+      dbFailingOn("UPDATE payments SET status", 2));
+    expect(res!.status).toBe(500);
+    const b = (await res!.json()) as any;
+    expect(b.ok).toBeUndefined();            // never the full-success shape
+    expect(b.error).toContain("模擬硬錯誤");  // the underlying failure reaches the admin
+    expect(b.verified).toBe(1);
+    expect(b.payment_ids).toEqual([P_C1]);
+
+    // The point of the issue: the row that committed still carries its own per-row audit,
+    // with the same before/after payload single verify writes.
+    expect(await auditCount("payment.verify", P_C1)).toBe(1);
+    expect(await auditCount("payment.verify", P_C2)).toBe(0);
+    const audit = await env.DB.prepare(
+      "SELECT before_json, after_json FROM audit_logs WHERE action = 'payment.verify' AND entity_id = ?"
+    ).bind(P_C1).first<{ before_json: string; after_json: string }>();
+    expect(JSON.parse(audit!.before_json)).toMatchObject({ id: P_C1, status: "paid" });
+    expect(JSON.parse(audit!.after_json)).toMatchObject({ id: P_C1, status: "verified", verified_channel_tag_id: 1 });
+
+    const rows = await env.DB.prepare("SELECT id, status FROM payments WHERE id IN (?,?,?)")
+      .bind(P_C1, P_C2, P_C3).all<{ id: number; status: string }>();
+    const statusOf = (id: number) => rows.results.find((r) => r.id === id)!.status;
+    expect(statusOf(P_C1)).toBe("verified");
+    expect(statusOf(P_C2)).toBe("paid");     // its UPDATE is the one that blew up
+    expect(statusOf(P_C3)).toBe("paid");     // the sweep stopped before reaching it
+
+    // The batch summary is still written, flagged partial, carrying the same counts as the response.
+    const summary = await env.DB.prepare(
+      "SELECT after_json FROM audit_logs WHERE action = 'payment.verify_all' AND entity_id = ?"
+    ).bind(U_C).first<{ after_json: string }>();
+    const after = JSON.parse(summary!.after_json);
+    expect(after).toMatchObject({ period: PERIOD_C, verified: 1, partial: true });
+    expect(after.payment_ids).toEqual([P_C1]);
+    expect(after.error).toContain("模擬硬錯誤");
+  });
+
+  it("retries cleanly: the second call sweeps only what was left and re-audits nothing", async () => {
+    const res = await call("POST", "/admin/payments/verify-all", { user_id: U_C, period: PERIOD_C });
+    expect(res!.status).toBe(200);
+    const b = (await res!.json()) as any;
+    expect(b.ok).toBe(true);
+    expect(b.payment_ids.sort()).toEqual([P_C2, P_C3]);
+    expect(await auditCount("payment.verify", P_C1)).toBe(1); // already verified → not swept again
+    expect(await auditCount("payment.verify", P_C2)).toBe(1);
   });
 });
