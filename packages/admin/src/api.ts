@@ -43,6 +43,24 @@ export interface Subscription { id: number; user_name: string; plan_name: string
 export interface ReconcileLine { payment_id?: number; subscription_id: number; user_id: number; user_name: string; plan_name: string; amount: number; from?: number; to?: number; discord_id: string | null }
 export interface ReconcileDiff { opened: boolean; add: ReconcileLine[]; remove: ReconcileLine[]; reprice: ReconcileLine[]; frozen_count: number }
 export interface ReconcileApplied { ok: boolean; applied: { added: number; removed: number; repriced: number; frozen: number }; notified: number }
+export interface ImportUserLine { user_id: number | null; user_name: string; email: string }
+export interface ImportSubLine {
+  subscription_id: number | null; user_id: number | null; user_name: string; email: string;
+  plan_id: number; plan_name: string; amount: number;
+}
+export interface ImportBillLine {
+  payment_id: number; subscription_id: number; user_name: string; plan_name: string;
+  period: string; amount: number; status: string;
+}
+/** Mirrors ImportDiff in worker/src/core/import.ts — the same shape for a preview and an apply. */
+export interface ImportDiff {
+  dry_run: boolean; period: string;
+  users_created: ImportUserLine[]; users_updated: number;
+  subs_added: ImportSubLine[]; subs_reactivated: ImportSubLine[]; subs_paused: ImportSubLine[];
+  cancelled_conflicts: ImportSubLine[];
+  subs_skipped: number; rows_skipped: number; unmatched_plans: string[];
+  affected_pending_bills: ImportBillLine[];
+}
 
 export const api = {
   workspace: () => req<{ workspace: any; r2_configured: boolean }>("GET", "/workspace"),
@@ -86,14 +104,16 @@ export const api = {
   updateChannelTag: (id: number, b: unknown) => req("PATCH", `/channel-tags/${id}`, b),
   deleteChannelTag: (id: number) => req("DELETE", `/channel-tags/${id}`),
   imageUrl: (key: string) => `${BASE}/image?key=${encodeURIComponent(key)}`,
-  importMembers: async (file: File, startDate?: string) => {
+  importMembers: async (file: File, opts: { startDate?: string; dryRun: boolean }) => {
     const fd = new FormData();
     fd.append("file", file);
-    if (startDate) fd.append("start_date", startDate);
+    if (opts.startDate) fd.append("start_date", opts.startDate);
+    // The endpoint previews unless it sees exactly "false", so always send the flag explicitly.
+    fd.append("dry_run", opts.dryRun ? "true" : "false");
     const r = await fetch(`${BASE}/members/import`, { method: "POST", body: fd });
     const data = (await r.json().catch(() => ({}))) as any;
     if (!r.ok) throw new Error(data?.error ?? `錯誤 ${r.status}`);
-    return data as { summary: { usersCreated: number; usersUpdated: number; subsCreated: number; subsSkipped: number; rowsSkipped: number; unmatchedPlans: string[] } };
+    return data as { ok: boolean; diff: ImportDiff };
   },
 };
 

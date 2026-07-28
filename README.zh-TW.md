@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-152%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-263%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -46,7 +46,9 @@ ChipPot 解決的是一個很具體的痛點：社團大量採購 OpenAI / Anthr
 - 💳 **Discord 內繳費** — 常駐「繳費」按鈕 → 選渠道 → 完成。一次送出就把該成員**當期所有訂閱**
   一起結清（多方案加總）。
 - 🔗 **自助綁定** — 成員自己把 Discord 帳號接到名單（`/綁定` 或繳費按鈕）；管理員也能手動指定 ID。
-- 📥 **CSV 名單匯入** — 一次上傳就把既有名單（例如 Google 表單匯出）upsert 成成員＋訂閱，可冪等重跑。
+- 📥 **CSV 名單匯入** — 一次上傳就能建立**並維護**名單（例如 Google 表單匯出）：方案欄填 `TRUE`
+  代表訂閱（或恢復暫停中的訂閱），`FALSE` 代表暫停該訂閱，留空則完全不動。每次上傳都會先顯示完整
+  差異預覽（新成員、新增／暫停／恢復的訂閱、對不到的方案、需人工處理的已取消訂閱）再套用，可冪等重跑。
 - 🧾 **審核佇列 + 對帳** — 後台看板有各方案／各渠道金額、一鍵驗證佇列、手動補登，且**當期金額凍結**
   （改價不會回頭改歷史帳）。
 - 🔔 **可自訂通知** — 開繳通知、整批逾期催繳、常駐繳費訊息三種文字皆可自訂模板（含即時預覽 + 格式驗證）。
@@ -54,7 +56,7 @@ ChipPot 解決的是一個很具體的痛點：社團大量採購 OpenAI / Anthr
   `notification_logs` 去重。
 - 🛡️ **Access 保護的後台** — 整個後台主機在 Cloudflare Access 後（email OTP）；SPA 與其 API 同源，
   Access JWT 因此能到達 Worker。
-- 🧪 **真環境測試** — 152 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
+- 🧪 **真環境測試** — 263 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
 
 ## 一筆繳費怎麼跑
 
