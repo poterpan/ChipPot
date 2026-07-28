@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, currentPeriod, periodForBillingDay, type Payment, type ChannelTag, type ReconcileDiff } from "../api";
 import { useAsync, Card, Modal, Field, Empty, Money, Stat, StatusBadge, IconCheck, IconWarning, IconX } from "../ui";
+import { DiffList } from "../components/DiffList";
 import { PaymentDetail } from "./PaymentDetail";
+import { MemberReview } from "./MemberReview";
 
 const STATUS_OPTS = [
   { v: "", label: "全部" },
@@ -15,12 +17,27 @@ const STATUS_OPTS = [
 // (R2-only) and adds one on top — see colCount in Payments(), which every colSpan must use.
 const BASE_COLS = 7;
 
-// Read the deep-link payment id from "#payments?id=42"; null if absent or not a positive integer.
-function paymentIdFromHash(): number | null {
+const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+type DeepLink =
+  | { kind: "member"; userId: number; period: string }
+  | { kind: "payment"; id: number };
+
+/**
+ * Where a payment-submission notification lands. Current shape: "#payments?user=42&period=2026-07"
+ * — a member's whole period, because one submit settles several rows. Pushes already in the owner's
+ * history carry the older "#payments?id=1042", which still opens that single payment's modal.
+ */
+function deepLinkFromHash(): DeepLink | null {
   const q = window.location.hash.split("?")[1];
-  const raw = q ? new URLSearchParams(q).get("id") : null;
-  const id = raw ? Number(raw) : NaN;
-  return Number.isInteger(id) && id > 0 ? id : null;
+  if (!q) return null;
+  const params = new URLSearchParams(q);
+  const userId = Number(params.get("user"));
+  const period = params.get("period") ?? "";
+  if (Number.isInteger(userId) && userId > 0 && PERIOD_RE.test(period)) return { kind: "member", userId, period };
+  const id = Number(params.get("id"));
+  if (Number.isInteger(id) && id > 0) return { kind: "payment", id };
+  return null;
 }
 
 export function Payments() {
@@ -44,27 +61,44 @@ export function Payments() {
 
   const reload = () => { list.reload(); };
 
-  // Deep link from a payment notification (#payments?id=42): fetch that payment directly (it may be
-  // outside the current period/status filter) and open its review modal, then clean the query so a
-  // refresh doesn't reopen it. Re-runs on hashchange so navigating between links works.
-  const [deepId, setDeepId] = useState<number | null>(() => paymentIdFromHash());
+  const [deep, setDeep] = useState<DeepLink | null>(deepLinkFromHash);
+  const [deepMiss, setDeepMiss] = useState(false);
   useEffect(() => {
-    const onHash = () => setDeepId(paymentIdFromHash());
+    // Any new link supersedes the previous one, including its "that payment is gone" notice.
+    const onHash = () => { setDeep(deepLinkFromHash()); setDeepMiss(false); };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+  // Legacy single-payment link: fetch just that row (a filtered request — it may sit outside the
+  // current period/status filters), open its review modal, then clean the query so a refresh
+  // doesn't reopen it. The member × period form is handled by the branch below instead.
   useEffect(() => {
-    if (deepId == null) return;
+    if (deep?.kind !== "payment") return;
     let cancelled = false;
-    api.payments({}).then((r) => {
+    api.payments({ id: deep.id }).then((r) => {
       if (cancelled) return;
-      const p = r.payments.find((x) => x.id === deepId);
-      if (p) setSelected(p);
-      setDeepId(null);
+      const p = r.payments[0];
+      // A deleted payment (or an id from another workspace) comes back as an empty list, not a 404 —
+      // say so instead of dropping the admin on an unexplained list.
+      if (p) setSelected(p); else setDeepMiss(true);
+      setDeep(null);
       if (window.location.hash.includes("?")) history.replaceState(null, "", "#payments");
-    }).catch(() => { if (!cancelled) setDeepId(null); });
+    }).catch(() => { if (!cancelled) setDeep(null); });
     return () => { cancelled = true; };
-  }, [deepId]);
+  }, [deep]);
+
+  // Aggregate review takes over the whole view — it IS the notification landing page. Leaving it
+  // via 返回 rewrites the hash, which fires hashchange and drops us back to the list.
+  if (deep?.kind === "member") {
+    return (
+      <MemberReview
+        userId={deep.userId}
+        period={deep.period}
+        tags={tags.data?.channel_tags ?? []}
+        onBack={() => { list.reload(); window.location.hash = "payments"; }}
+      />
+    );
+  }
 
   return (
     <>
@@ -82,6 +116,7 @@ export function Payments() {
         <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
       </div>
 
+      {deepMiss && <div className="warnnote">找不到通知連結指向的那筆繳費紀錄，可能已被刪除。以下是目前的繳費列表。</div>}
       {list.error && <div className="error-banner">{list.error}</div>}
       <Card title="繳費紀錄">
         <div className="tbl">
@@ -92,7 +127,12 @@ export function Payments() {
               {list.data?.payments.length === 0 && <tr><td colSpan={colCount}><Empty>沒有符合的紀錄</Empty></td></tr>}
               {list.data?.payments.map((p) => (
                 <tr key={p.id} className="click" onClick={() => setSelected(p)}>
-                  <td>{p.user_name}</td>
+                  <td>
+                    <button className="linkbtn" title="檢視這位成員本期的合併審核"
+                      onClick={(e) => { e.stopPropagation(); window.location.hash = `payments?user=${p.user_id}&period=${p.period}`; }}>
+                      {p.user_name}
+                    </button>
+                  </td>
                   <td>{p.plan_name}</td>
                   <td className="mono">{p.period}</td>
                   <td className="right"><Money v={p.amount} /></td>
@@ -125,17 +165,6 @@ export function Payments() {
       {showLink && <LinkModal onClose={() => setShowLink(false)} />}
       {sync && effPeriod && <SyncModal key={effPeriod} period={effPeriod} onClose={() => setSync(false)} onDone={() => reload()} />}
     </>
-  );
-}
-
-function DiffList({ title, rows }: { title: string; rows: string[] }) {
-  return (
-    <details style={{ margin: "6px 0" }}>
-      <summary style={{ cursor: "pointer" }}>{title}（{rows.length}）</summary>
-      <ul style={{ margin: "6px 0 0 18px", color: "var(--muted)", fontSize: 13 }}>
-        {rows.map((r, i) => <li key={i}>{r}</li>)}
-      </ul>
-    </details>
   );
 }
 

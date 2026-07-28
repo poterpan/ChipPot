@@ -213,3 +213,39 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
   .settings { max-width: none; padding-bottom: 110px; }
   .savebar { left: 0; padding: 12px 16px; }
 }
+
+/* ── member × period aggregate review (payment-notification landing) ────────── */
+/* Mobile-first: single column at any width; ≥721px the per-payment rows go two-column. */
+.mreview__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 14px; }
+.mreview__title { font-family: "Fraunces", serif; font-weight: 600; font-size: 20px; margin: 0; }
+.mreview__meta { font-size: 13px; color: var(--muted); }
+.mreview__body { padding: 14px 16px; }
+.mreview__note { margin: 10px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.mreview__note--warn { color: var(--amber); }
+.mreview__ok { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--teal); }
+/* the one action that matters on a phone: full-width and thumb-sized */
+.mreview__bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 18px; }
+.mreview__bulk .btn { flex: 1 1 220px; min-height: 46px; justify-content: center; }
+
+.mrow { display: grid; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+.mrow:last-child { border-bottom: 0; }
+.mrow__main { min-width: 0; display: grid; gap: 5px; }
+.mrow__top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.mrow__plan { font-weight: 600; }
+.mrow__facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; color: var(--muted); }
+.mrow__acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.mrow__acts .btn { flex: 1 1 auto; min-height: 40px; }
+.mrow__reject { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.mrow__reject input {
+  flex: 1 1 180px; padding: 9px 11px; border: 1.5px solid var(--line); border-radius: 9px;
+  font: inherit; font-size: 14px; background: #fffdf8; color: var(--ink);
+}
+.linkbtn {
+  border: 0; background: transparent; padding: 0; font: inherit; color: var(--teal-ink);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+@media (min-width: 721px) {
+  .mrow { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .mrow__acts { justify-content: flex-end; }
+  .mreview__bulk .btn { flex: 0 0 auto; }
+}
