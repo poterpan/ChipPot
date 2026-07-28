@@ -523,9 +523,9 @@ async function deleteChannelTag(_req: Request, env: Env, ctx: RouteCtx): Promise
  * The review list. Filters are all optional and combine:
  *   period / status — the admin's toolbar filters
  *   user_id         — one member's rows (the member × period aggregate review view)
- *   id              — one specific payment, joined exactly like the list, so a legacy
- *                     "#payments?id=" notification link can resolve a row that sits outside
- *                     the current toolbar filters without a second endpoint shape.
+ *   id              — one specific payment, joined exactly like the list, so a single row can be
+ *                     resolved even when it sits outside the current toolbar filters, without a
+ *                     second endpoint shape. Kept for the SPA's legacy single-payment hash route.
  */
 async function listPayments(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);

@@ -38,8 +38,8 @@ function R2Notice() {
   );
 }
 
-// The hash may carry a query (e.g. "#payments?id=42" from a notification deep link); the view
-// id is just the part before "?". Views read their own params from the hash.
+// The hash may carry a query (e.g. "#payments?user=42&period=2026-07" from a submission-alert deep
+// link); the view id is just the part before "?". Views read their own params from the hash.
 function viewFromHash(): string {
   return window.location.hash.slice(1).split("?")[0] || "dashboard";
 }
