@@ -124,25 +124,26 @@ export function Payments() {
       {list.error && <div className="error-banner">{list.error}</div>}
       <Card title="繳費紀錄">
         <div className="tbl">
-          <table>
+          {/* tbl-cards: below 720px these rows stack into cards, each cell labelled by its data-label */}
+          <table className="tbl-cards">
             <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>申報渠道</th>{showProof && <th>憑證</th>}<th></th></tr></thead>
             <tbody>
               {list.loading && <tr><td colSpan={colCount}><Empty>載入中…</Empty></td></tr>}
               {list.data?.payments.length === 0 && <tr><td colSpan={colCount}><Empty>沒有符合的紀錄</Empty></td></tr>}
               {list.data?.payments.map((p) => (
                 <tr key={p.id} className="click" onClick={() => setSelected(p)}>
-                  <td>
+                  <td data-label="成員">
                     <button className="linkbtn" title="檢視這位成員本期的合併審核"
                       onClick={(e) => { e.stopPropagation(); window.location.hash = `payments?user=${p.user_id}&period=${p.period}`; }}>
                       {p.user_name}
                     </button>
                   </td>
-                  <td>{p.plan_name}</td>
-                  <td className="mono">{p.period}</td>
-                  <td className="right"><Money v={p.amount} /></td>
-                  <td><StatusBadge status={p.status} /></td>
-                  <td>{p.declared_channel_tag_name || <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                  {showProof && <td>{
+                  <td data-label="方案">{p.plan_name}</td>
+                  <td data-label="期別" className="mono">{p.period}</td>
+                  <td data-label="金額" className="right"><Money v={p.amount} /></td>
+                  <td data-label="狀態"><StatusBadge status={p.status} /></td>
+                  <td data-label="申報渠道">{p.declared_channel_tag_name || <span style={{ color: "var(--muted)" }}>—</span>}</td>
+                  {showProof && <td data-label="憑證">{
                     ["paid", "verified"].includes(p.status)
                       ? (p.has_proof ? <span className="proof-yes iconlbl"><IconCheck />有截圖</span> : <span className="proof-no iconlbl"><IconWarning />純聲明</span>)
                       : <span style={{ color: "var(--muted)" }}>—</span>
