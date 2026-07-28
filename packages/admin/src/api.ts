@@ -22,7 +22,7 @@ function qs(params?: Record<string, string | number | undefined>): string {
 }
 
 export interface Payment {
-  id: number; period: string; amount: number; status: string; has_proof: number;
+  id: number; user_id: number; period: string; amount: number; status: string; has_proof: number;
   screenshot_key: string | null; proof_deleted_at: string | null; payment_note: string | null;
   verified_channel_tag_id: number | null; channel_tag_name: string | null;
   declared_channel_tag_id: number | null; declared_channel_tag_name: string | null; source: string;
@@ -76,8 +76,11 @@ export const api = {
     req<{ ok: boolean; status?: number; error?: string }>("POST", "/notifications/test", b),
   initiateBilling: (b: { period: string; amounts: { plan_id: number; amount: number }[] }) =>
     req<{ sent: boolean; updated_plans: number; updated_payments: number }>("POST", "/billing/initiate", b),
-  payments: (p?: { period?: string; status?: string }) => req<{ payments: Payment[] }>("GET", `/payments${qs(p)}`),
+  payments: (p?: { period?: string; status?: string; user_id?: number; id?: number }) =>
+    req<{ payments: Payment[] }>("GET", `/payments${qs(p)}`),
   verify: (id: number, tagId: number | null) => req("POST", `/payments/${id}/verify`, { verified_channel_tag_id: tagId }),
+  verifyAll: (userId: number, period: string) =>
+    req<{ ok: boolean; verified: number; payment_ids: number[] }>("POST", "/payments/verify-all", { user_id: userId, period }),
   reject: (id: number, reason: string) => req("POST", `/payments/${id}/reject`, { rejected_reason: reason }),
   overrideAmount: (id: number, amount: number) => req("POST", `/payments/${id}/amount`, { amount }),
   deleteProof: (id: number) => req("POST", `/payments/${id}/delete-proof`),
