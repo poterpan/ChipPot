@@ -34,26 +34,26 @@ function capture() {
   return calls;
 }
 
-const baseInput = { payer: "廖清筆", amount: 1573, period: "2026-06", paymentId: 1234, paidCount: 2 };
+const baseInput = { payer: "廖清筆", amount: 1573, period: "2026-06", userId: 4242, paidCount: 2 };
 const envWith = (origin: string | undefined) => ({ ...env, ADMIN_ORIGIN: origin }) as typeof env;
 
-const V: PaymentNotifyVars = { payer: "廖清筆", amount: "1,573", period: "2026-06", admin_url: "https://admin.x/#payments?id=9" };
+const V: PaymentNotifyVars = { payer: "廖清筆", amount: "1,573", period: "2026-06", admin_url: "https://admin.x/#payments?user=42&period=2026-06" };
 
 describe("renderMessage", () => {
   it("fills placeholders with raw (un-encoded) values", () => {
     expect(renderMessage("{payer} NT${amount}（{period}）", V)).toBe("廖清筆 NT$1,573（2026-06）");
   });
   it("substitutes {admin_url} when present", () => {
-    expect(renderMessage("→ {admin_url}", V)).toBe("→ https://admin.x/#payments?id=9");
+    expect(renderMessage("→ {admin_url}", V)).toBe("→ https://admin.x/#payments?user=42&period=2026-06");
   });
 });
 
 describe("buildBarkUrl", () => {
   it("builds {server}/{key}/{body}?url={click}, encoding body and click link", () => {
-    const out = buildBarkUrl("https://api.day.app", "KEY123", "💳 廖清筆 NT$1,573", "https://admin.x/#payments?id=9");
+    const out = buildBarkUrl("https://api.day.app", "KEY123", "💳 廖清筆 NT$1,573", "https://admin.x/#payments?user=42&period=2026-06");
     expect(out.startsWith("https://api.day.app/KEY123/")).toBe(true);
     expect(out).toContain(encodeURIComponent("💳 廖清筆 NT$1,573"));
-    expect(out).toContain("?url=" + encodeURIComponent("https://admin.x/#payments?id=9"));
+    expect(out).toContain("?url=" + encodeURIComponent("https://admin.x/#payments?user=42&period=2026-06"));
   });
   it("defaults the server when blank and trims a trailing slash", () => {
     expect(buildBarkUrl("", "K", "hi", "")).toBe("https://api.day.app/K/" + encodeURIComponent("hi"));
@@ -106,7 +106,7 @@ describe("notifyPaymentSubmitted", () => {
     const u = calls[0]!.url;
     expect(u.startsWith("https://api.day.app/3hGxxKEY/")).toBe(true);
     expect(u).toContain(encodeURIComponent("廖清筆"));
-    expect(u).toContain("?url=" + encodeURIComponent("https://admin.panspace.dev/#payments?id=1234"));
+    expect(u).toContain("?url=" + encodeURIComponent("https://admin.panspace.dev/#payments?user=4242&period=2026-06"));
   });
 
   it("Discord webhook → one POST with { content } including the appended review link", async () => {
@@ -117,7 +117,7 @@ describe("notifyPaymentSubmitted", () => {
     expect(calls[0]!.init?.method).toBe("POST");
     const body = JSON.parse(calls[0]!.init!.body as string);
     expect(body.content).toContain("廖清筆");
-    expect(body.content).toContain("審核 → https://admin.x/#payments?id=1234");
+    expect(body.content).toContain("審核 → https://admin.x/#payments?user=4242&period=2026-06");
   });
 
   it("uses a custom notify template when set", async () => {
@@ -126,7 +126,7 @@ describe("notifyPaymentSubmitted", () => {
     vi.unstubAllGlobals();
     const body = JSON.parse(calls[0]!.init!.body as string);
     expect(body.content).toContain("自訂：廖清筆 繳了 1,573");
-    expect(body.content).toContain("審核 → https://admin.x/#payments?id=1234");
+    expect(body.content).toContain("審核 → https://admin.x/#payments?user=4242&period=2026-06");
   });
 
   it("both configured → two requests", async () => {
@@ -205,7 +205,7 @@ describe("settleUserPeriod → payment notification wiring", () => {
     ]);
   });
 
-  it("posts a webhook carrying the payer name, amount and the settled payment's deep link", async () => {
+  it("posts a webhook carrying the payer name, amount and the member × period review link", async () => {
     const calls = capture();
     const r = await settleUserPeriod(env, {
       workspaceId: WS, userId: USER, period: PERIOD, source: "user_slash",
@@ -217,7 +217,7 @@ describe("settleUserPeriod → payment notification wiring", () => {
     const body = JSON.parse(calls[0]!.init!.body as string);
     expect(body.content).toContain("阿明");
     expect(body.content).toContain("NT$315");
-    expect(body.content).toContain(`#payments?id=${r.paymentIds[0]}`);
+    expect(body.content).toContain(`#payments?user=${USER}&period=${PERIOD}`);
   });
 });
 
@@ -247,5 +247,38 @@ describe("settleUserPeriod — notification scheduled via waitUntil (Discord 3s 
     await Promise.all(scheduled); // drain the background work
     vi.unstubAllGlobals();
     expect(calls.length).toBe(1); // the webhook still fired (in the background)
+  });
+});
+
+describe("settleUserPeriod → aggregate deep link (member × period, not one row)", () => {
+  const WS = 70030, USER = 70031, PLAN_A = 70032, PLAN_B = 70033, SUB_A = 70034, SUB_B = 70035;
+  const PERIOD = "2027-12";
+  beforeAll(async () => {
+    const pending = (subId: number) => env.DB
+      .prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(WS, subId, PERIOD, `${PERIOD}-01`, `${PERIOD}-31`, `${PERIOD}-05`, 315, "pending", "cron", TS, TS);
+    await env.DB.batch([
+      ws(WS, { payment_webhook_url: "https://discord.com/api/webhooks/9/z" }),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?)`).bind(USER, WS, "阿德", TS, TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(PLAN_A, WS, "ChatGPT", "openai", 315, TS, TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(PLAN_B, WS, "Claude", "anthropic", 315, TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(SUB_A, WS, USER, PLAN_A, "2027-01-01", 1, TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(SUB_B, WS, USER, PLAN_B, "2027-01-01", 1, TS, TS),
+      pending(SUB_A), pending(SUB_B),
+    ]);
+  });
+
+  it("sends ONE notification whose link carries user + period and no payment id", async () => {
+    const calls = capture();
+    const r = await settleUserPeriod(env, {
+      workspaceId: WS, userId: USER, period: PERIOD, source: "user_slash",
+      declaredChannelTagId: null, paymentNote: null, proof: null,
+    });
+    vi.unstubAllGlobals();
+    expect(r.paidCount).toBe(2); // two subscriptions settled by one submit
+    expect(calls.length).toBe(1); // still exactly one push
+    const body = JSON.parse(calls[0]!.init!.body as string);
+    expect(body.content).toContain(`#payments?user=${USER}&period=${PERIOD}`);
+    expect(body.content).not.toContain("payments?id=");
   });
 });

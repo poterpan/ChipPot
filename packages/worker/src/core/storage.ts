@@ -239,7 +239,7 @@ export async function settleUserPeriod(env: Env, input: SettleInput): Promise<Se
       .bind(userId).first<{ display_name: string }>();
     const notifying = notifyPaymentSubmitted(env, {
       workspaceId, payer: u?.display_name ?? `#${userId}`,
-      amount: totalAmount, period, paymentId: paymentIds[0]!, paidCount,
+      amount: totalAmount, period, userId, paidCount,
     });
     if (input.waitUntil) input.waitUntil(notifying); else await notifying;
   }

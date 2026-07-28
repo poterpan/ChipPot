@@ -153,7 +153,7 @@ export function Settings() {
 
   const r2 = (data as any)?.r2_configured;
   const notifyTpl = form.notify_template.trim() || DEFAULT_NOTIFY;
-  const notifySample = { payer: "廖清筆", amount: "1,258", period: currentPeriod(), admin_url: `${window.location.origin}/#payments?id=1042` };
+  const notifySample = { payer: "廖清筆", amount: "1,258", period: currentPeriod(), admin_url: `${window.location.origin}/#payments?user=42&period=${currentPeriod()}` };
   const notifyPreview = renderTpl(notifyTpl, notifySample) + (/\{admin_url\}/.test(notifyTpl) ? "" : `\n審核 → ${notifySample.admin_url}`);
 
   return (

@@ -136,6 +136,66 @@ export async function verifyPayment(
   );
 }
 
+export interface VerifyUserPeriodOpts {
+  workspaceId: number;
+  userId: number;
+  period: string;
+  verifiedBy: string;
+}
+
+export interface VerifyUserPeriodResult {
+  /** One entry per row actually verified, so the caller can audit each before/after. */
+  verified: { before: PaymentRow; after: PaymentRow }[];
+}
+
+/**
+ * 一鍵全部核准: verify every payment this member has in the period that is waiting for review
+ * (status 'paid' — the 已繳待驗 queue). One member submit settles one row per active subscription
+ * sharing one screenshot, so the owner should be able to approve them together.
+ *
+ * Deliberately narrower than the state machine allows: 'pending' means the member never submitted
+ * for that bill (added after the settle, or a paused sub) and 'rejected' means the ball is in the
+ * member's court, so neither is swept in — both stay verifiable one-by-one. Each row keeps its OWN
+ * declared channel as the verified channel, exactly like single verify; a declared tag from another
+ * workspace is dropped to NULL rather than failing the batch (the single-verify handler 400s on one,
+ * so we must never store one either). Rows that lose the guarded UPDATE race to a concurrent verify
+ * are silently skipped.
+ */
+export async function verifyUserPeriod(
+  db: D1Database,
+  o: VerifyUserPeriodOpts
+): Promise<VerifyUserPeriodResult> {
+  const targets = await db
+    .prepare(
+      `SELECT p.id AS id FROM payments p
+       JOIN subscriptions s ON s.id = p.subscription_id
+       WHERE p.workspace_id = ? AND p.period = ? AND p.status = 'paid' AND s.user_id = ?
+       ORDER BY p.id`
+    )
+    .bind(o.workspaceId, o.period, o.userId)
+    .all<{ id: number }>();
+  const ownTags = await db
+    .prepare("SELECT id FROM channel_tags WHERE workspace_id = ?")
+    .bind(o.workspaceId)
+    .all<{ id: number }>();
+  const tagIds = new Set(ownTags.results.map((t) => t.id));
+
+  const verified: { before: PaymentRow; after: PaymentRow }[] = [];
+  for (const { id } of targets.results) {
+    const before = await getPayment(db, id);
+    if (!before) continue;
+    const declared = before.declared_channel_tag_id;
+    const tagId = declared != null && tagIds.has(declared) ? declared : null;
+    try {
+      const after = await verifyPayment(db, id, { verifiedBy: o.verifiedBy, verifiedChannelTagId: tagId });
+      verified.push({ before, after });
+    } catch (e) {
+      if (!(e instanceof InvalidPaymentTransition)) throw e; // raced with another verify → skip
+    }
+  }
+  return { verified };
+}
+
 export interface RejectOpts {
   rejectedReason?: string | null;
   verifiedBy?: string | null;

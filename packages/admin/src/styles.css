@@ -115,7 +115,10 @@ tbody tr.click:hover { background: #faf7f0; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid rgba(15,110,99,.3); outline-offset: 1px; }
 
 /* modal */
-.modal__backdrop { position: fixed; inset: 0; background: rgba(31,28,23,.4); display: grid; place-items: center; padding: 20px; z-index: 20; }
+/* Above .savebar (z-index 20): as a ≤720px bottom sheet the modal reaches the bottom edge, where
+   Settings' fixed save bar sits. At equal z-index the later-in-DOM save bar won and covered the
+   sheet's last action (e.g. 匯入 CSV's 預覽差異). */
+.modal__backdrop { position: fixed; inset: 0; background: rgba(31,28,23,.4); display: grid; place-items: center; padding: 20px; z-index: 30; }
 .modal { background: var(--panel); border-radius: 16px; width: 100%; max-width: 560px; max-height: 90vh; overflow: auto; box-shadow: 0 24px 60px -20px rgba(0,0,0,.4); }
 .modal__head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
 .modal__head h3 { margin: 0; font-family: "Fraunces", serif; font-weight: 600; }
@@ -212,4 +215,84 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
 @media (max-width: 720px) {
   .settings { max-width: none; padding-bottom: 110px; }
   .savebar { left: 0; padding: 12px 16px; }
+}
+
+/* ── member × period aggregate review (payment-notification landing) ────────── */
+/* Mobile-first: single column at any width; ≥721px the per-payment rows go two-column. */
+.mreview__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 14px; }
+.mreview__title { font-family: "Fraunces", serif; font-weight: 600; font-size: 20px; margin: 0; }
+.mreview__meta { font-size: 13px; color: var(--muted); }
+.mreview__body { padding: 14px 16px; }
+.mreview__note { margin: 10px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.mreview__note--warn { color: var(--amber); }
+.mreview__ok { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--teal); }
+/* the one action that matters on a phone: full-width and thumb-sized */
+.mreview__bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 18px; }
+.mreview__bulk .btn { flex: 1 1 220px; min-height: 46px; justify-content: center; }
+
+.mrow { display: grid; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+.mrow:last-child { border-bottom: 0; }
+.mrow__main { min-width: 0; display: grid; gap: 5px; }
+.mrow__top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.mrow__plan { font-weight: 600; }
+.mrow__facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; color: var(--muted); }
+.mrow__acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.mrow__acts .btn { flex: 1 1 auto; min-height: 40px; }
+.mrow__reject { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.mrow__reject input {
+  flex: 1 1 180px; padding: 9px 11px; border: 1.5px solid var(--line); border-radius: 9px;
+  font: inherit; font-size: 14px; background: #fffdf8; color: var(--ink);
+}
+.linkbtn {
+  border: 0; background: transparent; padding: 0; font: inherit; color: var(--teal-ink);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+@media (min-width: 721px) {
+  .mrow { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .mrow__acts { justify-content: flex-end; }
+  .mreview__bulk .btn { flex: 0 0 auto; }
+}
+
+/* ── ≤720px: payments review on a phone ─────────────────────────────────────── */
+/* Rows stack into cards (labels come from each cell's data-label) instead of scrolling
+   sideways, and modals sit as a bottom sheet. Scoped to .tbl-cards so the dashboard and
+   manage tables keep their horizontal-scroll layout. */
+@media (max-width: 720px) {
+  .tbl-cards thead { display: none; }
+  .tbl-cards, .tbl-cards tbody, .tbl-cards tr, .tbl-cards td { display: block; width: 100%; }
+  .tbl-cards tr { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .tbl-cards tr:last-child { border-bottom: 0; }
+  .tbl-cards td {
+    border: 0; padding: 3px 0; white-space: normal; text-align: left;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    /* a long channel name or note must break rather than push the card sideways */
+    overflow-wrap: anywhere;
+  }
+  /* [data-label] matters: an unlabelled cell (the action cell, the colSpan placeholder) must not
+     get an empty pseudo-element, or its flex `gap` would eat 12px of the cell's width. */
+  .tbl-cards td[data-label]::before {
+    content: attr(data-label); flex: 0 0 auto;
+    font-size: 12px; letter-spacing: .5px; color: var(--muted);
+  }
+  .tbl-cards td:empty { display: none; } /* e.g. the action cell of a non-paid row */
+  /* the member name reads as the card's title */
+  .tbl-cards td:first-child { padding: 0 0 4px; font-size: 15.5px; font-weight: 600; }
+  .tbl-cards td:first-child::before { display: none; }
+  /* opening the member's aggregate review is the card's primary action — size it for a thumb */
+  .tbl-cards td:first-child .linkbtn { display: inline-flex; align-items: center; min-height: 32px; }
+  /* the trailing action cell gets one full-width, thumb-sized button */
+  .tbl-cards td:last-child { padding-top: 9px; }
+  .tbl-cards td:last-child .btn { width: 100%; min-height: 42px; justify-content: center; }
+  /* the loading / empty placeholder row is one plain cell, not a labelled card slot */
+  .tbl-cards td[colspan] { display: block; padding: 0; font-size: 14px; font-weight: 400; }
+
+  /* review modal → bottom sheet: no wasted side padding, reachable actions */
+  .modal__backdrop { padding: 0; place-items: end stretch; }
+  .modal { max-width: none; max-height: 92dvh; border-radius: 16px 16px 0 0; }
+  .modal__body { padding: 16px 16px 26px; }
+  /* label above value — a two-column grid squeezes long channel names at 375px */
+  .kv { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .kv dt { margin-top: 9px; font-size: 12px; }
+  .kv dt:first-of-type { margin-top: 0; }
+  .modal__body .btn { min-height: 42px; }
 }

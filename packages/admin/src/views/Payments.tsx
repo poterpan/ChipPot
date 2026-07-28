@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, currentPeriod, periodForBillingDay, type Payment, type ChannelTag, type ReconcileDiff } from "../api";
 import { useAsync, Card, Modal, Field, Empty, Money, Stat, StatusBadge, IconCheck, IconWarning, IconX } from "../ui";
+import { DiffList } from "../components/DiffList";
+import { PaymentDetail } from "./PaymentDetail";
+import { MemberReview } from "./MemberReview";
 
 const STATUS_OPTS = [
   { v: "", label: "全部" },
@@ -14,12 +17,27 @@ const STATUS_OPTS = [
 // (R2-only) and adds one on top — see colCount in Payments(), which every colSpan must use.
 const BASE_COLS = 7;
 
-// Read the deep-link payment id from "#payments?id=42"; null if absent or not a positive integer.
-function paymentIdFromHash(): number | null {
+const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+type DeepLink =
+  | { kind: "member"; userId: number; period: string }
+  | { kind: "payment"; id: number };
+
+/**
+ * Where a payment-submission notification lands. Current shape: "#payments?user=42&period=2026-07"
+ * — a member's whole period, because one submit settles several rows. Pushes already in the owner's
+ * history carry the older "#payments?id=1042", which still opens that single payment's modal.
+ */
+function deepLinkFromHash(): DeepLink | null {
   const q = window.location.hash.split("?")[1];
-  const raw = q ? new URLSearchParams(q).get("id") : null;
-  const id = raw ? Number(raw) : NaN;
-  return Number.isInteger(id) && id > 0 ? id : null;
+  if (!q) return null;
+  const params = new URLSearchParams(q);
+  const userId = Number(params.get("user"));
+  const period = params.get("period") ?? "";
+  if (Number.isInteger(userId) && userId > 0 && PERIOD_RE.test(period)) return { kind: "member", userId, period };
+  const id = Number(params.get("id"));
+  if (Number.isInteger(id) && id > 0) return { kind: "payment", id };
+  return null;
 }
 
 export function Payments() {
@@ -43,27 +61,48 @@ export function Payments() {
 
   const reload = () => { list.reload(); };
 
-  // Deep link from a payment notification (#payments?id=42): fetch that payment directly (it may be
-  // outside the current period/status filter) and open its review modal, then clean the query so a
-  // refresh doesn't reopen it. Re-runs on hashchange so navigating between links works.
-  const [deepId, setDeepId] = useState<number | null>(() => paymentIdFromHash());
+  const [deep, setDeep] = useState<DeepLink | null>(deepLinkFromHash);
+  const [deepMiss, setDeepMiss] = useState(false);
   useEffect(() => {
-    const onHash = () => setDeepId(paymentIdFromHash());
+    // Any new link supersedes the previous one, including its "that payment is gone" notice.
+    const onHash = () => { setDeep(deepLinkFromHash()); setDeepMiss(false); };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+  // Legacy single-payment link: fetch just that row (a filtered request — it may sit outside the
+  // current period/status filters), open its review modal, then clean the query so a refresh
+  // doesn't reopen it. The member × period form is handled by the branch below instead.
   useEffect(() => {
-    if (deepId == null) return;
+    if (deep?.kind !== "payment") return;
     let cancelled = false;
-    api.payments({}).then((r) => {
+    api.payments({ id: deep.id }).then((r) => {
       if (cancelled) return;
-      const p = r.payments.find((x) => x.id === deepId);
-      if (p) setSelected(p);
-      setDeepId(null);
+      const p = r.payments[0];
+      // A deleted payment (or an id from another workspace) comes back as an empty list, not a 404 —
+      // say so instead of dropping the admin on an unexplained list.
+      if (p) setSelected(p); else setDeepMiss(true);
+      setDeep(null);
       if (window.location.hash.includes("?")) history.replaceState(null, "", "#payments");
-    }).catch(() => { if (!cancelled) setDeepId(null); });
+    }).catch(() => { if (!cancelled) setDeep(null); });
     return () => { cancelled = true; };
-  }, [deepId]);
+  }, [deep]);
+
+  // Aggregate review takes over the whole view — it IS the notification landing page. Leaving it
+  // via 返回 rewrites the hash, which fires hashchange and drops us back to the list.
+  // The key remounts on every member × period: App.tsx keys the content wrapper on the view id
+  // ("payments" for both links), so tapping notification B while looking at A would otherwise reuse
+  // this instance and keep A's success line, open modal and — until the refetch lands — A's rows.
+  if (deep?.kind === "member") {
+    return (
+      <MemberReview
+        key={`${deep.userId}:${deep.period}`}
+        userId={deep.userId}
+        period={deep.period}
+        tags={tags.data?.channel_tags ?? []}
+        onBack={() => { list.reload(); window.location.hash = "payments"; }}
+      />
+    );
+  }
 
   return (
     <>
@@ -81,23 +120,30 @@ export function Payments() {
         <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
       </div>
 
+      {deepMiss && <div className="warnnote">找不到通知連結指向的那筆繳費紀錄，可能已被刪除。以下是目前的繳費列表。</div>}
       {list.error && <div className="error-banner">{list.error}</div>}
       <Card title="繳費紀錄">
         <div className="tbl">
-          <table>
+          {/* tbl-cards: below 720px these rows stack into cards, each cell labelled by its data-label */}
+          <table className="tbl-cards">
             <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>申報渠道</th>{showProof && <th>憑證</th>}<th></th></tr></thead>
             <tbody>
               {list.loading && <tr><td colSpan={colCount}><Empty>載入中…</Empty></td></tr>}
               {list.data?.payments.length === 0 && <tr><td colSpan={colCount}><Empty>沒有符合的紀錄</Empty></td></tr>}
               {list.data?.payments.map((p) => (
                 <tr key={p.id} className="click" onClick={() => setSelected(p)}>
-                  <td>{p.user_name}</td>
-                  <td>{p.plan_name}</td>
-                  <td className="mono">{p.period}</td>
-                  <td className="right"><Money v={p.amount} /></td>
-                  <td><StatusBadge status={p.status} /></td>
-                  <td>{p.declared_channel_tag_name || <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                  {showProof && <td>{
+                  <td data-label="成員">
+                    <button className="linkbtn" title="檢視這位成員本期的合併審核"
+                      onClick={(e) => { e.stopPropagation(); window.location.hash = `payments?user=${p.user_id}&period=${p.period}`; }}>
+                      {p.user_name}
+                    </button>
+                  </td>
+                  <td data-label="方案">{p.plan_name}</td>
+                  <td data-label="期別" className="mono">{p.period}</td>
+                  <td data-label="金額" className="right"><Money v={p.amount} /></td>
+                  <td data-label="狀態"><StatusBadge status={p.status} /></td>
+                  <td data-label="申報渠道">{p.declared_channel_tag_name || <span style={{ color: "var(--muted)" }}>—</span>}</td>
+                  {showProof && <td data-label="憑證">{
                     ["paid", "verified"].includes(p.status)
                       ? (p.has_proof ? <span className="proof-yes iconlbl"><IconCheck />有截圖</span> : <span className="proof-no iconlbl"><IconWarning />純聲明</span>)
                       : <span style={{ color: "var(--muted)" }}>—</span>
@@ -124,17 +170,6 @@ export function Payments() {
       {showLink && <LinkModal onClose={() => setShowLink(false)} />}
       {sync && effPeriod && <SyncModal key={effPeriod} period={effPeriod} onClose={() => setSync(false)} onDone={() => reload()} />}
     </>
-  );
-}
-
-function DiffList({ title, rows }: { title: string; rows: string[] }) {
-  return (
-    <details style={{ margin: "6px 0" }}>
-      <summary style={{ cursor: "pointer" }}>{title}（{rows.length}）</summary>
-      <ul style={{ margin: "6px 0 0 18px", color: "var(--muted)", fontSize: 13 }}>
-        {rows.map((r, i) => <li key={i}>{r}</li>)}
-      </ul>
-    </details>
   );
 }
 
@@ -210,89 +245,6 @@ function QuickVerify({ id, onDone }: { id: number; onDone: () => void }) {
     <button className="btn iconlbl" disabled={busy} onClick={run} title="標記已驗證（帶入申報渠道）">
       {busy ? "…" : err ? <><IconX />重試</> : <><IconCheck />驗證</>}
     </button>
-  );
-}
-
-function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Payment; tags: ChannelTag[]; onClose: () => void; onDone: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [tagId, setTagId] = useState<number | "">(payment.verified_channel_tag_id ?? payment.declared_channel_tag_id ?? "");
-  const [reason, setReason] = useState("");
-  const [amount, setAmount] = useState(String(payment.amount));
-
-  async function run(fn: () => Promise<unknown>) {
-    setBusy(true); setErr(null);
-    try { await fn(); onDone(); }
-    catch (e) { setErr((e as Error).message); setBusy(false); }
-  }
-
-  const canVerify = ["pending", "paid", "rejected"].includes(payment.status);
-  const canReject = ["pending", "paid"].includes(payment.status);
-
-  return (
-    <Modal title={`${payment.user_name} · ${payment.plan_name} · ${payment.period}`} onClose={onClose}>
-      {err && <div className="error-banner">{err}</div>}
-      <dl className="kv">
-        <dt>狀態</dt><dd><StatusBadge status={payment.status} /></dd>
-        <dt>金額</dt><dd><Money v={payment.amount} /></dd>
-        <dt>應繳日</dt><dd className="mono">{payment.due_date}</dd>
-        <dt>來源</dt><dd>{payment.source}</dd>
-        {payment.payment_note && (<><dt>使用者備註</dt><dd>{payment.payment_note}</dd></>)}
-        {payment.declared_channel_tag_name && (<><dt>申報渠道</dt><dd>{payment.declared_channel_tag_name}</dd></>)}
-        {payment.channel_tag_name && (<><dt>認定渠道</dt><dd>{payment.channel_tag_name}</dd></>)}
-        {payment.rejected_reason && (<><dt>退回原因</dt><dd>{payment.rejected_reason}</dd></>)}
-      </dl>
-
-      {payment.has_proof && payment.screenshot_key && (
-        <img className="proof-img" src={api.imageUrl(payment.screenshot_key)} alt="繳費截圖" />
-      )}
-      {payment.has_proof === 1 && !payment.screenshot_key && payment.proof_deleted_at && (
-        <p style={{ color: "var(--muted)" }}>截圖已依保存期於 {payment.proof_deleted_at} 刪除（對帳資料保留）。</p>
-      )}
-      {!payment.has_proof && <p style={{ color: "var(--amber)" }}><IconWarning /> 無憑證，純聲明 — 請依備註與帳戶自行核對。</p>}
-
-      <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "18px 0" }} />
-
-      {canVerify && (
-        <Field label="認定渠道（對帳分組依據）">
-          <select value={tagId} onChange={(e) => setTagId(e.target.value ? Number(e.target.value) : "")} disabled={busy}>
-            <option value="">（不指定）</option>
-            {tags.filter((t) => t.active).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </Field>
-      )}
-
-      <div className="btn-row">
-        {canVerify && <button className="btn btn--primary" disabled={busy} onClick={() => run(() => api.verify(payment.id, tagId === "" ? null : Number(tagId)))}>標記已驗證</button>}
-        {payment.status === "verified" && <button className="btn" disabled={busy} onClick={() => run(() => api.unverify(payment.id))}>撤回驗證</button>}
-        {payment.screenshot_key && <button className="btn btn--danger" disabled={busy} onClick={() => run(() => api.deleteProof(payment.id))}>刪除截圖</button>}
-      </div>
-
-      {canReject && (
-        <div style={{ marginTop: 16 }}>
-          <Field label="退回原因（選填）"><input value={reason} onChange={(e) => setReason(e.target.value)} disabled={busy} /></Field>
-          <button className="btn btn--danger" disabled={busy} onClick={() => run(() => api.reject(payment.id, reason))}>退回</button>
-        </div>
-      )}
-
-      <div style={{ marginTop: 16 }}>
-        <Field label="單筆覆寫金額"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={busy} /></Field>
-        <button className="btn" disabled={busy} onClick={() => run(() => api.overrideAmount(payment.id, Number(amount)))}>更新金額</button>
-      </div>
-
-      <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "18px 0" }} />
-      <button
-        className="btn btn--danger"
-        disabled={busy}
-        onClick={() => {
-          const hasHistory = payment.status !== "pending"; // paid/verified/rejected all carry real activity
-          const msg = hasHistory
-            ? "這筆已有繳費／審核紀錄，刪除後將從對帳與紀錄中消失且無法復原（仍保留稽核紀錄）。確定刪除？"
-            : "確定刪除這筆待繳紀錄？（保留稽核紀錄）";
-          if (window.confirm(msg)) run(() => api.deletePayment(payment.id));
-        }}
-      >刪除此筆</button>
-    </Modal>
   );
 }
 
