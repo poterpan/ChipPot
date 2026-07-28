@@ -141,7 +141,7 @@ packages/
     src/core/             channel-agnostic domain logic
     src/adapters/discord/ Ed25519 verify · commands · handler · notify
     src/routes/           interactions · upload · admin · images
-    migrations/           D1 schema (0001…0004)
+    migrations/           D1 schema (0001…0005)
     scripts/              register-commands.mjs
     test/                 Vitest (real Miniflare D1/R2)
   web/                    public token-gated upload page (Vite/React)
@@ -203,7 +203,7 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
 - **Workspace settings** (in D1, edited from the admin **Settings** page) — billing day, overdue
   days, screenshot retention, Discord guild / channel ids, the admin allow-list
   (`admin_discord_ids`), the three editable notification templates, and optional
-  **payment-submission alerts** (a Bark URL template and/or an incoming webhook; the alert's review
+  **payment-submission alerts** (a Bark device key and/or an incoming webhook; the alert's review
   deep link is built from `ADMIN_ORIGIN`, so no extra config is needed for it).
 - **Discord** — set the app's Interactions Endpoint to the Worker's `/interactions`, then register
   the guild commands with the script above.
@@ -224,7 +224,7 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
   members self-link proactively (in addition to binding at first payment).
 - **Push status** — the dashboard shows whether the billing-opened / overdue notices went out, with
   **Resend now** (force) and **Reset** controls.
-- **Submission alerts** — set a Bark URL and/or a webhook (Discord / Google Chat / Slack) under
+- **Submission alerts** — set a Bark device key and/or a webhook (Discord / Google Chat / Slack) under
   Settings → 繳費通知; each new submission then pushes you a notice that opens that member's whole
   period for review (shared screenshot once, every row listed, 一鍵全部核准), phone-friendly. Both
   are optional and best-effort (a slow or failing endpoint never blocks the payment).
