@@ -118,7 +118,10 @@ tbody tr.click:hover { background: #faf7f0; }
 /* Above .savebar (z-index 20): as a ≤720px bottom sheet the modal reaches the bottom edge, where
    Settings' fixed save bar sits. At equal z-index the later-in-DOM save bar won and covered the
    sheet's last action (e.g. 匯入 CSV's 預覽差異). */
-.modal__backdrop { position: fixed; inset: 0; background: rgba(31,28,23,.4); display: grid; place-items: center; padding: 20px; z-index: 30; }
+/* text-align: left resets inherited alignment — Modal renders inline where it is opened, so a
+   trigger inside .actionrow__act (Settings' 匯入 CSV / 發起繳費) passed text-align: right down
+   into the whole dialog. The backdrop is fixed-position, never visually inside that row. */
+.modal__backdrop { position: fixed; inset: 0; background: rgba(31,28,23,.4); display: grid; place-items: center; padding: 20px; z-index: 30; text-align: left; }
 .modal { background: var(--panel); border-radius: 16px; width: 100%; max-width: 560px; max-height: 90vh; overflow: auto; box-shadow: 0 24px 60px -20px rgba(0,0,0,.4); }
 .modal__head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
 .modal__head h3 { margin: 0; font-family: "Fraunces", serif; font-weight: 600; }
