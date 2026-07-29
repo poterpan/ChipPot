@@ -277,9 +277,10 @@ function RetractModal({ period, onClose, onDone }: { period: string; onClose: ()
             <Stat label="🗑️ 將刪除" value={preview.removed.length} />
             <Stat label="🔒 保留(已繳)" value={preview.frozen_count} />
           </div>
-          {preview.removed.length > 0 && (
-            <DiffList title="將刪除的帳單（未繳／已退回）" rows={preview.removed.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />
-          )}
+          {preview.removed.length > 0
+            ? <DiffList title="將刪除的帳單（未繳／已退回）" rows={preview.removed.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />
+            /* Still worth doing: the marker alone is what keeps the period "opened". */
+            : <p style={{ color: "var(--muted)" }}>本期沒有可刪除的未繳／已退回帳單，收回只會把期別改回「未開繳」。</p>}
           <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.7, margin: "12px 0" }}>
             收回後本期回到「未開繳」：刪掉的帳單不會被「重新同步本期」補回來，日後可以再次發起繳費（屆時會重新發送開繳通知）。
             {preview.frozen_count > 0 && `已繳／已驗證的 ${preview.frozen_count} 筆一律原樣保留，重開本期也不會重複開帳單。`}
