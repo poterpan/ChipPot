@@ -6,7 +6,7 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills } from "../core/billing";
+import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling } from "../core/billing";
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
@@ -144,6 +144,37 @@ async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<R
     }
   }
   return json({ ok: true, applied: { added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count }, notified });
+}
+
+/**
+ * "收回本期開繳": undo a mis-opened period — drop its pending/rejected bills (paid/verified stay
+ * frozen) and its billing_opened marker, putting the period back to "unopened" so it can be opened
+ * again later. dry_run defaults to true (safe preview), matching /sync. A period that is not open
+ * is a 200 no-op; the audit records only real retracts, so `billing.retract` never claims a change
+ * that did not happen.
+ */
+async function retractPeriodHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const period = ctx.params.period;
+  if (!period || !PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
+  const b = await readJson<{ dry_run?: boolean }>(req) ?? {};
+  const dryRun = b.dry_run !== false; // safe default: preview unless explicitly false
+  const r = await retractPeriodBilling(env, ws, period, { dryRun });
+  if (dryRun) return json(r);
+
+  // Report the batch's real effects, not the preview snapshot. `applied` is absent when the period
+  // was already unopened, and marker_cleared is false when a concurrent retract cleared the marker
+  // first — either way this call retracted nothing, so it must neither audit nor claim success.
+  const removed = r.applied?.removed ?? 0;
+  const frozen = r.applied?.frozen ?? 0;
+  const retracted = r.applied?.marker_cleared ?? false;
+  if (retracted) {
+    await writeAudit(env.DB, {
+      workspaceId: ws, actor: actorOf(ctx), action: "billing.retract", entityType: "workspace", entityId: ws,
+      after: { period, removed, frozen },
+    });
+  }
+  return json({ ok: true, opened: retracted, applied: { removed, frozen } });
 }
 
 const NOTIF_TYPES = ["billing_opened", "overdue"] as const;
@@ -861,6 +892,7 @@ export function buildAdminRouter(): Router<Env> {
     .get("/admin/reconcile", reconcile)
     .post("/admin/billing/initiate", billingInitiate)
     .post("/admin/billing/:period/sync", syncPeriodBills)
+    .post("/admin/billing/:period/retract", retractPeriodHandler)
     .post("/admin/members/import", membersImport)
     .get("/admin/notifications", notificationsStatus)
     .post("/admin/notifications/resend", notificationsResend)
