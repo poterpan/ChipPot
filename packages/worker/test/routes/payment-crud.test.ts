@@ -144,6 +144,68 @@ describe("POST /admin/billing/:period/sync", () => {
   });
 });
 
+// Same shared-workspace-1 caveat as the /sync block above: assert relative behavior. The exact
+// remove/freeze accounting lives in the isolated core test (billing-retract.test.ts).
+describe("POST /admin/billing/:period/retract", () => {
+  const PER = "2027-11";     // a fresh opened period, untouched by the blocks above
+  const SUB_PAID = 9250;     // its bill is paid → must survive the retract as a frozen row
+  const auditCount = async () => (await env.DB.prepare(
+    "SELECT COUNT(*) c FROM audit_logs WHERE action='billing.retract' AND entity_type='workspace' AND entity_id=?"
+  ).bind(WS).first<{ c: number }>())!.c;
+
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(SUB_PAID,WS,U,1,"2027-01-01",5,"active",TS,TS),
+      env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS,"billing_opened",PER,0,0,0,TS),
+      env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS,SUB,PER,`${PER}-01`,`${PER}-30`,`${PER}-05`,315,"pending","cron",TS,TS),
+      env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS,SUB_PAID,PER,`${PER}-01`,`${PER}-30`,`${PER}-05`,315,"paid","user_web",TS,TS),
+    ]);
+  });
+
+  it("rejects a malformed period", async () => {
+    const res = await call("POST", "/admin/billing/2027-9/retract", { dry_run: true });
+    expect(res!.status).toBe(400);
+  });
+
+  it("defaults to dry-run (preview shape, no writes, no audit) when the body omits dry_run", async () => {
+    const res = await call("POST", `/admin/billing/${PER}/retract`); // no body
+    expect(res!.status).toBe(200);
+    const d = await res!.json() as any;
+    expect(d.opened).toBe(true);
+    expect(d.removed.some((r: any) => r.subscription_id === SUB)).toBe(true);
+    expect(d.frozen_count).toBeGreaterThanOrEqual(1);
+    const cnt = (await env.DB.prepare("SELECT COUNT(*) c FROM payments WHERE workspace_id=? AND period=?").bind(WS,PER).first<{c:number}>())!.c;
+    expect(cnt).toBe(2);      // nothing deleted
+    expect(await auditCount()).toBe(0);
+  });
+
+  it("apply deletes the pending bill, keeps the paid one, and audits once", async () => {
+    const res = await call("POST", `/admin/billing/${PER}/retract`, { dry_run: false });
+    expect(res!.status).toBe(200);
+    const r = await res!.json() as any;
+    expect(r.ok).toBe(true);
+    expect(r.opened).toBe(true);
+    expect(r.applied.removed).toBeGreaterThanOrEqual(1);
+    expect(r.applied.frozen).toBeGreaterThanOrEqual(1);
+    const gone = await env.DB.prepare("SELECT id FROM payments WHERE subscription_id=? AND period=?").bind(SUB,PER).first();
+    expect(gone).toBeNull();
+    const kept = await env.DB.prepare("SELECT status FROM payments WHERE subscription_id=? AND period=?").bind(SUB_PAID,PER).first<{status:string}>();
+    expect(kept?.status).toBe("paid");
+    const marker = await env.DB.prepare("SELECT id FROM notification_logs WHERE workspace_id=? AND type='billing_opened' AND period=?").bind(WS,PER).first();
+    expect(marker).toBeNull();
+    expect(await auditCount()).toBe(1);
+  });
+
+  it("is a 200 no-op on an already-unopened period, without a second audit", async () => {
+    const res = await call("POST", `/admin/billing/${PER}/retract`, { dry_run: false }); // just retracted above
+    expect(res!.status).toBe(200);
+    const r = await res!.json() as any;
+    expect(r.ok).toBe(true);
+    expect(r.opened).toBe(false);
+    expect(await auditCount()).toBe(1); // nothing changed → nothing audited
+  });
+});
+
 describe("PATCH /admin/users/:id keeps unspecified email/note", () => {
   it("does not null email/note when omitted", async () => {
     await env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,email,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)

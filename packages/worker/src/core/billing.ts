@@ -238,6 +238,24 @@ export interface ReconcileDiff {
   frozen_count: number;
 }
 
+/** A period is "opened" once its billing_opened notice has been claimed — that is what members can pay against. */
+async function isPeriodOpened(env: Env, workspaceId: number, period: string): Promise<boolean> {
+  const row = await env.DB
+    .prepare("SELECT 1 AS ok FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ? LIMIT 1")
+    .bind(workspaceId, period).first<{ ok: number }>();
+  return !!row;
+}
+
+/** Drop proof objects of removed bills whose key no longer belongs to any remaining payment (proofs can be shared). */
+async function sweepOrphanProofs(env: Env, removed: ReconcileLine[]): Promise<void> {
+  if (!env.BUCKET) return;
+  const keys = [...new Set(removed.map((r) => r.screenshot_key).filter((k): k is string => !!k))];
+  for (const k of keys) {
+    const still = await env.DB.prepare("SELECT 1 AS ok FROM payments WHERE screenshot_key = ? LIMIT 1").bind(k).first<{ ok: number }>();
+    if (!still) await env.BUCKET.delete(k).catch(() => {});
+  }
+}
+
 /**
  * Reconcile a period's bills against the current active roster (manual "重新同步本期帳單").
  * add: an active sub with no bill → pending @ current plan price. remove: a pending/rejected bill of
@@ -251,10 +269,7 @@ export async function reconcilePeriodBills(
   period: string,
   opts: { dryRun: boolean }
 ): Promise<ReconcileDiff> {
-  const openedRow = await env.DB
-    .prepare("SELECT 1 AS ok FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ? LIMIT 1")
-    .bind(workspaceId, period).first<{ ok: number }>();
-  if (!openedRow) return { opened: false, add: [], remove: [], reprice: [], frozen_count: 0 };
+  if (!(await isPeriodOpened(env, workspaceId, period))) return { opened: false, add: [], remove: [], reprice: [], frozen_count: 0 };
 
   const activeSubs = (await env.DB.prepare(
     `SELECT s.id AS subscription_id, s.user_id AS user_id, s.billing_day AS billing_day,
@@ -316,14 +331,67 @@ export async function reconcilePeriodBills(
     stmts.push(env.DB.prepare("DELETE FROM payments WHERE id = ? AND status IN ('pending','rejected')").bind(rm.payment_id!));
   }
   if (stmts.length) await env.DB.batch(stmts);
-  // Drop proof objects only for keys no longer referenced by any remaining payment (shared proofs).
-  if (env.BUCKET) {
-    const keys = [...new Set(remove.map((r) => r.screenshot_key).filter((k): k is string => !!k))];
-    for (const k of keys) {
-      const still = await env.DB.prepare("SELECT 1 AS ok FROM payments WHERE screenshot_key = ? LIMIT 1").bind(k).first<{ ok: number }>();
-      if (!still) await env.BUCKET.delete(k).catch(() => {});
-    }
-  }
+  await sweepOrphanProofs(env, remove);
 
   return { opened: true, add, remove, reprice, frozen_count };
+}
+
+// ── "收回本期開繳" (retract a period that should never have been opened) ────────
+
+export interface RetractResult {
+  opened: boolean;
+  removed: ReconcileLine[];
+  frozen_count: number;
+}
+
+/**
+ * Retract a period's billing (manual "收回本期開繳") — the way back from a mis-opened month (a
+ * slipped 發起繳費, or the cron running on a month nobody meant to bill). Deletes every
+ * pending/rejected bill of the period (+ its upload_tokens and orphaned R2 proofs, same as
+ * reconcile's remove path) and drops the billing_opened marker, so the period reads as "unopened"
+ * again: reconcile stops refilling it and a later re-open claims a fresh notification slot.
+ * paid/verified bills are frozen and reported as frozen_count — settled money is never rewritten,
+ * and re-opening the period leaves those rows alone (UNIQUE(subscription_id, period)).
+ * Unlike reconcile, the subscription's roster status is irrelevant: the whole period is retracted.
+ * Discord notices already sent are left as-is (owner decision: retracts happen before members read).
+ */
+export async function retractPeriodBilling(
+  env: Env,
+  workspaceId: number,
+  period: string,
+  opts: { dryRun: boolean }
+): Promise<RetractResult> {
+  if (!(await isPeriodOpened(env, workspaceId, period))) return { opened: false, removed: [], frozen_count: 0 };
+
+  const existing = (await env.DB.prepare(
+    `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.amount AS amount, p.status AS status,
+            p.screenshot_key AS screenshot_key, s.user_id AS user_id,
+            u.display_name AS user_name, u.discord_id AS discord_id, pl.name AS plan_name
+     FROM payments p JOIN subscriptions s ON s.id = p.subscription_id
+     JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
+     WHERE p.workspace_id = ? AND p.period = ?`
+  ).bind(workspaceId, period).all<{ payment_id: number; subscription_id: number; amount: number; status: string; screenshot_key: string | null; user_id: number; user_name: string; discord_id: string | null; plan_name: string }>()).results;
+
+  const removed: ReconcileLine[] = [];
+  let frozen_count = 0;
+  for (const e of existing) {
+    if (e.status === "paid" || e.status === "verified") { frozen_count++; continue; }
+    removed.push({ payment_id: e.payment_id, subscription_id: e.subscription_id, user_id: e.user_id, user_name: e.user_name, plan_name: e.plan_name, amount: e.amount, discord_id: e.discord_id, screenshot_key: e.screenshot_key });
+  }
+
+  if (opts.dryRun) return { opened: true, removed, frozen_count };
+
+  // Bills and the opened marker drop in ONE batch: a half-applied retract (bills gone, period still
+  // "opened") is the worst outcome — the next reconcile would refill exactly what we just deleted.
+  const stmts: D1PreparedStatement[] = [];
+  for (const rm of removed) {
+    stmts.push(env.DB.prepare("DELETE FROM upload_tokens WHERE workspace_id = ? AND subscription_id = ? AND period = ?").bind(workspaceId, rm.subscription_id, period));
+    // Re-assert status in the DELETE so a concurrent pay/verify between compute and apply isn't clobbered.
+    stmts.push(env.DB.prepare("DELETE FROM payments WHERE id = ? AND status IN ('pending','rejected')").bind(rm.payment_id!));
+  }
+  stmts.push(env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?").bind(workspaceId, period));
+  await env.DB.batch(stmts);
+  await sweepOrphanProofs(env, removed);
+
+  return { opened: true, removed, frozen_count };
 }

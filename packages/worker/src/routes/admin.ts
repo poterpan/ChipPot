@@ -6,7 +6,7 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills } from "../core/billing";
+import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling } from "../core/billing";
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
@@ -144,6 +144,31 @@ async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<R
     }
   }
   return json({ ok: true, applied: { added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count }, notified });
+}
+
+/**
+ * "收回本期開繳": undo a mis-opened period — drop its pending/rejected bills (paid/verified stay
+ * frozen) and its billing_opened marker, putting the period back to "unopened" so it can be opened
+ * again later. dry_run defaults to true (safe preview), matching /sync. A period that is not open
+ * is a 200 no-op; the audit records only real retracts, so `billing.retract` never claims a change
+ * that did not happen.
+ */
+async function retractPeriodHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const period = ctx.params.period;
+  if (!period || !PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
+  const b = await readJson<{ dry_run?: boolean }>(req) ?? {};
+  const dryRun = b.dry_run !== false; // safe default: preview unless explicitly false
+  const r = await retractPeriodBilling(env, ws, period, { dryRun });
+  if (dryRun) return json(r);
+
+  if (r.opened) {
+    await writeAudit(env.DB, {
+      workspaceId: ws, actor: actorOf(ctx), action: "billing.retract", entityType: "workspace", entityId: ws,
+      after: { period, removed: r.removed.length, frozen: r.frozen_count },
+    });
+  }
+  return json({ ok: true, opened: r.opened, applied: { removed: r.removed.length, frozen: r.frozen_count } });
 }
 
 const NOTIF_TYPES = ["billing_opened", "overdue"] as const;
@@ -861,6 +886,7 @@ export function buildAdminRouter(): Router<Env> {
     .get("/admin/reconcile", reconcile)
     .post("/admin/billing/initiate", billingInitiate)
     .post("/admin/billing/:period/sync", syncPeriodBills)
+    .post("/admin/billing/:period/retract", retractPeriodHandler)
     .post("/admin/members/import", membersImport)
     .get("/admin/notifications", notificationsStatus)
     .post("/admin/notifications/resend", notificationsResend)
