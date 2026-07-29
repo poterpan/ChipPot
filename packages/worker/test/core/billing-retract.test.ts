@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ensurePeriodPayment, reconcilePeriodBills, retractPeriodBilling } from "../../src/core/billing";
+import { claimNotification } from "../../src/core/notify";
 
 // Fresh id band for this file: workspace/plan 9700, users/subs 970xx, proof keys "proof-9700*".
 // (Bands 9xxx up to 9599 and 90xxx/93xxx/94xxx are taken by the other suites.)
@@ -10,6 +11,7 @@ const P = "2027-11";        // the opened period we retract
 const P_NEXT = "2027-12";   // a neighbouring opened period that must survive untouched
 const U = 97001;
 const S_PEND = 97001, S_REJ = 97002, S_PAID = 97003, S_VER = 97004, S_STALE = 97005;
+const WS_OTHER = 9701;      // notification_logs.workspace_id has no FK — the id alone pins the scoping
 
 beforeAll(async () => {
   await env.DB.batch([
@@ -35,6 +37,12 @@ beforeAll(async () => {
     env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS,S_PEND,P_NEXT,`${P_NEXT}-01`,`${P_NEXT}-31`,`${P_NEXT}-05`,320,"pending","cron",TS,TS),
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,subscription_id,expires_at,created_at) VALUES (?,?,?,?,?,?,?)`).bind("h-9700-pend",WS,U,P,S_PEND,TS,TS),
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,subscription_id,expires_at,created_at) VALUES (?,?,?,?,?,?,?)`).bind("h-9700-paid",WS,U,P,S_PAID,TS,TS),
+    // an overdue reminder already fired for the mis-opened period; its dedup slot must be released
+    // on retract, or a later re-open could never remind anyone again
+    env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS,"overdue",P,0,0,0,TS),
+    // scoping pins: another period of the same workspace, and the same period of another workspace
+    env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS,"overdue",P_NEXT,0,0,0,TS),
+    env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS_OTHER,"overdue",P,0,0,0,TS),
   ]);
   await env.BUCKET.put("proof-9700-orphan", "img");
   await env.BUCKET.put("proof-9700-keep", "img");
@@ -44,6 +52,8 @@ const countPayments = async (period: string) =>
   (await env.DB.prepare("SELECT COUNT(*) c FROM payments WHERE workspace_id=? AND period=?").bind(WS, period).first<{ c: number }>())!.c;
 const countOpenedLogs = async (period: string) =>
   (await env.DB.prepare("SELECT COUNT(*) c FROM notification_logs WHERE workspace_id=? AND type='billing_opened' AND period=?").bind(WS, period).first<{ c: number }>())!.c;
+const countOverdueLogs = async (workspace: number, period: string) =>
+  (await env.DB.prepare("SELECT COUNT(*) c FROM notification_logs WHERE workspace_id=? AND type='overdue' AND period=?").bind(workspace, period).first<{ c: number }>())!.c;
 
 describe("retractPeriodBilling", () => {
   it("is a no-op for a period that was never opened", async () => {
@@ -65,6 +75,7 @@ describe("retractPeriodBilling", () => {
     const tokens = (await env.DB.prepare("SELECT COUNT(*) c FROM upload_tokens WHERE workspace_id=? AND period=?").bind(WS, P).first<{ c: number }>())!.c;
     expect(tokens).toBe(2);
     expect(await env.BUCKET.get("proof-9700-orphan")).not.toBeNull();
+    expect(await countOverdueLogs(WS, P)).toBe(1);
   });
 
   it("apply deletes pending/rejected + the orphaned proof, keeps paid/verified whole, clears the marker", async () => {
@@ -93,6 +104,18 @@ describe("retractPeriodBilling", () => {
     // scoped to one period: the neighbouring period keeps its bill AND its opened marker
     expect(await countPayments(P_NEXT)).toBe(1);
     expect(await countOpenedLogs(P_NEXT)).toBe(1);
+  });
+
+  // The overdue slot is claimed once per (workspace, period) and never expires. If a mis-opened
+  // period had already sent a reminder, leaving that row behind would silently mute overdue
+  // reminders forever after a re-open — sendOverdueForPeriod just returns 0, with no error.
+  it("releases the overdue dedup slot, scoped to this workspace+period", async () => {
+    expect(await countOverdueLogs(WS, P)).toBe(0);
+    expect(await countOverdueLogs(WS, P_NEXT)).toBe(1);   // another period of the same workspace
+    expect(await countOverdueLogs(WS_OTHER, P)).toBe(1);  // the same period of another workspace
+
+    // the slot is genuinely free again, not merely absent from a COUNT
+    expect(await claimNotification(env.DB, { workspaceId: WS, type: "overdue", period: P })).toBe(true);
   });
 
   it("leaves the period unopened, so reconcile no longer refills it", async () => {

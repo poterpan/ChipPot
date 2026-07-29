@@ -348,8 +348,9 @@ export interface RetractResult {
  * Retract a period's billing (manual "收回本期開繳") — the way back from a mis-opened month (a
  * slipped 發起繳費, or the cron running on a month nobody meant to bill). Deletes every
  * pending/rejected bill of the period (+ its upload_tokens and orphaned R2 proofs, same as
- * reconcile's remove path) and drops the billing_opened marker, so the period reads as "unopened"
- * again: reconcile stops refilling it and a later re-open claims a fresh notification slot.
+ * reconcile's remove path) and drops the period's billing_opened AND overdue notification slots, so
+ * the period reads as "unopened" again: reconcile stops refilling it, and a later re-open can both
+ * notify and remind afresh.
  * paid/verified bills are frozen and reported as frozen_count — settled money is never rewritten,
  * and re-opening the period leaves those rows alone (UNIQUE(subscription_id, period)).
  * Unlike reconcile, the subscription's roster status is irrelevant: the whole period is retracted.
@@ -389,7 +390,12 @@ export async function retractPeriodBilling(
     // Re-assert status in the DELETE so a concurrent pay/verify between compute and apply isn't clobbered.
     stmts.push(env.DB.prepare("DELETE FROM payments WHERE id = ? AND status IN ('pending','rejected')").bind(rm.payment_id!));
   }
-  stmts.push(env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?").bind(workspaceId, period));
+  // Release BOTH of the period-level notification slots. billing_opened is what makes the period
+  // "open"; overdue is claimed once per (workspace, period) and never expires, so leaving it behind
+  // would permanently mute overdue reminders if this period is ever re-opened — claimNotification
+  // would lose and sendOverdueForPeriod would just return 0, with no error anywhere.
+  // ('receipt' is declared in the type union but never claimed, so there is no slot to release.)
+  stmts.push(env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type IN ('billing_opened','overdue') AND period = ?").bind(workspaceId, period));
   await env.DB.batch(stmts);
   await sweepOrphanProofs(env, removed);
 
