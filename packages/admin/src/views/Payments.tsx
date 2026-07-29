@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, currentPeriod, periodForBillingDay, type Payment, type ChannelTag, type ReconcileDiff } from "../api";
+import { api, currentPeriod, periodForBillingDay, type Payment, type ChannelTag, type ReconcileDiff, type RetractPreview, type RetractApplied } from "../api";
 import { useAsync, Card, Modal, Field, Empty, Money, Stat, StatusBadge, IconCheck, IconWarning, IconX } from "../ui";
 import { DiffList } from "../components/DiffList";
 import { PaymentDetail } from "./PaymentDetail";
@@ -58,6 +58,7 @@ export function Payments() {
   const [showManual, setShowManual] = useState(false);
   const [showLink, setShowLink] = useState(false);
   const [sync, setSync] = useState(false);
+  const [retract, setRetract] = useState(false);
 
   const reload = () => { list.reload(); };
 
@@ -116,6 +117,7 @@ export function Payments() {
         </div>
         <div className="grow" style={{ flex: 1 }} />
         <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊本期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步本期</button>
+        <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除本期未繳帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回本期開繳</button>
         <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結</button>
         <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
       </div>
@@ -169,6 +171,7 @@ export function Payments() {
       {showManual && <ManualModal tags={tags.data?.channel_tags ?? []} onClose={() => setShowManual(false)} onDone={() => { setShowManual(false); reload(); }} />}
       {showLink && <LinkModal onClose={() => setShowLink(false)} />}
       {sync && effPeriod && <SyncModal key={effPeriod} period={effPeriod} onClose={() => setSync(false)} onDone={() => reload()} />}
+      {retract && effPeriod && <RetractModal key={effPeriod} period={effPeriod} onClose={() => setRetract(false)} onDone={() => reload()} />}
     </>
   );
 }
@@ -227,6 +230,62 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
           {changes === 0
             ? <p style={{ color: "var(--muted)" }}>本期已是最新，無需變更。</p>
             : <button className="btn btn--primary" disabled={busy} onClick={apply}>確認套用</button>}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * 收回本期開繳 — the way back from a mis-opened month. Two steps like SyncModal: a preview of what
+ * the retract would delete, then a red confirm. The frozen (paid/verified) count is spelled out
+ * because "收回" easily reads as "wipe the month", which is exactly what it does NOT do.
+ */
+function RetractModal({ period, onClose, onDone }: { period: string; onClose: () => void; onDone: () => void }) {
+  const [preview, setPreview] = useState<RetractPreview | null>(null);
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  useEffect(() => {
+    let off = false;
+    api.retractPeriodBilling(period, { dry_run: true })
+      .then((r) => { if (!off) { setPreview(r as RetractPreview); setBusy(false); } })
+      .catch((e) => { if (!off) { setErr((e as Error).message); setBusy(false); } });
+    return () => { off = true; };
+  }, [period]);
+
+  async function apply() {
+    if (busy) return; // belt: button is also disabled while in-flight
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.retractPeriodBilling(period, { dry_run: false }) as RetractApplied;
+      setDone(`已收回 ${period}：刪除 ${r.applied.removed} 筆帳單、保留 ${r.applied.frozen} 筆已繳。此期已回到未開繳狀態。`);
+      onDone();
+    } catch (e) { setErr((e as Error).message); setBusy(false); }
+  }
+
+  return (
+    <Modal title={`收回本期開繳 · ${period}`} onClose={onClose}>
+      {err && <div className="error-banner">{err}</div>}
+      {busy && !preview && <Empty>計算中…</Empty>}
+      {done && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{done}</div>}
+      {preview && !preview.opened && !done && <p style={{ color: "var(--muted)" }}>此期尚未發起繳費，無需收回。</p>}
+      {preview && preview.opened && !done && (
+        <>
+          <div className="stats">
+            <Stat label="🗑️ 將刪除" value={preview.removed.length} />
+            <Stat label="🔒 保留(已繳)" value={preview.frozen_count} />
+          </div>
+          {preview.removed.length > 0 && (
+            <DiffList title="將刪除的帳單（未繳／已退回）" rows={preview.removed.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />
+          )}
+          <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.7, margin: "12px 0" }}>
+            收回後本期回到「未開繳」：刪掉的帳單不會被「重新同步本期」補回來，日後可以再次發起繳費（屆時會重新發送開繳通知）。
+            {preview.frozen_count > 0 && `已繳／已驗證的 ${preview.frozen_count} 筆一律原樣保留，重開本期也不會重複開帳單。`}
+            已經發出的 Discord 開繳通知不會撤回，必要時請自行到頻道說明。
+          </p>
+          <button className="btn btn--danger" disabled={busy} onClick={apply}>確認收回</button>
         </>
       )}
     </Modal>

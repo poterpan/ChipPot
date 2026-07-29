@@ -43,6 +43,9 @@ export interface Subscription { id: number; user_name: string; plan_name: string
 export interface ReconcileLine { payment_id?: number; subscription_id: number; user_id: number; user_name: string; plan_name: string; amount: number; from?: number; to?: number; discord_id: string | null }
 export interface ReconcileDiff { opened: boolean; add: ReconcileLine[]; remove: ReconcileLine[]; reprice: ReconcileLine[]; frozen_count: number }
 export interface ReconcileApplied { ok: boolean; applied: { added: number; removed: number; repriced: number; frozen: number }; notified: number }
+/** 收回本期開繳 — preview and apply share `opened`/counts; `removed` only comes back on the preview. */
+export interface RetractPreview { opened: boolean; removed: ReconcileLine[]; frozen_count: number }
+export interface RetractApplied { ok: boolean; opened: boolean; applied: { removed: number; frozen: number } }
 export interface ImportUserLine { user_id: number | null; user_name: string; email: string }
 export interface ImportSubLine {
   subscription_id: number | null; user_id: number | null; user_name: string; email: string;
@@ -88,6 +91,8 @@ export const api = {
   unverify: (id: number) => req<{ ok: boolean }>("POST", `/payments/${id}/unverify`),
   syncPeriodBills: (period: string, opts: { dry_run: boolean; notify_added?: boolean }) =>
     req<ReconcileDiff | ReconcileApplied>("POST", `/billing/${period}/sync`, opts),
+  retractPeriodBilling: (period: string, opts: { dry_run: boolean }) =>
+    req<RetractPreview | RetractApplied>("POST", `/billing/${period}/retract`, opts),
   manualPayment: (b: unknown) => req("POST", "/payments/manual", b),
   uploadLink: (b: unknown) => req<{ token: string; path: string; url: string; expires_at: string }>("POST", "/upload-link", b),
   users: () => req<{ users: User[] }>("GET", "/users"),
