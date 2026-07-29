@@ -338,10 +338,21 @@ export async function reconcilePeriodBills(
 
 // ── "收回本期開繳" (retract a period that should never have been opened) ────────
 
+/** What the apply batch actually did, read back from each statement's meta.changes. */
+export interface RetractEffects {
+  removed: number;
+  frozen: number;
+  /** False when someone else's retract cleared the marker first — this call retracted nothing. */
+  marker_cleared: boolean;
+}
+
 export interface RetractResult {
   opened: boolean;
+  /** Preview of the bills to delete, as seen when the diff was computed. */
   removed: ReconcileLine[];
   frozen_count: number;
+  /** Apply only (absent on a dry run or an already-unopened period); the real, post-batch truth. */
+  applied?: RetractEffects;
 }
 
 /**
@@ -382,22 +393,54 @@ export async function retractPeriodBilling(
 
   if (opts.dryRun) return { opened: true, removed, frozen_count };
 
-  // Bills and the opened marker drop in ONE batch: a half-applied retract (bills gone, period still
-  // "opened") is the worst outcome — the next reconcile would refill exactly what we just deleted.
-  const stmts: D1PreparedStatement[] = [];
-  for (const rm of removed) {
-    stmts.push(env.DB.prepare("DELETE FROM upload_tokens WHERE workspace_id = ? AND subscription_id = ? AND period = ?").bind(workspaceId, rm.subscription_id, period));
-    // Re-assert status in the DELETE so a concurrent pay/verify between compute and apply isn't clobbered.
-    stmts.push(env.DB.prepare("DELETE FROM payments WHERE id = ? AND status IN ('pending','rejected')").bind(rm.payment_id!));
-  }
-  // Release BOTH of the period-level notification slots. billing_opened is what makes the period
-  // "open"; overdue is claimed once per (workspace, period) and never expires, so leaving it behind
-  // would permanently mute overdue reminders if this period is ever re-opened — claimNotification
-  // would lose and sendOverdueForPeriod would just return 0, with no error anywhere.
-  // ('receipt' is declared in the type union but never claimed, so there is no slot to release.)
-  stmts.push(env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type IN ('billing_opened','overdue') AND period = ?").bind(workspaceId, period));
-  await env.DB.batch(stmts);
+  // ONE batch: a half-applied retract (bills gone, period still "opened") is the worst outcome —
+  // the next reconcile would refill exactly what we just deleted. Statement order is fixed so each
+  // one's meta.changes can be read back below.
+  //
+  // Every DELETE is SET-BASED over (workspace, period) instead of over the ids in the snapshot
+  // above. The snapshot is a read; rows can appear between it and this batch (the cron at
+  // scheduled.ts, or another admin's 發起繳費), and such a row must not survive inside a period we
+  // are about to mark unopened. Status stays in the WHERE clause, so frozen money is untouchable
+  // no matter what changed since the snapshot.
+  const frozenSubs = `SELECT subscription_id FROM payments
+                       WHERE workspace_id = ? AND period = ? AND status IN ('paid','verified')`;
+  const res = await env.DB.batch([
+    // Every token that can still settle this period, except those of a surviving frozen bill.
+    // NULL subscription_id is the normal case, not an edge one: createUploadLink mints a
+    // period-wide token whenever the caller omits subscription_id, which the admin UI always does.
+    env.DB.prepare(
+      `DELETE FROM upload_tokens
+        WHERE workspace_id = ? AND period = ?
+          AND (subscription_id IS NULL OR subscription_id NOT IN (${frozenSubs}))`
+    ).bind(workspaceId, period, workspaceId, period),
+    env.DB.prepare("DELETE FROM payments WHERE workspace_id = ? AND period = ? AND status IN ('pending','rejected')")
+      .bind(workspaceId, period),
+    // billing_opened is what makes the period "open"; its own changes count tells us whether THIS
+    // call is the one that closed the period (see marker_cleared).
+    env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?")
+      .bind(workspaceId, period),
+    // The overdue slot is claimed once per (workspace, period) and never expires, so leaving it
+    // behind would permanently mute overdue reminders if this period is ever re-opened —
+    // claimNotification would lose and sendOverdueForPeriod would just return 0, with no error
+    // anywhere. Kept as its own statement so it cannot inflate the marker's changes count.
+    // ('receipt' is declared in the type union but never claimed, so there is no slot to release.)
+    env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ?")
+      .bind(workspaceId, period),
+  ]);
   await sweepOrphanProofs(env, removed);
 
-  return { opened: true, removed, frozen_count };
+  // Whatever is still standing in this period is, by definition, paid or verified — count it for
+  // real rather than reporting the pre-batch snapshot's tally.
+  const frozen = (await env.DB.prepare(
+    "SELECT COUNT(*) AS c FROM payments WHERE workspace_id = ? AND period = ? AND status IN ('paid','verified')"
+  ).bind(workspaceId, period).first<{ c: number }>())!.c;
+
+  return {
+    opened: true, removed, frozen_count,
+    applied: {
+      removed: res[1]!.meta.changes ?? 0,
+      frozen,
+      marker_cleared: (res[2]!.meta.changes ?? 0) > 0,
+    },
+  };
 }

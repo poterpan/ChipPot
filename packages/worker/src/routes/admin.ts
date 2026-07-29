@@ -162,13 +162,19 @@ async function retractPeriodHandler(req: Request, env: Env, ctx: RouteCtx): Prom
   const r = await retractPeriodBilling(env, ws, period, { dryRun });
   if (dryRun) return json(r);
 
-  if (r.opened) {
+  // Report the batch's real effects, not the preview snapshot. `applied` is absent when the period
+  // was already unopened, and marker_cleared is false when a concurrent retract cleared the marker
+  // first — either way this call retracted nothing, so it must neither audit nor claim success.
+  const removed = r.applied?.removed ?? 0;
+  const frozen = r.applied?.frozen ?? 0;
+  const retracted = r.applied?.marker_cleared ?? false;
+  if (retracted) {
     await writeAudit(env.DB, {
       workspaceId: ws, actor: actorOf(ctx), action: "billing.retract", entityType: "workspace", entityId: ws,
-      after: { period, removed: r.removed.length, frozen: r.frozen_count },
+      after: { period, removed, frozen },
     });
   }
-  return json({ ok: true, opened: r.opened, applied: { removed: r.removed.length, frozen: r.frozen_count } });
+  return json({ ok: true, opened: retracted, applied: { removed, frozen } });
 }
 
 const NOTIF_TYPES = ["billing_opened", "overdue"] as const;

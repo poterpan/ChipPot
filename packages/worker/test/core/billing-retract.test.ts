@@ -37,6 +37,11 @@ beforeAll(async () => {
     env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS,S_PEND,P_NEXT,`${P_NEXT}-01`,`${P_NEXT}-31`,`${P_NEXT}-05`,320,"pending","cron",TS,TS),
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,subscription_id,expires_at,created_at) VALUES (?,?,?,?,?,?,?)`).bind("h-9700-pend",WS,U,P,S_PEND,TS,TS),
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,subscription_id,expires_at,created_at) VALUES (?,?,?,?,?,?,?)`).bind("h-9700-paid",WS,U,P,S_PAID,TS,TS),
+    // NULL subscription_id — what the admin 產生上傳連結 flow actually mints (createUploadLink passes
+    // subscription_id only if the caller sent one, and the admin UI never does). A period-wide token
+    // must not outlive the period it can settle.
+    env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,subscription_id,expires_at,created_at) VALUES (?,?,?,?,?,?,?)`).bind("h-9700-null",WS,U,P,null,TS,TS),
+    env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,subscription_id,expires_at,created_at) VALUES (?,?,?,?,?,?,?)`).bind("h-9700-next-null",WS,U,P_NEXT,null,TS,TS),
     // an overdue reminder already fired for the mis-opened period; its dedup slot must be released
     // on retract, or a later re-open could never remind anyone again
     env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS,"overdue",P,0,0,0,TS),
@@ -73,7 +78,7 @@ describe("retractPeriodBilling", () => {
     expect(await countPayments(P)).toBe(5);
     expect(await countOpenedLogs(P)).toBe(1);
     const tokens = (await env.DB.prepare("SELECT COUNT(*) c FROM upload_tokens WHERE workspace_id=? AND period=?").bind(WS, P).first<{ c: number }>())!.c;
-    expect(tokens).toBe(2);
+    expect(tokens).toBe(3);
     expect(await env.BUCKET.get("proof-9700-orphan")).not.toBeNull();
     expect(await countOverdueLogs(WS, P)).toBe(1);
   });
@@ -83,6 +88,8 @@ describe("retractPeriodBilling", () => {
     expect(r.opened).toBe(true);
     expect(r.removed).toHaveLength(3);
     expect(r.frozen_count).toBe(2);
+    // applied = what the batch really did, read back from each statement's meta.changes
+    expect(r.applied).toMatchObject({ removed: 3, frozen: 2, marker_cleared: true });
 
     const rows = (await env.DB.prepare("SELECT subscription_id sid, status, amount, screenshot_key, has_proof, source, payment_note, verified_by FROM payments WHERE workspace_id=? AND period=?")
       .bind(WS, P).all<{ sid: number; status: string; amount: number; screenshot_key: string | null; has_proof: number; source: string; payment_note: string | null; verified_by: string | null }>()).results;
@@ -97,8 +104,13 @@ describe("retractPeriodBilling", () => {
 
     expect(await env.BUCKET.get("proof-9700-orphan")).toBeNull();  // last reference gone → swept
     expect(await env.BUCKET.get("proof-9700-keep")).not.toBeNull(); // still referenced by the frozen rows
+    // Only a FROZEN bill's token may still reference the retracted period: the pending sub's token and
+    // the period-wide (NULL subscription) token are both gone, so no live link can settle this period.
     const tok = await env.DB.prepare("SELECT token_hash FROM upload_tokens WHERE workspace_id=? AND period=?").bind(WS, P).all<{ token_hash: string }>();
-    expect(tok.results.map((t) => t.token_hash)).toEqual(["h-9700-paid"]); // only the removed subs' tokens are dropped
+    expect(tok.results.map((t) => t.token_hash)).toEqual(["h-9700-paid"]);
+    // ...while another period's period-wide token is untouched
+    const tokNext = await env.DB.prepare("SELECT token_hash FROM upload_tokens WHERE workspace_id=? AND period=?").bind(WS, P_NEXT).all<{ token_hash: string }>();
+    expect(tokNext.results.map((t) => t.token_hash)).toEqual(["h-9700-next-null"]);
     expect(await countOpenedLogs(P)).toBe(0); // period is "unopened" again
 
     // scoped to one period: the neighbouring period keeps its bill AND its opened marker
@@ -139,5 +151,67 @@ describe("retractPeriodBilling", () => {
     expect(bySub.get(S_REJ)).toMatchObject({ status: "pending", amount: 320 });
     expect(bySub.get(S_PAID)).toMatchObject({ status: "paid", amount: 315 });    // untouched, not duplicated
     expect(bySub.get(S_VER)).toMatchObject({ status: "verified", amount: 315 });
+  });
+});
+
+// Apply must not trust the preview snapshot. Bills can appear between preview and apply (the cron,
+// or another admin's 發起繳費), and two retracts can land on the same period.
+// Fresh band for this block: workspace/plan 9710, subs 971xx.
+describe("retractPeriodBilling apply is set-based and reports real work", () => {
+  const W = 9710, PL = 9710, UU = 97101;
+  const PER = "2028-01", PER_RACE = "2028-02";
+  const S_A = 97101, S_LATE = 97102, S_FROZEN = 97103;
+
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(W,"W2","o","discord",5,"{}",TS,TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(PL,W,"GPT","openai",300,TS,TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?)`).bind(UU,W,"U2",TS,TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_A,W,UU,PL,"2027-01-01",5,"active",TS,TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_LATE,W,UU,PL,"2027-01-01",5,"active",TS,TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_FROZEN,W,UU,PL,"2027-01-01",5,"active",TS,TS),
+      env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(W,"billing_opened",PER,0,0,0,TS),
+      env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(W,"billing_opened",PER_RACE,0,0,0,TS),
+      env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(W,S_A,PER,`${PER}-01`,`${PER}-31`,`${PER}-05`,300,"pending","cron",TS,TS),
+      env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(W,S_FROZEN,PER,`${PER}-01`,`${PER}-31`,`${PER}-05`,300,"verified","admin_manual",TS,TS),
+    ]);
+  });
+
+  it("deletes bills the preview never saw, and reports the real count", async () => {
+    const preview = await retractPeriodBilling(env, W, PER, { dryRun: true });
+    expect(preview.removed.map((r) => r.subscription_id)).toEqual([S_A]); // S_LATE has no bill yet
+    expect(preview.frozen_count).toBe(1);
+
+    // after the preview the cron bills S_LATE for the same period — the admin is looking at a
+    // 1-row preview while the period now holds 2 unpaid bills
+    await ensurePeriodPayment(env.DB, S_LATE, PER);
+    expect(await env.DB.prepare("SELECT id FROM payments WHERE subscription_id=? AND period=?").bind(S_LATE, PER).first()).not.toBeNull();
+
+    const r = await retractPeriodBilling(env, W, PER, { dryRun: false });
+    // counts come from the batch's meta.changes, so they describe the DB's work, not the preview
+    expect(r.applied).toMatchObject({ removed: 2, frozen: 1, marker_cleared: true });
+
+    const rows = (await env.DB.prepare("SELECT subscription_id sid, status FROM payments WHERE workspace_id=? AND period=?").bind(W, PER).all<{ sid: number; status: string }>()).results;
+    expect(rows).toEqual([{ sid: S_FROZEN, status: "verified" }]); // no unpaid bill left inside an unopened period
+  });
+
+  it("a second sequential apply is an honest no-op", async () => {
+    const r = await retractPeriodBilling(env, W, PER, { dryRun: false });
+    expect(r.opened).toBe(false);   // marker already gone
+    expect(r.applied).toBeUndefined(); // nothing was applied, so nothing is claimed
+    expect(r.removed).toEqual([]);
+  });
+
+  it("only one of two concurrent applies may claim the retract", async () => {
+    const both = await Promise.all([
+      retractPeriodBilling(env, W, PER_RACE, { dryRun: false }),
+      retractPeriodBilling(env, W, PER_RACE, { dryRun: false }),
+    ]);
+    // Holds under either interleaving: a single marker row can only be deleted once, so exactly one
+    // call is entitled to write the audit — whether the loser no-ops early or loses the marker DELETE.
+    expect(both.filter((r) => r.applied?.marker_cleared).length).toBe(1);
+    const left = await env.DB.prepare("SELECT COUNT(*) c FROM notification_logs WHERE workspace_id=? AND type='billing_opened' AND period=?")
+      .bind(W, PER_RACE).first<{ c: number }>();
+    expect(left!.c).toBe(0);
   });
 });
