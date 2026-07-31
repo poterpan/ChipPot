@@ -337,6 +337,10 @@ describe("admin discord slash registration", () => {
     const names = captured!.body.map((c: any) => c.name);
     expect(names).toHaveLength(3);
     expect(new Set(names)).toEqual(new Set(["繳費", "發起繳費", "綁定"])); // order-independent
+
+    const wsRes = await call("GET", "/admin/workspace");
+    const s = ((await wsRes!.json()) as any).workspace.settings;
+    expect(s.discord_commands_registered_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("400s when the bot token is not configured", async () => {

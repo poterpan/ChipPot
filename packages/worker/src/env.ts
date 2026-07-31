@@ -21,6 +21,8 @@ export interface WorkspaceSettings {
   discord_billing_channel_id: string;
   discord_payment_message_id: string;
   discord_bind_message_id: string;
+  /** ISO timestamp of the last successful guild-command registration ("" = never). */
+  discord_commands_registered_at: string;
   overdue_days: number;
   proof_retention_months: number;
   admin_discord_ids: string[];
@@ -40,6 +42,7 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   discord_billing_channel_id: "",
   discord_payment_message_id: "",
   discord_bind_message_id: "",
+  discord_commands_registered_at: "",
   overdue_days: 3,
   proof_retention_months: 24,
   admin_discord_ids: [],
@@ -76,6 +79,7 @@ export function parseSettings(json: string): WorkspaceSettings {
     discord_billing_channel_id: str(raw.discord_billing_channel_id, ""),
     discord_payment_message_id: str(raw.discord_payment_message_id, ""),
     discord_bind_message_id: str(raw.discord_bind_message_id, ""),
+    discord_commands_registered_at: str(raw.discord_commands_registered_at, ""),
     overdue_days: intInRange(raw.overdue_days, DEFAULT_SETTINGS.overdue_days, 0, 60),
     proof_retention_months: intInRange(
       raw.proof_retention_months, DEFAULT_SETTINGS.proof_retention_months, 1, 600

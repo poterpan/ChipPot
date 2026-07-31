@@ -912,8 +912,12 @@ async function discordRegisterCommands(_req: Request, env: Env, ctx: RouteCtx): 
   const res = await registerGuildCommands(env.DISCORD_BOT_TOKEN, env.DISCORD_APPLICATION_ID, guildId, commands);
   if (!res.ok) return errorResponse(502, "failed to register commands");
 
+  const registeredAt = nowUtcIso();
+  await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_commands_registered_at', ?), updated_at = ? WHERE id = ?")
+    .bind(registeredAt, registeredAt, ws).run();
+
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "discord.register_commands", entityType: "workspace", entityId: ws, after: { guild_id: guildId, count: commands.length } });
-  return json({ ok: true, registered: commands.length });
+  return json({ ok: true, registered: commands.length, registered_at: registeredAt });
 }
 
 // ── Router ───────────────────────────────────────────────────────────────────
