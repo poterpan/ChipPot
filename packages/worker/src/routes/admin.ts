@@ -6,7 +6,7 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling } from "../core/billing";
+import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice } from "../core/billing";
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
@@ -198,7 +198,7 @@ async function notificationsResend(req: Request, env: Env, ctx: RouteCtx): Promi
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
   let result: { sent?: boolean; count?: number };
   if (b.type === "billing_opened") {
-    const r = await initiateBillingOpened(env, ws, period, { amounts: [] }, actorOf(ctx), discordNotifier, { force: true });
+    const r = await resendBillingOpenedNotice(env, ws, period, discordNotifier, { dryRun: false });
     result = { sent: r.sent };
   } else {
     const count = await sendOverdueForPeriod(env, ws, period, discordNotifier, { force: true });

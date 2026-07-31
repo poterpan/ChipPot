@@ -114,6 +114,9 @@ export interface InitiateInput {
 export interface InitiateResult {
   sent: boolean;
   updatedPlans: number;
+  /** Bills this call actually created for the period (0 on a re-run — the insert is idempotent). */
+  createdPayments: number;
+  /** PENDING bills whose amount really changed (no-op rewrites are not counted). */
   updatedPayments: number;
 }
 
@@ -130,8 +133,7 @@ export async function initiateBillingOpened(
   period: string,
   input: InitiateInput,
   actor: string,
-  notifier: Notifier,
-  opts?: { force?: boolean }
+  notifier: Notifier
 ): Promise<InitiateResult> {
   const now = nowUtcIso();
   const plans = await env.DB
@@ -142,6 +144,7 @@ export async function initiateBillingOpened(
   const amountByPlan = new Map<number, number>();
 
   let updatedPlans = 0;
+  let createdPayments = 0;
   let updatedPayments = 0;
 
   for (const a of input.amounts) {
@@ -166,15 +169,18 @@ export async function initiateBillingOpened(
     .prepare("SELECT id, plan_id FROM subscriptions WHERE workspace_id = ? AND status = 'active'")
     .bind(workspaceId)
     .all<{ id: number; plan_id: number }>();
-  for (const s of subs.results) await ensurePeriodPayment(env.DB, s.id, period);
+  for (const s of subs.results) {
+    const r = await ensurePeriodPayment(env.DB, s.id, period);
+    if (r.created) createdPayments++;
+  }
   for (const [planId, amount] of amountByPlan) {
     const res = await env.DB
       .prepare(
         `UPDATE payments SET amount = ?, updated_at = ?
-         WHERE workspace_id = ? AND period = ? AND status = 'pending'
+         WHERE workspace_id = ? AND period = ? AND status = 'pending' AND amount != ?
            AND subscription_id IN (SELECT id FROM subscriptions WHERE workspace_id = ? AND plan_id = ? AND status = 'active')`
       )
-      .bind(amount, now, workspaceId, period, workspaceId, planId)
+      .bind(amount, now, workspaceId, period, amount, workspaceId, planId)
       .run();
     updatedPayments += res.meta.changes ?? 0;
   }
@@ -185,13 +191,6 @@ export async function initiateBillingOpened(
   const channelId = settings.discord_billing_channel_id;
   let sent = false;
   if (channelId && env.DISCORD_BOT_TOKEN) {
-    if (opts?.force) {
-      // force = admin "resend now": clear the slot so the claim below re-sends. Non-atomic
-      // delete-then-claim, but force is an occasional single-admin action (button disabled
-      // in flight); worst case is a duplicate notice from two concurrent resends — accepted.
-      await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?")
-        .bind(workspaceId, period).run();
-    }
     if (await claimNotification(env.DB, { workspaceId, type: "billing_opened", period })) {
       const lines: PlanOpenLine[] = subs.results
         .map((s) => planById.get(s.plan_id))
@@ -210,10 +209,10 @@ export async function initiateBillingOpened(
 
   await writeAudit(env.DB, {
     workspaceId, actor, action: "billing.initiate", entityType: "workspace", entityId: workspaceId,
-    after: { period, updatedPlans, updatedPayments, sent },
+    after: { period, updatedPlans, createdPayments, updatedPayments, sent },
   });
 
-  return { sent, updatedPlans, updatedPayments };
+  return { sent, updatedPlans, createdPayments, updatedPayments };
 }
 
 // ── "立即重發開繳通知" (re-post the notice only — never touches bills or prices) ──
