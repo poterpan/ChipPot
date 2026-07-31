@@ -2,7 +2,7 @@ import type { Env } from "../env";
 import { parseSettings } from "../env";
 import { nowUtcIso, periodStart, periodEnd, dueDate } from "./time";
 import { writeAudit } from "./audit";
-import { claimNotification, type Notifier, type PlanOpenLine } from "./notify";
+import { claimNotification, isBillingOpened, type Notifier, type PlanOpenLine } from "./notify";
 
 export interface PeriodDates {
   period_start: string;
@@ -216,6 +216,66 @@ export async function initiateBillingOpened(
   return { sent, updatedPlans, updatedPayments };
 }
 
+// ── "立即重發開繳通知" (re-post the notice only — never touches bills or prices) ──
+
+export type ResendOutcome = "sent" | "preview" | "not_opened" | "no_channel" | "no_bot_token" | "no_plans";
+
+export interface ResendBillingResult {
+  outcome: ResendOutcome;
+  sent: boolean;
+  /** The plan lines the notice does / would list. */
+  lines: PlanOpenLine[];
+}
+
+/**
+ * Re-post an ALREADY-OPENED period's billing-opened notice. Unlike initiateBillingOpened this
+ * writes no prices and creates no bills — "重發" means exactly what it says.
+ *
+ * The dedup slot is REFRESHED with an UPDATE rather than deleted-then-reclaimed, so the period is
+ * never momentarily readable as "unopened": members' pay button, reconcile and retract all key off
+ * that single row, and a delete-then-claim window would make a resend look like a half retract.
+ *
+ * The plan lines come from the SAME query the cron uses (scheduled.ts step 2), so the admin resend
+ * and the automatic notice can never list a different set of plans.
+ */
+export async function resendBillingOpenedNotice(
+  env: Env,
+  workspaceId: number,
+  period: string,
+  notifier: Notifier,
+  opts: { dryRun: boolean }
+): Promise<ResendBillingResult> {
+  const bare = (outcome: ResendOutcome): ResendBillingResult => ({ outcome, sent: false, lines: [] });
+
+  if (!(await isBillingOpened(env.DB, workspaceId, period))) return bare("not_opened");
+  const wsRow = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(workspaceId).first<{ settings: string }>();
+  if (!wsRow) return bare("not_opened");
+  const settings = parseSettings(wsRow.settings);
+  const channelId = settings.discord_billing_channel_id;
+  if (!channelId) return bare("no_channel");
+  if (!env.DISCORD_BOT_TOKEN) return bare("no_bot_token");
+
+  const lines = (await env.DB
+    .prepare(
+      `SELECT pl.id AS plan_id, pl.name AS plan_name, pl.monthly_amount AS amount, pl.discord_role_id AS role_id
+       FROM plans pl
+       WHERE pl.workspace_id = ? AND pl.active = 1
+         AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.plan_id = pl.id AND s.status = 'active')
+       ORDER BY pl.id`
+    )
+    .bind(workspaceId)
+    .all<PlanOpenLine>()).results;
+  if (lines.length === 0) return { outcome: "no_plans", sent: false, lines };
+  if (opts.dryRun) return { outcome: "preview", sent: false, lines };
+
+  await notifier.sendBillingOpened(env, channelId, period, lines, settings.billing_opened_template);
+  await env.DB
+    .prepare("UPDATE notification_logs SET sent_at = ? WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?")
+    .bind(nowUtcIso(), workspaceId, period)
+    .run();
+  return { outcome: "sent", sent: true, lines };
+}
+
 // ── "重新同步本期帳單" (reconcile a period's bills to the current roster) ──────────
 
 export interface ReconcileLine {
@@ -239,11 +299,8 @@ export interface ReconcileDiff {
 }
 
 /** A period is "opened" once its billing_opened notice has been claimed — that is what members can pay against. */
-async function isPeriodOpened(env: Env, workspaceId: number, period: string): Promise<boolean> {
-  const row = await env.DB
-    .prepare("SELECT 1 AS ok FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ? LIMIT 1")
-    .bind(workspaceId, period).first<{ ok: number }>();
-  return !!row;
+function isPeriodOpened(env: Env, workspaceId: number, period: string): Promise<boolean> {
+  return isBillingOpened(env.DB, workspaceId, period);
 }
 
 /** Drop proof objects of removed bills whose key no longer belongs to any remaining payment (proofs can be shared). */
