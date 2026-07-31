@@ -358,7 +358,7 @@ describe("admin billing/initiate + declared channel", () => {
     const sRes = await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: planId, start_date: "2027-09-01" });
     const sid = ((await sRes!.json()) as any).id as number;
 
-    const res = await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [{ plan_id: planId, amount: 800 }] });
+    const res = await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [{ plan_id: planId, amount: 800 }], dry_run: false });
     expect(res!.status).toBe(200);
     expect(((await res!.json()) as any).updated_payments).toBeGreaterThanOrEqual(1);
 
@@ -373,6 +373,17 @@ describe("admin billing/initiate + declared channel", () => {
     expect((await call("POST", "/admin/billing/initiate", { period: "2027-09" }))!.status).toBe(400);
     expect((await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [null] }))!.status).toBe(400);
     expect((await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [{ plan_id: 1, amount: -1 }] }))!.status).toBe(400);
+  });
+
+  it("billing/initiate 預設是 dry run：回傳預覽且不寫入", async () => {
+    const pRes = await call("POST", "/admin/plans", { name: "PreviewPlan", provider: "openai", monthly_amount: 100 });
+    const planId = ((await pRes!.json()) as any).id as number;
+    const res = await call("POST", "/admin/billing/initiate", { period: "2027-10", amounts: [{ plan_id: planId, amount: 700 }] });
+    expect(res!.status).toBe(200);
+    const body = (await res!.json()) as any;
+    expect(body.plan_changes).toEqual([{ plan_id: planId, plan_name: "PreviewPlan", from: 100, to: 700 }]);
+    const plan = await env.DB.prepare("SELECT monthly_amount FROM plans WHERE id=?").bind(planId).first<{ monthly_amount: number }>();
+    expect(plan!.monthly_amount).toBe(100); // 沒有被寫入
   });
 
   it("defaults to a dry run: returns the diff and writes nothing", async () => {

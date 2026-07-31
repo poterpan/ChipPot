@@ -6,7 +6,7 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice } from "../core/billing";
+import { ensureFirstPayment, initiateBillingOpened, previewBillingInitiate, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice } from "../core/billing";
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
@@ -87,7 +87,7 @@ async function reconcile(_req: Request, env: Env, ctx: RouteCtx): Promise<Respon
 
 async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
-  const b = await readJson<{ period?: string; amounts?: { plan_id: number; amount: number }[] }>(req);
+  const b = await readJson<{ period?: string; amounts?: { plan_id: number; amount: number }[]; dry_run?: boolean }>(req);
   const period = b?.period ?? taipeiPeriod();
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
   if (!Array.isArray(b?.amounts)) return errorResponse(400, "amounts is required");
@@ -96,10 +96,15 @@ async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<R
       return errorResponse(400, "each amount needs an integer plan_id and non-negative amount");
     }
   }
+  // dry_run defaults to true (safe preview) — only an explicit false applies, matching
+  // /billing/:period/sync and /billing/:period/retract.
+  if (b!.dry_run !== false) {
+    return json(await previewBillingInitiate(env, ws, period, { amounts: b!.amounts }));
+  }
   const r = await initiateBillingOpened(
     env, ws, period, { amounts: b!.amounts }, actorOf(ctx), discordNotifier
   );
-  return json({ ok: true, sent: r.sent, updated_plans: r.updatedPlans, updated_payments: r.updatedPayments });
+  return json({ ok: true, sent: r.sent, updated_plans: r.updatedPlans, created_payments: r.createdPayments, updated_payments: r.updatedPayments });
 }
 
 /**

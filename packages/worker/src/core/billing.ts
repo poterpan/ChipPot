@@ -275,6 +275,106 @@ export async function resendBillingOpenedNotice(
   return { outcome: "sent", sent: true, lines };
 }
 
+// ── "發起繳費" dry run (what an initiate would change, before it changes it) ────
+
+export type InitiateNotifyReason = "ok" | "already_sent" | "no_channel" | "no_bot_token" | "no_plans";
+
+export interface InitiatePlanChange {
+  plan_id: number;
+  plan_name: string;
+  from: number;
+  to: number;
+}
+
+export interface InitiatePreview {
+  period: string;
+  /** The period already has a billing_opened record — an initiate would NOT notify again. */
+  opened: boolean;
+  will_notify: boolean;
+  notify_reason: InitiateNotifyReason;
+  plan_changes: InitiatePlanChange[];
+  /** Bills the initiate would create (active subs with no bill yet), priced at the confirmed amount. */
+  create: ReconcileLine[];
+  /** Existing PENDING bills whose amount would really change. */
+  reprice: ReconcileLine[];
+  /** paid/verified bills in this period — never rewritten. */
+  frozen_count: number;
+}
+
+/**
+ * Read-only twin of initiateBillingOpened: same inputs, same rules, zero writes. Every number here
+ * must equal what the apply reports (initiate's UPDATE carries `amount != ?` for exactly this
+ * reason), because the whole point of the preview is that the admin can trust it.
+ */
+export async function previewBillingInitiate(
+  env: Env,
+  workspaceId: number,
+  period: string,
+  input: InitiateInput
+): Promise<InitiatePreview> {
+  const plans = (await env.DB
+    .prepare("SELECT id, name, monthly_amount, active FROM plans WHERE workspace_id = ?")
+    .bind(workspaceId)
+    .all<{ id: number; name: string; monthly_amount: number; active: number }>()).results;
+  const planById = new Map(plans.map((p) => [p.id, p]));
+
+  const amountByPlan = new Map<number, number>();
+  const plan_changes: InitiatePlanChange[] = [];
+  for (const a of input.amounts) {
+    const plan = planById.get(a.plan_id);
+    if (!plan) continue;
+    if (!Number.isInteger(a.amount) || a.amount < 0) continue;
+    amountByPlan.set(a.plan_id, a.amount);
+    if (a.amount !== plan.monthly_amount) {
+      plan_changes.push({ plan_id: plan.id, plan_name: plan.name, from: plan.monthly_amount, to: a.amount });
+    }
+  }
+  const priceOf = (planId: number) => amountByPlan.get(planId) ?? planById.get(planId)?.monthly_amount ?? 0;
+
+  const activeSubs = (await env.DB.prepare(
+    `SELECT s.id AS subscription_id, s.plan_id AS plan_id, s.user_id AS user_id,
+            u.display_name AS user_name, u.discord_id AS discord_id, pl.name AS plan_name
+     FROM subscriptions s JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
+     WHERE s.workspace_id = ? AND s.status = 'active'`
+  ).bind(workspaceId).all<{ subscription_id: number; plan_id: number; user_id: number; user_name: string; discord_id: string | null; plan_name: string }>()).results;
+
+  const existing = (await env.DB.prepare(
+    `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.amount AS amount, p.status AS status
+     FROM payments p WHERE p.workspace_id = ? AND p.period = ?`
+  ).bind(workspaceId, period).all<{ payment_id: number; subscription_id: number; amount: number; status: string }>()).results;
+  const bySub = new Map(existing.map((e) => [e.subscription_id, e]));
+
+  const create: ReconcileLine[] = [];
+  const reprice: ReconcileLine[] = [];
+  for (const s of activeSubs) {
+    const e = bySub.get(s.subscription_id);
+    const price = priceOf(s.plan_id);
+    if (!e) {
+      create.push({ subscription_id: s.subscription_id, user_id: s.user_id, user_name: s.user_name, plan_name: s.plan_name, amount: price, discord_id: s.discord_id });
+    } else if (e.status === "pending" && amountByPlan.has(s.plan_id) && e.amount !== price) {
+      reprice.push({ payment_id: e.payment_id, subscription_id: s.subscription_id, user_id: s.user_id, user_name: s.user_name, plan_name: s.plan_name, amount: price, from: e.amount, to: price, discord_id: s.discord_id });
+    }
+  }
+  const frozen_count = existing.filter((e) => e.status === "paid" || e.status === "verified").length;
+
+  const wsRow = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(workspaceId).first<{ settings: string }>();
+  const settings = parseSettings(wsRow!.settings);
+  const opened = await isBillingOpened(env.DB, workspaceId, period);
+  // Same order of checks initiateBillingOpened applies, so the preview can't promise a notice the
+  // apply would skip (A1: no more "✓ 完成" for a send that never happened).
+  const noticePlans = activeSubs
+    .map((s) => planById.get(s.plan_id))
+    .filter((p): p is NonNullable<typeof p> => !!p && p.active === 1);
+  const notify_reason: InitiateNotifyReason =
+    !settings.discord_billing_channel_id ? "no_channel"
+    : !env.DISCORD_BOT_TOKEN ? "no_bot_token"
+    : opened ? "already_sent"
+    : noticePlans.length === 0 ? "no_plans"
+    : "ok";
+
+  return { period, opened, will_notify: notify_reason === "ok", notify_reason, plan_changes, create, reprice, frozen_count };
+}
+
 // ── "重新同步本期帳單" (reconcile a period's bills to the current roster) ──────────
 
 export interface ReconcileLine {
