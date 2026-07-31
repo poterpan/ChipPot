@@ -4,6 +4,7 @@ import { errorResponse, json } from "../http";
 import { nowUtcIso } from "../core/time";
 import { hashToken, findValidUploadToken } from "../core/tokens";
 import { listActiveSubscriptions, listActiveChannelTags } from "../core/db";
+import { isBillingOpened } from "../core/notify";
 import {
   settleUserPeriod, assertImageOk, extForContentType,
   InvalidImage, TokenUnusable, NoEligiblePayment,
@@ -64,6 +65,14 @@ export async function handleUpload(req: Request, env: Env, ctx: RouteCtx): Promi
     try { assertImageOk(file.type, buf.byteLength); }
     catch (e) { if (e instanceof InvalidImage) return errorResponse(400, e.message, { code: "image" }); throw e; }
     proof = { body: buf, ext: extForContentType(file.type), contentType: file.type };
+  }
+
+  // Same gate the Discord path enforces (adapters/discord/handler.ts): a one-time link must not
+  // settle a period members cannot otherwise pay. createUploadLink mints a token for any period,
+  // opened or not, so without this an admin-issued link would settle the cron-created bills of a
+  // period that was never opened — or one that 收回本期開繳 has since closed.
+  if (!(await isBillingOpened(env.DB, tok.workspace_id, tok.period))) {
+    return errorResponse(409, "本期繳費尚未開放，待管理員發出開繳通知後即可繳費。", { code: "payment" });
   }
 
   try {

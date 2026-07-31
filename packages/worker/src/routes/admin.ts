@@ -824,6 +824,7 @@ async function deletePayment(_req: Request, env: Env, ctx: RouteCtx): Promise<Re
 async function createUploadLink(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const b = await readJson<{ user_id?: number; period?: string; subscription_id?: number }>(req);
   if (!b?.user_id || !b.period) return errorResponse(400, "user_id and period are required");
+  if (!PERIOD_RE.test(b.period)) return errorResponse(400, "period must be YYYY-MM");
   const ws = wsId(ctx);
   const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND workspace_id = ?").bind(b.user_id, ws).first();
   if (!user) return errorResponse(400, "invalid user");
