@@ -1,7 +1,7 @@
 import type { Env } from "../../env";
 import { parseSettings } from "../../env";
 import { json } from "../../http";
-import { periodForBillingDay, nextBillingPeriod } from "../../core/time";
+import { periodForBillingDay } from "../../core/time";
 import {
   getWorkspaceIdByGuild, getUserByDiscordId, listActiveSubscriptions,
   listActiveChannelTags, listSettleablePayments, listOpenPayablePeriods, listUnboundUsers, searchUnboundUsers, bindDiscordId,
@@ -229,6 +229,9 @@ async function isAdmin(env: Env, ws: number, discordId: string | null): Promise<
   return parseSettings(row.settings).admin_discord_ids.includes(discordId);
 }
 
+/** Discord modals cap at 5 text inputs; more plans than that cannot be confirmed here. */
+const INITIATE_PLAN_CAP = 5;
+
 async function handleInitiateCommand(i: DiscordInteraction, env: Env): Promise<Response> {
   if (!i.guild_id) return ephemeral("此互動需在伺服器內使用。");
   const ws = await getWorkspaceIdByGuild(env.DB, i.guild_id);
@@ -240,11 +243,23 @@ async function handleInitiateCommand(i: DiscordInteraction, env: Env): Promise<R
     .bind(ws)
     .all<{ id: number; name: string; monthly_amount: number }>();
   if (plans.results.length === 0) return ephemeral("沒有啟用中的方案。");
+  // Refuse rather than silently confirm only the first five: the notice lists EVERY active plan, so
+  // a truncated modal would broadcast the untouched plans at their old prices while the reply
+  // claims the amounts were confirmed.
+  if (plans.results.length > INITIATE_PLAN_CAP) {
+    return ephemeral(
+      `目前有 ${plans.results.length} 個啟用中的方案，超過 Discord 表單的 ${INITIATE_PLAN_CAP} 欄上限，` +
+      "無法在這裡確認全部金額。請改用後台「設定 → 工具 → 發起繳費」。"
+    );
+  }
 
-  // Default to the next period to open (so near month-end this pre-fills next month).
+  // Default to the period currently being collected — the same default the dashboard, the payments
+  // list and the admin 發起繳費 modal use. To pre-open a later month, pass 期別 explicitly.
   const wsRow = await env.DB.prepare("SELECT billing_day FROM workspaces WHERE id = ?").bind(ws).first<{ billing_day: number }>();
-  const period = nextBillingPeriod(wsRow?.billing_day ?? 1);
-  return json(initiateModal(ws, period, plans.results.slice(0, 5)));
+  const typed = getOption(i, "期別")?.value?.trim();
+  const period = typed || periodForBillingDay(wsRow?.billing_day ?? 1);
+  if (!PERIOD_RE.test(period)) return ephemeral("期別格式需為 `YYYY-MM`，例如 `2026-07`。");
+  return json(initiateModal(ws, period, plans.results));
 }
 
 async function handleModalSubmit(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -279,8 +294,8 @@ async function deferredInitiate(i: DiscordInteraction, env: Env): Promise<void> 
       }
       const r = await initiateBillingOpened(env, ws, period, { amounts }, `discord:${discordUserId(i)}`, discordNotifier);
       content = r.sent
-        ? `✅ 已發起 ${period} 繳費並發出通知（更新 ${r.updatedPlans} 個方案定價、${r.updatedPayments} 筆待繳金額）。`
-        : `✅ 已更新本期金額（更新 ${r.updatedPlans} 個方案、${r.updatedPayments} 筆待繳）。本期通知先前已發送，未重複發送。`;
+        ? `✅ 已發起 ${period} 繳費並發出通知（新增 ${r.createdPayments} 筆帳單、更新 ${r.updatedPlans} 個方案定價、${r.updatedPayments} 筆待繳金額）。`
+        : `✅ 已更新 ${period} 金額（新增 ${r.createdPayments} 筆帳單、更新 ${r.updatedPlans} 個方案、${r.updatedPayments} 筆待繳）。${period} 的開繳通知先前已發送，未重複發送。`;
     }
   } catch (err) {
     console.error("initiate modal failed", err);

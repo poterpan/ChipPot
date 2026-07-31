@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { routeInteraction, type DiscordInteraction } from "../../src/adapters/discord/handler";
-import { taipeiPeriod, nextBillingPeriod } from "../../src/core/time";
+import { taipeiPeriod, periodForBillingDay } from "../../src/core/time";
 
 const TS = "2026-05-01T00:00:00.000Z";
 const WS = 9009;
@@ -138,13 +138,13 @@ describe("Discord interaction routing", () => {
     expect(cnt?.c).toBe(0);
   });
 
-  it("/發起繳費 defaults the period to the next billing period", async () => {
+  it("/發起繳費 defaults the period to the one currently being collected", async () => {
     const i: DiscordInteraction = {
       type: 2, id: "1", token: "t", guild_id: GUILD2, ...member(DISC2),
       data: { name: "發起繳費" },
     };
     const res = await routeInteraction(i, env, CTX);
-    const expected = nextBillingPeriod(5); // WS2 billing_day = 5
+    const expected = periodForBillingDay(5); // WS2 billing_day = 5
     expect(JSON.stringify(await res.json())).toContain(`initiate:${WS2}:${expected}`);
   });
 });
