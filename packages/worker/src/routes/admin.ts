@@ -6,14 +6,14 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice, type ResendOutcome } from "../core/billing";
+import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice } from "../core/billing";
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
 import { payButtonRow, bindButtonRow, PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
 import { discordNotifier } from "../adapters/discord/notify";
 import { parseRosterCsv, importRoster } from "../core/import";
-import { sendOverdueForPeriod, type OverdueOutcome } from "../core/scheduled";
+import { sendOverdueForPeriod } from "../core/scheduled";
 import { renderTemplate } from "../core/templates";
 import { sendTestNotification } from "../core/payment-notify";
 
@@ -189,29 +189,43 @@ async function notificationsStatus(_req: Request, env: Env, ctx: RouteCtx): Prom
   return json({ billing_opened: await row("billing_opened"), overdue: await row("overdue") });
 }
 
+/**
+ * "重發開繳通知" / "催繳未繳成員". dry_run defaults to true (safe preview) — only an explicit
+ * { dry_run: false } sends anything, matching /sync and /retract. Both modes return the same shape
+ * per type so the modal's preview and result render from one response; only an apply audits.
+ */
 async function notificationsResend(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
-  const b = await readJson<{ type?: string; period?: string }>(req);
+  const b = await readJson<{ type?: string; period?: string; dry_run?: boolean }>(req);
   if (b?.period !== undefined && typeof b.period !== "string") return errorResponse(400, "period must be YYYY-MM");
   const period = b?.period ?? taipeiPeriod();
   if (!b?.type || !NOTIF_TYPES.includes(b.type as any)) return errorResponse(400, "type must be billing_opened or overdue");
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
-  let result: { sent?: boolean; count?: number };
-  let outcome: ResendOutcome | OverdueOutcome;
+  const dryRun = b.dry_run !== false; // safe default: preview unless explicitly false
+
+  // `outcome` is what keeps the audit trail honest: a bare `sent: false` reads as a mystery,
+  // `no_bot_token` explains itself. A preview writes none — nothing happened to record.
   if (b.type === "billing_opened") {
-    const r = await resendBillingOpenedNotice(env, ws, period, discordNotifier, { dryRun: false });
-    result = { sent: r.sent };
-    outcome = r.outcome;
-  } else {
-    const r = await sendOverdueForPeriod(env, ws, period, discordNotifier, { force: true });
-    result = { count: r.notified };
-    outcome = r.outcome;
+    const r = await resendBillingOpenedNotice(env, ws, period, discordNotifier, { dryRun });
+    // Resend re-posts an existing notice. A period with no billing_opened record has nothing to
+    // re-post, and the old implementation quietly OPENED it (creating every bill + broadcasting).
+    if (r.outcome === "not_opened") {
+      return errorResponse(409, `${period} 尚未開繳，沒有可以重發的開繳通知。請改用「設定 → 工具 → 發起繳費」。`);
+    }
+    if (!dryRun) {
+      await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.resend", entityType: "workspace", entityId: ws, after: { type: b.type, period, outcome: r.outcome, sent: r.sent } });
+    }
+    return json({ ok: true, dry_run: dryRun, outcome: r.outcome, sent: r.sent, lines: r.lines });
   }
-  // Audit every attempt, including the ones that sent nothing — an admin pressed a danger button
-  // and deserves a trail. `outcome` is what keeps that trail honest: a bare `sent: false` reads as
-  // a mystery, `no_bot_token` explains itself.
-  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.resend", entityType: "workspace", entityId: ws, after: { type: b.type, period, outcome, ...result } });
-  return json({ ok: true, ...result });
+
+  const r = await sendOverdueForPeriod(env, ws, period, discordNotifier, { force: true, dryRun });
+  if (!dryRun) {
+    await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.resend", entityType: "workspace", entityId: ws, after: { type: b.type, period, outcome: r.outcome, count: r.notified } });
+  }
+  return json({
+    ok: true, dry_run: dryRun, outcome: r.outcome, count: r.notified, overdue_days: r.overdue_days,
+    people: r.people.map((p) => ({ user_id: p.user_id, user_name: p.user_name, discord_id: p.discord_id, total: p.total })),
+  });
 }
 
 async function notificationsReset(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -221,6 +235,13 @@ async function notificationsReset(req: Request, env: Env, ctx: RouteCtx): Promis
   const period = b?.period ?? taipeiPeriod();
   if (!b?.type || !NOTIF_TYPES.includes(b.type as any)) return errorResponse(400, "type must be billing_opened or overdue");
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
+  // The billing_opened row is not a send log — it IS the definition of "this period is open"
+  // (core/notify.ts isBillingOpened, core/db.ts listOpenPayablePeriods). Deleting it alone leaves
+  // every pending bill standing in a period members can no longer pay: a half retract. The whole
+  // operation lives in 收回本期開繳, which also deletes the bills and the upload tokens.
+  if (b.type === "billing_opened") {
+    return errorResponse(409, "開繳紀錄不能單獨重置（那會讓本期回到未開繳、帳單卻全留著）。請到「繳費審核」使用「收回本期開繳」。");
+  }
   const res = await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = ? AND period = ?")
     .bind(ws, b.type, period).run();
   const deleted = res.meta.changes ?? 0;

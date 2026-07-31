@@ -213,7 +213,7 @@ describe("admin notifications", () => {
     const prevToken = (env as any).DISCORD_BOT_TOKEN;
     (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
-    const r = await call("POST", "/admin/notifications/resend", { type: "overdue", period: "2028-03" });
+    const r = await call("POST", "/admin/notifications/resend", { type: "overdue", period: "2028-03", dry_run: false });
     vi.unstubAllGlobals();
     (env as any).DISCORD_BOT_TOKEN = prevToken;
     expect(r!.status).toBe(200);
@@ -259,7 +259,7 @@ describe("admin notifications resend — billing_opened", () => {
     (env as any).DISCORD_BOT_TOKEN = withToken;
     const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchSpy);
-    const res = await call("POST", "/admin/notifications/resend", { type: "billing_opened", period: PERIOD });
+    const res = await call("POST", "/admin/notifications/resend", { type: "billing_opened", period: PERIOD, dry_run: false });
     vi.unstubAllGlobals();
     (env as any).DISCORD_BOT_TOKEN = prev;
     return { res: res!, body: (await res!.json()) as any, fetchSpy };
