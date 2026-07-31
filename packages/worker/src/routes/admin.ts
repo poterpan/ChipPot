@@ -6,14 +6,14 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice } from "../core/billing";
+import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice, type ResendOutcome } from "../core/billing";
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
 import { payButtonRow, bindButtonRow, PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
 import { discordNotifier } from "../adapters/discord/notify";
 import { parseRosterCsv, importRoster } from "../core/import";
-import { sendOverdueForPeriod } from "../core/scheduled";
+import { sendOverdueForPeriod, type OverdueOutcome } from "../core/scheduled";
 import { renderTemplate } from "../core/templates";
 import { sendTestNotification } from "../core/payment-notify";
 
@@ -197,14 +197,20 @@ async function notificationsResend(req: Request, env: Env, ctx: RouteCtx): Promi
   if (!b?.type || !NOTIF_TYPES.includes(b.type as any)) return errorResponse(400, "type must be billing_opened or overdue");
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
   let result: { sent?: boolean; count?: number };
+  let outcome: ResendOutcome | OverdueOutcome;
   if (b.type === "billing_opened") {
     const r = await resendBillingOpenedNotice(env, ws, period, discordNotifier, { dryRun: false });
     result = { sent: r.sent };
+    outcome = r.outcome;
   } else {
-    const count = await sendOverdueForPeriod(env, ws, period, discordNotifier, { force: true });
-    result = { count };
+    const r = await sendOverdueForPeriod(env, ws, period, discordNotifier, { force: true });
+    result = { count: r.notified };
+    outcome = r.outcome;
   }
-  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.resend", entityType: "workspace", entityId: ws, after: { type: b.type, period, ...result } });
+  // Audit every attempt, including the ones that sent nothing — an admin pressed a danger button
+  // and deserves a trail. `outcome` is what keeps that trail honest: a bare `sent: false` reads as
+  // a mystery, `no_bot_token` explains itself.
+  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.resend", entityType: "workspace", entityId: ws, after: { type: b.type, period, outcome, ...result } });
   return json({ ok: true, ...result });
 }
 

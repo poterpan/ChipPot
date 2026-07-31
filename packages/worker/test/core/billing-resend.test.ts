@@ -53,6 +53,12 @@ describe("resendBillingOpenedNotice", () => {
   });
 
   it("重發會送出訊息、更新 sent_at，且 marker 全程存在", async () => {
+    // 先把 sent_at 壓成一個固定的舊值，重發後才能斷言「真的變新」而不是靠同一毫秒的巧合。
+    const STALE = "2020-01-01T00:00:00.000Z";
+    await env.DB.prepare(
+      "UPDATE notification_logs SET sent_at = ? WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?"
+    ).bind(STALE, WS, OPENED).run();
+
     const before = sent.length;
     const r = await resendBillingOpenedNotice(env, WS, OPENED, notifier, { dryRun: false });
     expect(r.outcome).toBe("sent");
@@ -60,9 +66,10 @@ describe("resendBillingOpenedNotice", () => {
     expect(sent.length).toBe(before + 1);
     // 期別仍然只有一列 billing_opened，且 sent_at 已更新（不是 delete + re-insert）
     const rows = await env.DB.prepare(
-      "SELECT COUNT(*) AS n FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?"
-    ).bind(WS, OPENED).first<{ n: number }>();
+      "SELECT COUNT(*) AS n, MAX(sent_at) AS sent_at FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?"
+    ).bind(WS, OPENED).first<{ n: number; sent_at: string }>();
     expect(rows!.n).toBe(1);
+    expect(rows!.sent_at > STALE).toBe(true);
   });
 
   it("重發不會為後來加入的成員建立帳單", async () => {

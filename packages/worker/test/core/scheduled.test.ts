@@ -84,8 +84,8 @@ describe("sendOverdueForPeriod includes rejected payments", () => {
     ).bind(WS, WS, "2099-01", "2099-01-01", "2099-01-31", "2099-01-05", 315, "rejected", "user_slash", TS, TS).run();
 
     const before = sent.overdue.length;
-    const count = await sendOverdueForPeriod(env, WS, "2099-01", notifier, { force: true });
-    expect(count).toBe(1);
+    const r = await sendOverdueForPeriod(env, WS, "2099-01", notifier, { force: true });
+    expect(r.notified).toBe(1);
     expect(sent.overdue.length).toBe(before + 1);
     expect(sent.overdue.at(-1)!.people[0]).toMatchObject({ discord_id: "d-9010" });
   });
