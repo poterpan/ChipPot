@@ -295,7 +295,7 @@ function ImportRoster() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button className="btn btn--sm btn--danger" onClick={() => setOpen(true)}>匯入…</button>
+      <button className="btn btn--sm" onClick={() => setOpen(true)}>匯入…</button>
       {open && <ImportModal onClose={() => setOpen(false)} />}
     </>
   );

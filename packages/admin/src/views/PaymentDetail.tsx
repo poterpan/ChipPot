@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type ChannelTag, type Payment } from "../api";
-import { Modal, Field, Money, StatusBadge, IconWarning } from "../ui";
+import { Modal, Field, Money, StatusBadge, IconWarning, ConfirmDanger } from "../ui";
 
 export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Payment; tags: ChannelTag[]; onClose: () => void; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -8,6 +8,7 @@ export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Pay
   const [tagId, setTagId] = useState<number | "">(payment.verified_channel_tag_id ?? payment.declared_channel_tag_id ?? "");
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState(String(payment.amount));
+  const [confirmDel, setConfirmDel] = useState(false);
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true); setErr(null);
@@ -70,17 +71,20 @@ export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Pay
       </div>
 
       <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "18px 0" }} />
-      <button
-        className="btn btn--danger"
-        disabled={busy}
-        onClick={() => {
-          const hasHistory = payment.status !== "pending"; // paid/verified/rejected all carry real activity
-          const msg = hasHistory
-            ? "這筆已有繳費／審核紀錄，刪除後將從對帳與紀錄中消失且無法復原（仍保留稽核紀錄）。確定刪除？"
-            : "確定刪除這筆待繳紀錄？（保留稽核紀錄）";
-          if (window.confirm(msg)) run(() => api.deletePayment(payment.id));
-        }}
-      >刪除此筆</button>
+      <button className="btn btn--danger" disabled={busy} onClick={() => setConfirmDel(true)}>刪除此筆</button>
+      {confirmDel && (
+        <ConfirmDanger
+          title="刪除此筆繳費紀錄"
+          // paid/verified/rejected all carry real activity; only pending is re-creatable by a resync.
+          message={payment.status !== "pending"
+            ? "這筆已有繳費／審核紀錄，刪除後將從對帳與紀錄中消失且無法復原（稽核紀錄仍會保留）。"
+            : "刪除這筆待繳紀錄後，「重新同步本期」會在該訂閱仍為啟用時把它補回來（稽核紀錄仍會保留）。"}
+          confirmLabel="確認刪除"
+          busyLabel="刪除中…"
+          onClose={() => setConfirmDel(false)}
+          onConfirm={() => api.deletePayment(payment.id).then(() => { setConfirmDel(false); onDone(); })}
+        />
+      )}
     </Modal>
   );
 }

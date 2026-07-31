@@ -100,6 +100,10 @@ tbody tr.click:hover { background: #faf7f0; }
 .btn:hover { border-color: var(--teal); }
 .btn--primary { background: var(--teal); border-color: var(--teal); color: #fff; font-weight: 500; }
 .btn--primary:hover { background: var(--teal-ink); }
+/* 破壞性動作只有一種紅（--red）與一種按鈕（.btn--danger）：
+   不可逆或會對外發送 → .btn--danger + 兩段式預覽 modal（SyncModal / RetractModal / InitiateModal）；
+   可逆的破壞性     → .btn--danger + ui.tsx 的 ConfirmDanger。
+   `var(--danger, …)` 曾是全站唯一未定義的顏色 token，已於 issue #43 移除，別再引入。 */
 .btn--danger { color: var(--red); border-color: #e6c7c2; }
 .btn--danger:hover { background: #faecea; border-color: var(--red); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }

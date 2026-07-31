@@ -1,26 +1,10 @@
 import { useState } from "react";
 import { api, type User, type Plan, type ChannelTag, type Subscription } from "../api";
-import { useAsync, Card, Modal, Field, Empty } from "../ui";
+import { useAsync, Card, Modal, Field, Empty, ConfirmDanger } from "../ui";
 
 function useForm<T extends Record<string, any>>(initial: T) {
   const [v, setV] = useState<T>(initial);
   return [v, (k: keyof T, val: any) => setV((s) => ({ ...s, [k]: val }))] as const;
-}
-
-function ConfirmDelete({ title, message, onClose, onConfirm }: { title: string; message: string; onClose: () => void; onConfirm: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
-  async function go() {
-    setBusy(true); setErr(null);
-    try { await onConfirm(); } catch (e) { setErr((e as Error).message); setBusy(false); }
-  }
-  return (
-    <Modal title={title} onClose={onClose}>
-      {err && <div className="error-banner">{err}</div>}
-      <p style={{ whiteSpace: "pre-wrap", marginBottom: 16 }}>{message}</p>
-      <button className="btn" onClick={onClose} disabled={busy} style={{ marginRight: 8 }}>取消</button>
-      <button className="btn btn--primary" onClick={go} disabled={busy} style={{ background: "var(--danger, #c0392b)", borderColor: "var(--danger, #c0392b)" }}>{busy ? "刪除中…" : "確認刪除"}</button>
-    </Modal>
-  );
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────
@@ -42,7 +26,7 @@ export function Users() {
                   <td>{u.display_name}</td><td className="mono" style={{ fontSize: 12.5 }}>{u.discord_id ?? "—"}</td><td>{u.email ?? "—"}</td>
                   <td className="right">
                     <button className="btn" onClick={() => setEdit(u)}>編輯</button>{" "}
-                    <button className="btn" onClick={() => setDel(u)}>刪除</button>
+                    <button className="btn btn--danger" onClick={() => setDel(u)}>刪除</button>
                   </td>
                 </tr>
               ))}
@@ -52,7 +36,7 @@ export function Users() {
       </Card>
       {edit !== undefined && <UserModal user={edit} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
       {del && (
-        <ConfirmDelete
+        <ConfirmDanger
           title={`刪除成員 · ${del.display_name}`}
           message={`將一併刪除此成員的 ${del.subscription_count ?? 0} 個訂閱、${del.payment_count ?? 0} 筆繳費紀錄。\n此操作無法復原。`}
           onClose={() => setDel(null)}
@@ -65,6 +49,7 @@ export function Users() {
 function UserModal({ user, onClose, onDone }: { user: User | null; onClose: () => void; onDone: () => void }) {
   const [f, set] = useForm({ display_name: user?.display_name ?? "", discord_id: user?.discord_id ?? "", email: user?.email ?? "", note: user?.note ?? "" });
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  const [confirmUnbind, setConfirmUnbind] = useState(false);
   async function save() {
     if (!f.display_name) { setErr("請填名稱"); return; }
     setBusy(true); setErr(null);
@@ -78,10 +63,11 @@ function UserModal({ user, onClose, onDone }: { user: User | null; onClose: () =
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
   async function unbind() {
-    if (!user || !window.confirm("確定解除這位成員的 Discord 綁定？解除後他可重新用綁定按鈕／指令綁定。")) return;
-    setBusy(true); setErr(null);
-    try { await api.updateUser(user.id, { discord_id: "" }); onDone(); }
-    catch (e) { setErr((e as Error).message); setBusy(false); }
+    if (!user) return;
+    // Let the rejection propagate: ConfirmDanger owns busy/error for this action, so swallowing it
+    // here would leave its confirm button stuck on 解除中… with the message hidden behind the modal.
+    await api.updateUser(user.id, { discord_id: "" });
+    onDone();
   }
   return (
     <Modal title={user ? "編輯成員" : "新增成員"} onClose={onClose}>
@@ -92,8 +78,18 @@ function UserModal({ user, onClose, onDone }: { user: User | null; onClose: () =
       <Field label="備註"><input value={f.note} onChange={(e) => set("note", e.target.value)} disabled={busy} /></Field>
       <div className="btn-row">
         <button className="btn btn--primary" onClick={save} disabled={busy}>儲存</button>
-        {user?.discord_id && <button className="btn" onClick={unbind} disabled={busy}>解除綁定</button>}
+        {user?.discord_id && <button className="btn btn--danger" onClick={() => setConfirmUnbind(true)} disabled={busy}>解除綁定</button>}
       </div>
+      {confirmUnbind && (
+        <ConfirmDanger
+          title="解除 Discord 綁定"
+          message={`解除後這位成員的開繳／催繳通知都 @ 不到他，他也不能用 Discord 的「繳費」按鈕登記，直到重新綁定為止。\n他隨時可以自己用綁定按鈕或 /綁定 指令重新綁定。`}
+          confirmLabel="確認解除綁定"
+          busyLabel="解除中…"
+          onClose={() => setConfirmUnbind(false)}
+          onConfirm={unbind}
+        />
+      )}
     </Modal>
   );
 }
@@ -118,7 +114,7 @@ export function Subscriptions() {
                   <td>{s.user_name}</td><td>{s.plan_name}</td><td>{s.status}</td><td className="mono">{s.start_date}</td><td className="right mono">{s.billing_day}</td>
                   <td className="right">
                     <button className="btn" onClick={() => setEdit(s)}>編輯</button>{" "}
-                    <button className="btn" onClick={() => setDel(s)}>刪除</button>
+                    <button className="btn btn--danger" onClick={() => setDel(s)}>刪除</button>
                   </td>
                 </tr>
               ))}
@@ -129,7 +125,7 @@ export function Subscriptions() {
       {add && <SubAddModal onClose={() => setAdd(false)} onDone={() => { setAdd(false); reload(); }} />}
       {edit && <SubEditModal sub={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}
       {del && (
-        <ConfirmDelete
+        <ConfirmDanger
           title={`刪除訂閱 · ${del.user_name} · ${del.plan_name}`}
           message={`將一併刪除此訂閱的 ${del.payment_count ?? 0} 筆繳費紀錄。\n此操作無法復原。（若只想停收可改用「編輯 → 狀態 cancelled」）`}
           onClose={() => setDel(null)}
@@ -213,7 +209,7 @@ export function Plans() {
                   <td className="mono" style={{ fontSize: 12 }}>{p.discord_role_id ?? "—"}</td><td>{p.active ? "✓" : "—"}</td>
                   <td className="right">
                     <button className="btn" onClick={() => setEdit(p)}>編輯</button>{" "}
-                    <button className="btn" disabled={(p.subscription_count ?? 0) > 0} title={(p.subscription_count ?? 0) > 0 ? "使用中，請先刪除訂閱或停用" : ""} onClick={() => setDel(p)}>刪除</button>
+                    <button className="btn btn--danger" disabled={(p.subscription_count ?? 0) > 0} title={(p.subscription_count ?? 0) > 0 ? "使用中，請先刪除訂閱或停用" : ""} onClick={() => setDel(p)}>刪除</button>
                   </td>
                 </tr>
               ))}
@@ -223,7 +219,7 @@ export function Plans() {
       </Card>
       {edit !== undefined && <PlanModal plan={edit} providers={providers} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
       {del && (
-        <ConfirmDelete
+        <ConfirmDanger
           title={`刪除方案 · ${del.name}`}
           message={`確定刪除此方案？此操作無法復原。`}
           onClose={() => setDel(null)}
@@ -308,7 +304,7 @@ export function ChannelTags() {
                   <td className="right">
                     <button className="btn" disabled={busyId === t.id} onClick={() => toggleActive(t)}>{t.active ? "停用" : "啟用"}</button>{" "}
                     <button className="btn" onClick={() => setEdit(t)}>編輯</button>{" "}
-                    <button className="btn" disabled={(t.usage_count ?? 0) > 0} title={(t.usage_count ?? 0) > 0 ? "已被繳費紀錄參照，請改用停用" : ""} onClick={() => setDel(t)}>刪除</button>
+                    <button className="btn btn--danger" disabled={(t.usage_count ?? 0) > 0} title={(t.usage_count ?? 0) > 0 ? "已被繳費紀錄參照，請改用停用" : ""} onClick={() => setDel(t)}>刪除</button>
                   </td>
                 </tr>
               ))}
@@ -318,7 +314,7 @@ export function ChannelTags() {
       </Card>
       {edit !== undefined && <TagModal tag={edit} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
       {del && (
-        <ConfirmDelete
+        <ConfirmDanger
           title={`刪除渠道 · ${del.name}`}
           message={`確定刪除此支付渠道？此操作無法復原。`}
           onClose={() => setDel(null)}
