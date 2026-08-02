@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-338%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-349%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -70,7 +70,7 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   enforces screenshot retention — all deduped through `notification_logs`.
 - 🛡️ **Access-gated admin** — the whole admin host sits behind Cloudflare Access (email OTP); the
   SPA and its API are same-origin so the Access JWT reaches the Worker.
-- 🧪 **Real-runtime tests** — 300 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
+- 🧪 **Real-runtime tests** — 349 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
   enforced), not mocks.
 
 ## How a payment flows
@@ -222,14 +222,18 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
   price), preview exactly which bills would be created/repriced and whether a notice goes out, then
   apply. Defaults to the period being collected; pre-opening next month is an explicit opt-in.
   Triggerable from the admin Settings or Discord's `/發起繳費` (which takes an optional 期別 and
-  refuses when a workspace has more than 5 active plans — use the admin UI there).
+  refuses when a workspace has more than 5 active plans — re-checked on modal submit, not just when
+  it opens). A refused Discord send is reported as a failed notice, never as a delivered one: the
+  bills and the open state stay as they really are, and 重發開繳通知 is the way to re-post.
 - **綁定按鈕** — Settings → 工具 → post a persistent public **綁定 Discord** button to the channel so
   members self-link proactively (in addition to binding at first payment).
 - **Push status** — the dashboard shows whether the billing-opened / overdue notices went out, with
   **重發開繳通知** (re-posts the notice only — never creates bills, never clears the open marker),
   **催繳未繳成員** (@s every unpaid member regardless of 逾期天數, unlike the cron) and
   **重置催繳發送紀錄**. The first two show the exact recipients before sending; all three take a
-  confirmation step and report the real counts. Reopening/closing a period lives in 收回本期開繳 on
+  confirmation step and report the real counts — a non-2xx from Discord is reported as a failed
+  send, so the billing notice's `sent_at` is never moved forward and the overdue dedup slot is
+  released so the next run (cron included) can try again. Reopening/closing a period lives in 收回本期開繳 on
   the payments page, not here.
 - **Submission alerts** — set a Bark device key and/or a webhook (Discord / Google Chat / Slack) under
   Settings → 繳費通知; each new submission then pushes you a notice that opens that member's whole

@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-338%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-349%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -64,7 +64,7 @@ ChipPot 解決的是一個很具體的痛點：社團大量採購 OpenAI / Anthr
   `notification_logs` 去重。
 - 🛡️ **Access 保護的後台** — 整個後台主機在 Cloudflare Access 後（email OTP）；SPA 與其 API 同源，
   Access JWT 因此能到達 Worker。
-- 🧪 **真環境測試** — 300 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
+- 🧪 **真環境測試** — 349 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
 
 ## 一筆繳費怎麼跑
 
@@ -209,12 +209,15 @@ pnpm --filter @chippot/worker register
 - **發起繳費** — 確認所選期別各方案金額（任何更動就是該方案的新定價），先看「會建立／改價哪些帳單、
   定價 before→after、是否會發通知」的預覽，確認後才送出。預設期別是**目前收款中的那一期**，
   「預開下期」是要自己勾的次要選項。可從後台「設定」或 Discord 的 `/發起繳費` 觸發
-  （後者可帶 `期別`，方案超過 5 個時會直接請你改用後台）。
+  （後者可帶 `期別`，方案超過 5 個時會直接請你改用後台——開表單與送出表單都會重驗一次）。
+  Discord 沒有回應成功時回報的是「通知發送失敗」而不是已發送：帳單與開繳狀態照實留著，可到推播狀態補送。
 - **綁定按鈕** — 設定 → 工具 → 在帳單頻道張貼一則常駐的公開**綁定 Discord** 按鈕，讓成員主動綁
   （第一次繳費時綁定仍然保留為 fallback）。
 - **推播狀態** — 看板顯示開繳／逾期通知是否已發，並提供 **重發開繳通知**（只重貼公告，不建帳單、
   不會讓期別短暫變回未開繳）、**催繳未繳成員**（@ 全部未繳者，與只 @ 逾期者的每日 cron 不同）
-  與 **重置催繳發送紀錄**。前兩者送出前會先列出實際名單，三者都要再確認一次，並回報真實筆數。
+  與 **重置催繳發送紀錄**。前兩者送出前會先列出實際名單，三者都要再確認一次，並回報真實筆數：
+  Discord 沒回成功就說發送失敗——開繳通知的 `sent_at` 不會被往前推，催繳也會把佔用的去重名額還回去，
+  下次（含每日 cron）才送得出去。
   要把期別改回未開繳請用「繳費審核 → 收回本期開繳」。
 - **繳費通知** — 在設定 → 繳費通知填 Bark 裝置金鑰和／或 webhook（Discord／Google Chat／Slack），
   之後每筆新送出都會推你一則，點開就是該成員當期的合併審核（共用截圖一次、每筆列出、可一鍵核准），
