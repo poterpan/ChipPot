@@ -232,26 +232,40 @@ async function isAdmin(env: Env, ws: number, discordId: string | null): Promise<
 /** Discord modals cap at 5 text inputs; more plans than that cannot be confirmed here. */
 const INITIATE_PLAN_CAP = 5;
 
+interface InitiatePlan { id: number; name: string; monthly_amount: number }
+
+/**
+ * The active plans a 發起繳費 modal has to cover — or the sentence explaining why it cannot be built.
+ *
+ * Refuse rather than silently confirm only the first five: the notice lists EVERY active plan, so a
+ * truncated modal would broadcast the untouched plans at their old prices while the reply claims the
+ * amounts were confirmed. Both the command and the modal SUBMIT go through here: the active set can
+ * change while the form sits open, and it is the set at submit time that the notice will list.
+ */
+async function initiatePlans(env: Env, ws: number): Promise<{ plans: InitiatePlan[]; refusal?: undefined } | { plans?: undefined; refusal: string }> {
+  const plans = (await env.DB
+    .prepare("SELECT id, name, monthly_amount FROM plans WHERE workspace_id = ? AND active = 1 ORDER BY id")
+    .bind(ws)
+    .all<InitiatePlan>()).results;
+  if (plans.length === 0) return { refusal: "沒有啟用中的方案。" };
+  if (plans.length > INITIATE_PLAN_CAP) {
+    return {
+      refusal:
+        `目前有 ${plans.length} 個啟用中的方案，超過 Discord 表單的 ${INITIATE_PLAN_CAP} 欄上限，` +
+        "無法在這裡確認全部金額。請改用後台「設定 → 工具 → 發起繳費」。",
+    };
+  }
+  return { plans };
+}
+
 async function handleInitiateCommand(i: DiscordInteraction, env: Env): Promise<Response> {
   if (!i.guild_id) return ephemeral("此互動需在伺服器內使用。");
   const ws = await getWorkspaceIdByGuild(env.DB, i.guild_id);
   if (!ws) return ephemeral("此伺服器尚未設定繳費系統。");
   if (!(await isAdmin(env, ws, discordUserId(i)))) return ephemeral("你沒有發起繳費的權限。");
 
-  const plans = await env.DB
-    .prepare("SELECT id, name, monthly_amount FROM plans WHERE workspace_id = ? AND active = 1 ORDER BY id")
-    .bind(ws)
-    .all<{ id: number; name: string; monthly_amount: number }>();
-  if (plans.results.length === 0) return ephemeral("沒有啟用中的方案。");
-  // Refuse rather than silently confirm only the first five: the notice lists EVERY active plan, so
-  // a truncated modal would broadcast the untouched plans at their old prices while the reply
-  // claims the amounts were confirmed.
-  if (plans.results.length > INITIATE_PLAN_CAP) {
-    return ephemeral(
-      `目前有 ${plans.results.length} 個啟用中的方案，超過 Discord 表單的 ${INITIATE_PLAN_CAP} 欄上限，` +
-      "無法在這裡確認全部金額。請改用後台「設定 → 工具 → 發起繳費」。"
-    );
-  }
+  const avail = await initiatePlans(env, ws);
+  if (avail.refusal !== undefined) return ephemeral(avail.refusal);
 
   // Default to the period currently being collected — the same default the dashboard, the payments
   // list and the admin 發起繳費 modal use. To pre-open a later month, pass 期別 explicitly.
@@ -259,7 +273,7 @@ async function handleInitiateCommand(i: DiscordInteraction, env: Env): Promise<R
   const typed = getOption(i, "期別")?.value?.trim();
   const period = typed || periodForBillingDay(wsRow?.billing_day ?? 1);
   if (!PERIOD_RE.test(period)) return ephemeral("期別格式需為 `YYYY-MM`，例如 `2026-07`。");
-  return json(initiateModal(ws, period, plans.results));
+  return json(initiateModal(ws, period, avail.plans));
 }
 
 async function handleModalSubmit(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -272,14 +286,35 @@ async function handleModalSubmit(i: DiscordInteraction, env: Env, ctx: Execution
   return ephemeral("未支援的表單。");
 }
 
+/**
+ * zh-TW for an apply's notify_reason. The old reply said "先前已發送" for every non-send, which was
+ * a guess: a missing channel, an empty plan list and a refused send all reached that sentence.
+ */
+function initiateNoticeNote(reason: string, period: string): string {
+  switch (reason) {
+    case "already_sent": return `${period} 的開繳通知先前已發送，未重複發送。`;
+    case "no_channel": return "尚未設定繳費頻道 ID，未發出開繳通知。";
+    case "no_bot_token": return "尚未設定 Discord bot token，未發出開繳通知。";
+    case "no_plans": return "沒有任何「啟用中方案 × 有效訂閱」，未發出開繳通知（本期仍維持未開繳）。";
+    case "send_failed": return "開繳通知發送失敗（本期已開繳、帳單已建立），請稍後到後台「推播狀態 → 重發開繳通知」再試一次。";
+    default: return "未發出開繳通知。";
+  }
+}
+
 async function deferredInitiate(i: DiscordInteraction, env: Env): Promise<void> {
   let content: string;
   try {
     const parts = (i.data!.custom_id ?? "").split(":"); // chippot:initiate:<ws>:<period>
     const ws = Number(parts[2]);
     const period = parts[3]!;
+    // Re-validate the active set at SUBMIT time, not just when the modal opened: a plan activated
+    // while the form was on screen would otherwise be broadcast at its old price by a reply that
+    // claims every amount was confirmed. Same refusal sentence as the command.
+    const avail = await initiatePlans(env, ws);
     if (!(await isAdmin(env, ws, discordUserId(i)))) {
       content = "你沒有發起繳費的權限。";
+    } else if (avail.refusal) {
+      content = avail.refusal;
     } else {
       const amounts: { plan_id: number; amount: number }[] = [];
       for (const row of i.data!.components ?? []) {
@@ -293,9 +328,10 @@ async function deferredInitiate(i: DiscordInteraction, env: Env): Promise<void> 
         }
       }
       const r = await initiateBillingOpened(env, ws, period, { amounts }, `discord:${discordUserId(i)}`, discordNotifier);
+      const writes = `新增 ${r.createdPayments} 筆帳單、更新 ${r.updatedPlans} 個方案定價、${r.updatedPayments} 筆待繳金額`;
       content = r.sent
-        ? `✅ 已發起 ${period} 繳費並發出通知（新增 ${r.createdPayments} 筆帳單、更新 ${r.updatedPlans} 個方案定價、${r.updatedPayments} 筆待繳金額）。`
-        : `✅ 已更新 ${period} 金額（新增 ${r.createdPayments} 筆帳單、更新 ${r.updatedPlans} 個方案、${r.updatedPayments} 筆待繳）。${period} 的開繳通知先前已發送，未重複發送。`;
+        ? `✅ 已發起 ${period} 繳費並發出通知（${writes}）。`
+        : `${r.notifyReason === "send_failed" ? "⚠️" : "✅"} 已更新 ${period} 金額（${writes}）。${initiateNoticeNote(r.notifyReason, period)}`;
     }
   } catch (err) {
     console.error("initiate modal failed", err);

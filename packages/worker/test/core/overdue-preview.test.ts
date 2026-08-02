@@ -14,9 +14,9 @@ const EMPTY_PERIOD = "2098-07";
 
 const sent: { people: OverduePerson[] }[] = [];
 const notifier: Notifier = {
-  async sendBillingOpened() {},
-  async sendOverdue(_e, _ch, _p, people, _t) { sent.push({ people }); },
-  async sendPaymentNudge() {},
+  async sendBillingOpened() { return true; },
+  async sendOverdue(_e, _ch, _p, people, _t) { sent.push({ people }); return true; },
+  async sendPaymentNudge() { return true; },
 };
 
 beforeAll(async () => {

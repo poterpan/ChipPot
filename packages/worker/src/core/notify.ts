@@ -15,12 +15,20 @@ export interface OverduePerson {
   total: number;
 }
 
-/** Channel-agnostic notification sink (Discord impl in adapters/discord/notify.ts). */
+/**
+ * Channel-agnostic notification sink (Discord impl in adapters/discord/notify.ts).
+ *
+ * CONTRACT: every method resolves to `true` only when the channel CONFIRMED delivery (a 2xx).
+ * A false is what lets callers keep `sent` / `sent_at` / counts / audit outcomes honest — issue #43
+ * is precisely that a swallowed non-2xx used to be reported to the admin as a delivered notice.
+ * Implementations must not throw for a refused send; a transport error is a `false`, not an
+ * exception, because the caller has already committed writes it cannot roll back.
+ */
 export interface Notifier {
-  sendBillingOpened(env: Env, channelId: string, period: string, lines: PlanOpenLine[], template: string): Promise<void>;
-  sendOverdue(env: Env, channelId: string, period: string, people: OverduePerson[], template: string): Promise<void>;
+  sendBillingOpened(env: Env, channelId: string, period: string, lines: PlanOpenLine[], template: string): Promise<boolean>;
+  sendOverdue(env: Env, channelId: string, period: string, people: OverduePerson[], template: string): Promise<boolean>;
   /** Targeted nudge for members newly added to a period (e.g. after reconcile): @-mention them + pay button. */
-  sendPaymentNudge(env: Env, channelId: string, workspaceId: number, period: string, people: OverduePerson[]): Promise<void>;
+  sendPaymentNudge(env: Env, channelId: string, workspaceId: number, period: string, people: OverduePerson[]): Promise<boolean>;
 }
 
 export interface NotificationKey {

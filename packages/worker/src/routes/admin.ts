@@ -104,7 +104,9 @@ async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<R
   const r = await initiateBillingOpened(
     env, ws, period, { amounts: b!.amounts }, actorOf(ctx), discordNotifier
   );
-  return json({ ok: true, sent: r.sent, updated_plans: r.updatedPlans, created_payments: r.createdPayments, updated_payments: r.updatedPayments });
+  // notify_reason travels with the apply so the UI explains THIS call's outcome instead of
+  // repeating the (by then stale) preview's prediction as fact.
+  return json({ ok: true, sent: r.sent, notify_reason: r.notifyReason, updated_plans: r.updatedPlans, created_payments: r.createdPayments, updated_payments: r.updatedPayments });
 }
 
 /**
@@ -141,9 +143,10 @@ async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<R
         e.total += a.amount;
       }
       const people = [...byUser.values()];
-      // The reconcile is already committed; a Discord hiccup must not turn a successful apply into a 500.
+      // The reconcile is already committed; a Discord hiccup must not turn a successful apply into a
+      // 500. `notified` counts confirmed pings only — the notifier reports a refused send as false.
       if (people.length) {
-        try { await discordNotifier.sendPaymentNudge(env, channelId, ws, period, people); notified = people.length; }
+        try { if (await discordNotifier.sendPaymentNudge(env, channelId, ws, period, people)) notified = people.length; }
         catch { notified = 0; }
       }
     }
@@ -859,8 +862,9 @@ async function discordPaymentMessage(_req: Request, env: Env, ctx: RouteCtx): Pr
   let ok = false;
   if (messageId) ok = await editChannelMessage(env.DISCORD_BOT_TOKEN, channelId, messageId, body);
   if (!ok) {
-    messageId = (await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body)) ?? "";
-    ok = !!messageId;
+    const created = await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body);
+    messageId = created.id ?? "";
+    ok = created.ok && !!messageId; // the id is what we persist, so a 2xx without one is still a failure here
   }
   if (!ok) return errorResponse(502, "failed to post Discord message");
 
@@ -887,8 +891,9 @@ async function discordBindMessage(_req: Request, env: Env, ctx: RouteCtx): Promi
   let ok = false;
   if (messageId) ok = await editChannelMessage(env.DISCORD_BOT_TOKEN, channelId, messageId, body);
   if (!ok) {
-    messageId = (await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body)) ?? "";
-    ok = !!messageId;
+    const created = await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body);
+    messageId = created.id ?? "";
+    ok = created.ok && !!messageId; // the id is what we persist, so a 2xx without one is still a failure here
   }
   if (!ok) return errorResponse(502, "failed to post Discord message");
 

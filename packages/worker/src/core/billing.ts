@@ -112,7 +112,10 @@ export interface InitiateInput {
 }
 
 export interface InitiateResult {
+  /** True only when the channel confirmed the notice (Notifier contract) — never a hopeful guess. */
   sent: boolean;
+  /** Why the notice did / did not go out. The apply's own truth, not the preview's prediction. */
+  notifyReason: InitiateNotifyOutcome;
   updatedPlans: number;
   /** Bills this call actually created for the period (0 on a re-run — the insert is idempotent). */
   createdPayments: number;
@@ -126,6 +129,10 @@ export interface InitiateResult {
  * period's still-PENDING payment amounts (paid/verified are frozen), then post the
  * billing-opened notice — claiming the same dedup slot the cron uses, so a manual trigger and
  * the cron can never both notify.
+ *
+ * `sent` is only ever true for a notice the channel confirmed, and `notifyReason` says why when it
+ * is not; the writes above happen either way and are reported exactly as they landed. The result is
+ * the apply's own account of itself — nothing here is inferred from what the preview predicted.
  */
 export async function initiateBillingOpened(
   env: Env,
@@ -189,35 +196,50 @@ export async function initiateBillingOpened(
   const ws = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(workspaceId).first<{ settings: string }>();
   const settings = parseSettings(ws!.settings);
   const channelId = settings.discord_billing_channel_id;
+
+  // The notice lines are computed BEFORE anything is claimed. The billing_opened row is not a send
+  // log — it IS "this period is open" — so a call with nothing to announce must never leave one
+  // behind: that state ("opened, but nobody was ever told") is only undoable via 收回本期開繳.
+  // previewBillingInitiate already calls this case no_plans, and the two must say the same thing.
+  const lines: PlanOpenLine[] = subs.results
+    .map((s) => planById.get(s.plan_id))
+    .filter((p): p is NonNullable<typeof p> => !!p && p.active === 1)
+    .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i) // dedupe plans
+    .map((p) => ({
+      plan_id: p.id, plan_name: p.name, role_id: p.discord_role_id,
+      amount: amountByPlan.get(p.id) ?? p.monthly_amount,
+    }));
+
   let sent = false;
-  if (channelId && env.DISCORD_BOT_TOKEN) {
-    if (await claimNotification(env.DB, { workspaceId, type: "billing_opened", period })) {
-      const lines: PlanOpenLine[] = subs.results
-        .map((s) => planById.get(s.plan_id))
-        .filter((p): p is NonNullable<typeof p> => !!p && p.active === 1)
-        .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i) // dedupe plans
-        .map((p) => ({
-          plan_id: p.id, plan_name: p.name, role_id: p.discord_role_id,
-          amount: amountByPlan.get(p.id) ?? p.monthly_amount,
-        }));
-      if (lines.length > 0) {
-        await notifier.sendBillingOpened(env, channelId, period, lines, settings.billing_opened_template);
-        sent = true;
-      }
-    }
+  let notifyReason: InitiateNotifyOutcome;
+  if (!channelId) notifyReason = "no_channel";
+  else if (!env.DISCORD_BOT_TOKEN) notifyReason = "no_bot_token";
+  // Read the marker before testing the lines, in exactly the order previewBillingInitiate reports
+  // its reasons, so the apply can never contradict the sentence the admin just confirmed. The
+  // claim below is still what makes at-most-once atomic; this read only picks the honest wording.
+  else if (await isBillingOpened(env.DB, workspaceId, period)) notifyReason = "already_sent";
+  else if (lines.length === 0) notifyReason = "no_plans";
+  else if (!(await claimNotification(env.DB, { workspaceId, type: "billing_opened", period }))) notifyReason = "already_sent";
+  else {
+    // Past the claim the period IS open (the bills above are already committed). A refused send is
+    // reported as send_failed and the marker STAYS: releasing it would strand those bills in a
+    // period nobody can pay — the half-retract routes/admin.ts refuses to create. The way back is
+    // 重發開繳通知, which re-posts the notice without touching bills or prices.
+    sent = await notifier.sendBillingOpened(env, channelId, period, lines, settings.billing_opened_template);
+    notifyReason = sent ? "ok" : "send_failed";
   }
 
   await writeAudit(env.DB, {
     workspaceId, actor, action: "billing.initiate", entityType: "workspace", entityId: workspaceId,
-    after: { period, updatedPlans, createdPayments, updatedPayments, sent },
+    after: { period, updatedPlans, createdPayments, updatedPayments, sent, notify_reason: notifyReason },
   });
 
-  return { sent, updatedPlans, createdPayments, updatedPayments };
+  return { sent, notifyReason, updatedPlans, createdPayments, updatedPayments };
 }
 
 // ── "立即重發開繳通知" (re-post the notice only — never touches bills or prices) ──
 
-export type ResendOutcome = "sent" | "preview" | "not_opened" | "no_channel" | "no_bot_token" | "no_plans";
+export type ResendOutcome = "sent" | "preview" | "not_opened" | "no_channel" | "no_bot_token" | "no_plans" | "send_failed";
 
 export interface ResendBillingResult {
   outcome: ResendOutcome;
@@ -236,6 +258,9 @@ export interface ResendBillingResult {
  *
  * The plan lines come from the SAME query the cron uses (scheduled.ts step 2), so the admin resend
  * and the automatic notice can never list a different set of plans.
+ *
+ * A refused send returns `send_failed` and leaves the row untouched — including its sent_at, which
+ * 推播狀態 shows as the last time this notice really went out.
  */
 export async function resendBillingOpenedNotice(
   env: Env,
@@ -267,7 +292,12 @@ export async function resendBillingOpenedNotice(
   if (lines.length === 0) return { outcome: "no_plans", sent: false, lines };
   if (opts.dryRun) return { outcome: "preview", sent: false, lines };
 
-  await notifier.sendBillingOpened(env, channelId, period, lines, settings.billing_opened_template);
+  // sent_at is "the last time this notice actually reached the channel", and 推播狀態 prints it as
+  // fact. A refused send therefore updates nothing at all — the row keeps the older, true timestamp
+  // and the admin gets send_failed instead of a fresh "已發送" for a message nobody received.
+  if (!(await notifier.sendBillingOpened(env, channelId, period, lines, settings.billing_opened_template))) {
+    return { outcome: "send_failed", sent: false, lines };
+  }
   await env.DB
     .prepare("UPDATE notification_logs SET sent_at = ? WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?")
     .bind(nowUtcIso(), workspaceId, period)
@@ -278,6 +308,8 @@ export async function resendBillingOpenedNotice(
 // ── "發起繳費" dry run (what an initiate would change, before it changes it) ────
 
 export type InitiateNotifyReason = "ok" | "already_sent" | "no_channel" | "no_bot_token" | "no_plans";
+/** The apply's vocabulary: the preview's reasons plus the one only a real send can produce. */
+export type InitiateNotifyOutcome = InitiateNotifyReason | "send_failed";
 
 export interface InitiatePlanChange {
   plan_id: number;

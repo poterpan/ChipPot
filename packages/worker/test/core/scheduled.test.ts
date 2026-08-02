@@ -12,9 +12,9 @@ const NOW = new Date("2026-07-04T16:30:00.000Z"); // = Taipei 2026-07-05 00:30 -
 
 const sent = { billing: [] as { period: string; lines: PlanOpenLine[] }[], overdue: [] as { period: string; people: OverduePerson[] }[] };
 const notifier: Notifier = {
-  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.billing.push({ period, lines }); },
-  async sendOverdue(_e, _ch, period, people, _t) { sent.overdue.push({ period, people }); },
-  async sendPaymentNudge() {},
+  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.billing.push({ period, lines }); return true; },
+  async sendOverdue(_e, _ch, period, people, _t) { sent.overdue.push({ period, people }); return true; },
+  async sendPaymentNudge() { return true; },
 };
 
 beforeAll(async () => {

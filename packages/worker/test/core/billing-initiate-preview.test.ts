@@ -11,7 +11,7 @@ const SUB_A = 9830, SUB_B = 98301, SUB_C = 98302;
 const CHAN = "chan-9830";
 const PERIOD = "2096-04";
 
-const notifier: Notifier = { async sendBillingOpened() {}, async sendOverdue() {}, async sendPaymentNudge() {} };
+const notifier: Notifier = { async sendBillingOpened() { return true; }, async sendOverdue() { return true; }, async sendPaymentNudge() { return true; } };
 
 beforeAll(async () => {
   (env as any).DISCORD_BOT_TOKEN = "test-bot-token";

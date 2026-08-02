@@ -475,10 +475,16 @@ function InitiateModal({ plans, billingDay, dirty, onClose }: { plans: { id: num
     try {
       const r = await api.initiateBilling({ ...payload(), dry_run: false }) as InitiateApplied;
       setMsg(
-        `✓ 已發起 ${period}：新增 ${r.created_payments} 筆帳單、改價 ${r.updated_payments} 筆、更新 ${r.updated_plans} 個方案定價。` +
-        // The apply response carries no reason, so an unexpected sent:false falls back to a plain
-        // "沒送出" rather than repeating the preview's (now stale) prediction as fact.
-        (r.sent ? "已在頻道發出開繳通知。" : `未發送通知：${NOTIFY_REASON_TEXT[preview?.notify_reason ?? ""] ?? "通知未送出"}。`)
+        `${r.sent || r.notify_reason !== "send_failed" ? "✓" : "⚠️"} 已發起 ${period}：新增 ${r.created_payments} 筆帳單、改價 ${r.updated_payments} 筆、更新 ${r.updated_plans} 個方案定價。` +
+        // The reason comes from THIS apply, not from the preview: the preview only predicted, and a
+        // send can still be refused after it. send_failed adds where the period stands and the
+        // way out, because that outcome — unlike the others — leaves an opened period behind.
+        (r.sent
+          ? "已在頻道發出開繳通知。"
+          : `未發送通知：${NOTIFY_REASON_TEXT[r.notify_reason] ?? "通知未送出"}。` +
+            (r.notify_reason === "send_failed"
+              ? "本期已開繳、帳單已建立，可到「儀表板 → 推播狀態 → 重發開繳通知」補送。"
+              : ""))
       );
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);

@@ -66,7 +66,7 @@ export interface RetractApplied { ok: boolean; opened: boolean; applied: { remov
  */
 export interface ResendBillingPreview {
   ok: true; dry_run: boolean;
-  outcome: "sent" | "preview" | "not_opened" | "no_channel" | "no_bot_token" | "no_plans";
+  outcome: "sent" | "preview" | "not_opened" | "no_channel" | "no_bot_token" | "no_plans" | "send_failed";
   sent: boolean;
   lines: { plan_id: number; plan_name: string; amount: number; role_id: string | null }[];
 }
@@ -77,7 +77,7 @@ export interface ResendBillingPreview {
  */
 export interface OverduePreview {
   ok: true; dry_run: boolean;
-  outcome: "sent" | "preview" | "no_channel" | "no_bot_token" | "none_due" | "already_sent";
+  outcome: "sent" | "preview" | "no_channel" | "no_bot_token" | "none_due" | "already_sent" | "send_failed";
   count: number; overdue_days: number;
   people: { user_id: number; user_name: string; discord_id: string | null; total: number }[];
 }
@@ -90,6 +90,8 @@ export interface InitiatePreview {
 }
 export interface InitiateApplied {
   ok: true; sent: boolean; updated_plans: number; created_payments: number; updated_payments: number;
+  /** THIS apply's reason (the preview's is a prediction). `send_failed` is apply-only. */
+  notify_reason: "ok" | "already_sent" | "no_channel" | "no_bot_token" | "no_plans" | "send_failed";
 }
 
 /**
@@ -107,6 +109,9 @@ export const NOTIFY_REASON_TEXT: Record<string, string> = {
   already_sent: "本期開繳通知先前已發送，不會重複發送",
   not_opened: "此期尚未開繳",
   none_due: "本期沒有未繳的成員",
+  // Discord did not answer 2xx. Deliberately says nothing about what was written: the three callers
+  // (發起繳費 / 重發開繳通知 / 催繳) leave very different states behind, so each adds its own clause.
+  send_failed: "Discord 沒有回應成功（發送失敗），可稍後再試一次",
 };
 export interface ImportUserLine { user_id: number | null; user_name: string; email: string }
 export interface ImportSubLine {
@@ -137,7 +142,7 @@ export const api = {
   notifications: (period: string) => req<{ billing_opened: { sent_at: string } | null; overdue: { sent_at: string } | null }>("GET", `/notifications${qs({ period })}`),
   resendNotification: (type: string, period: string, opts: { dry_run: boolean }) =>
     req<ResendBillingPreview | OverduePreview>("POST", "/notifications/resend", { type, period, ...opts }),
-  resetNotification: (type: string, period: string) => req<{ deleted: number }>("POST", "/notifications/reset", { type, period }),
+  resetNotification: (type: string, period: string) => req<{ ok: boolean; deleted: number }>("POST", "/notifications/reset", { type, period }),
   testNotification: (b: { kind: "bark" | "webhook"; bark_key?: string; bark_server?: string; webhook_url?: string; template?: string }) =>
     req<{ ok: boolean; status?: number; error?: string }>("POST", "/notifications/test", b),
   initiateBilling: (b: { period: string; amounts: { plan_id: number; amount: number }[]; dry_run: boolean }) =>

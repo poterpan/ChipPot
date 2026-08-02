@@ -14,9 +14,9 @@ const UNOPENED = "2027-04"; // 沒有
 
 const sent: { period: string; lines: PlanOpenLine[] }[] = [];
 const notifier: Notifier = {
-  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.push({ period, lines }); },
-  async sendOverdue() {},
-  async sendPaymentNudge() {},
+  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.push({ period, lines }); return true; },
+  async sendOverdue() { return true; },
+  async sendPaymentNudge() { return true; },
 };
 
 beforeAll(async () => {
