@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-300%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-338%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -218,12 +218,19 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
 - **重新同步本期帳單** — on Payments, re-align the selected opened period's bills to the current
   roster/price (add missing · remove de-subscribed · reprice pending · freeze settled), with a preview
   before applying and an option to ping newly-added members with the pay button.
-- **發起繳費** — confirm this period's per-plan amounts (any change becomes the plan's new price),
-  then post the billing-opened notice. Triggerable from the admin Settings or Discord's `/發起繳費`.
+- **發起繳費** — confirm the selected period's per-plan amounts (any change becomes the plan's new
+  price), preview exactly which bills would be created/repriced and whether a notice goes out, then
+  apply. Defaults to the period being collected; pre-opening next month is an explicit opt-in.
+  Triggerable from the admin Settings or Discord's `/發起繳費` (which takes an optional 期別 and
+  refuses when a workspace has more than 5 active plans — use the admin UI there).
 - **綁定按鈕** — Settings → 工具 → post a persistent public **綁定 Discord** button to the channel so
   members self-link proactively (in addition to binding at first payment).
 - **Push status** — the dashboard shows whether the billing-opened / overdue notices went out, with
-  **Resend now** (force) and **Reset** controls.
+  **重發開繳通知** (re-posts the notice only — never creates bills, never clears the open marker),
+  **催繳未繳成員** (@s every unpaid member regardless of 逾期天數, unlike the cron) and
+  **重置催繳發送紀錄**. The first two show the exact recipients before sending; all three take a
+  confirmation step and report the real counts. Reopening/closing a period lives in 收回本期開繳 on
+  the payments page, not here.
 - **Submission alerts** — set a Bark device key and/or a webhook (Discord / Google Chat / Slack) under
   Settings → 繳費通知; each new submission then pushes you a notice that opens that member's whole
   period for review (shared screenshot once, every row listed, 一鍵全部核准), phone-friendly. Both
