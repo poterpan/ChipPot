@@ -14,15 +14,32 @@ import { DiffList } from "../components/DiffList";
  * the table points there, and the API returns 409 if anything tries anyway.
  */
 export function PushStatus({ period }: { period: string }) {
-  const { data, reload } = useAsync(() => api.notifications(period), [period]);
+  const { data, error, reload } = useAsync(() => api.notifications(period), [period]);
   const [open, setOpen] = useState<"resend" | "overdue" | "reset" | null>(null);
 
-  const sentLabel = (at: string | null | undefined) => (at ? `已發送 ${at}` : "未發送");
+  // 未發送 is a claim, so it is only ever printed when the fetch actually said so. Without data the
+  // card says it does not know, and every button here is held: each one either posts to the public
+  // channel or lets the cron post again, and the modal's dry-run cannot guard the gap because the
+  // API that just failed is the same one it would ask.
+  const unknown = error ? "狀態不明" : data ? null : "載入中…";
+  const sentLabel = (at: string | null | undefined) => unknown ?? (at ? `已發送 ${at}` : "未發送");
+  const holdReason = error
+    ? "目前讀不到推播狀態，無法確認是否已經發送過——請先重試。"
+    : data ? undefined : "推播狀態載入中…";
+
   const close = () => setOpen(null);
   const done = () => { reload(); };
 
   return (
     <Card title="推播狀態">
+      {error && (
+        <div style={{ padding: "14px 20px 0" }}>
+          <div className="error-banner" style={{ marginBottom: 0, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+            <span>讀不到推播狀態：{error}</span>
+            <button className="btn" onClick={reload}>重試</button>
+          </div>
+        </div>
+      )}
       <div className="tbl">
         <table>
           <thead><tr><th>通知</th><th>狀態</th><th></th></tr></thead>
@@ -31,15 +48,15 @@ export function PushStatus({ period }: { period: string }) {
               <td>開繳通知</td>
               <td className="mono" style={{ fontSize: 12.5 }}>{sentLabel(data?.billing_opened?.sent_at)}</td>
               <td className="right">
-                <button className="btn btn--danger" onClick={() => setOpen("resend")}>重發開繳通知…</button>
+                <button className="btn btn--danger" disabled={!!holdReason} title={holdReason} onClick={() => setOpen("resend")}>重發開繳通知…</button>
               </td>
             </tr>
             <tr>
               <td>逾期催繳</td>
               <td className="mono" style={{ fontSize: 12.5 }}>{sentLabel(data?.overdue?.sent_at)}</td>
               <td className="right">
-                <button className="btn btn--danger" onClick={() => setOpen("overdue")}>催繳未繳成員…</button>{" "}
-                <button className="btn btn--danger" onClick={() => setOpen("reset")}>重置催繳發送紀錄…</button>
+                <button className="btn btn--danger" disabled={!!holdReason} title={holdReason} onClick={() => setOpen("overdue")}>催繳未繳成員…</button>{" "}
+                <button className="btn btn--danger" disabled={!!holdReason} title={holdReason} onClick={() => setOpen("reset")}>重置催繳發送紀錄…</button>
               </td>
             </tr>
           </tbody>
