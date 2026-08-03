@@ -15,6 +15,7 @@ const notifier: Notifier = {
   async sendBillingOpened(_e, _ch, period, lines, _t) { sent.billing.push({ period, lines }); return true; },
   async sendOverdue(_e, _ch, period, people, _t) { sent.overdue.push({ period, people }); return true; },
   async sendPaymentNudge() { return true; },
+  async sendPaymentReceipt() { return true; },
 };
 
 beforeAll(async () => {

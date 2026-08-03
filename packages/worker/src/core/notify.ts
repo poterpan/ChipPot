@@ -15,6 +15,21 @@ export interface OverduePerson {
   total: number;
 }
 
+export type ReceiptKind = "reject" | "verify";
+export interface ReceiptLine {
+  plan_name: string;
+  amount: number;
+}
+/** One member's one period — a receipt always answers "你這期那幾筆怎麼了". */
+export interface ReceiptTarget {
+  user_id: number;
+  discord_id: string | null;
+  user_name: string;
+  period: string;
+  lines: ReceiptLine[];
+  total: number;
+}
+
 /**
  * Channel-agnostic notification sink (Discord impl in adapters/discord/notify.ts).
  *
@@ -29,6 +44,15 @@ export interface Notifier {
   sendOverdue(env: Env, channelId: string, period: string, people: OverduePerson[], template: string): Promise<boolean>;
   /** Targeted nudge for members newly added to a period (e.g. after reconcile): @-mention them + pay button. */
   sendPaymentNudge(env: Env, channelId: string, workspaceId: number, period: string, people: OverduePerson[]): Promise<boolean>;
+  /**
+   * 審核結果回條: tell the member their submission was 退回 (with the reason) or 確認. Delivered in
+   * the billing channel with an @-mention — the Discord adapter has no DM capability, and every
+   * other member-facing message in this system already lands there.
+   */
+  sendPaymentReceipt(
+    env: Env, channelId: string, workspaceId: number, kind: ReceiptKind,
+    target: ReceiptTarget, reason: string | null
+  ): Promise<boolean>;
 }
 
 export interface NotificationKey {
