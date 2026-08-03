@@ -90,13 +90,22 @@ export async function releaseSlot(db: D1Database, id: number): Promise<number> {
 }
 
 /**
+ * A slot that may be released. billing_opened is excluded at the type level: that row is not a send
+ * log, it IS the definition of "this period is open" (isBillingOpened, core/db.ts
+ * listOpenPayablePeriods), so deleting it alone leaves pending bills standing in a period members
+ * can no longer pay — a half retract. routes/admin.ts:250 409s the same request for the same
+ * reason; releasing it is only ever correct as part of 收回本期開繳 (core/billing.ts).
+ */
+export type ReleasableKey = NotificationKey & { type: Exclude<NotificationKey["type"], "billing_opened"> };
+
+/**
  * Give a claimed slot back so a genuinely new event can announce again. Two uses: an outbound send
  * that the Notifier did not confirm (never mute a bill forever because Discord hiccuped — the
  * release-on-false precedent is sendOverdueForPeriod in core/scheduled.ts), and an admin's explicit
  * 重發, which releases before claiming so the claim below always wins (also core/scheduled.ts, the
  * `force` branch). Omitting `event` releases every event of that entity. Returns rows deleted.
  */
-export async function releaseNotification(db: D1Database, k: NotificationKey): Promise<number> {
+export async function releaseNotification(db: D1Database, k: ReleasableKey): Promise<number> {
   const conds = ["workspace_id = ?", "type = ?", "period = ?", "plan_id = ?", "user_id = ?", "subscription_id = ?"];
   const binds: unknown[] = [k.workspaceId, k.type, k.period, k.planId ?? 0, k.userId ?? 0, k.subscriptionId ?? 0];
   if (k.event !== undefined) { conds.push("event = ?"); binds.push(k.event); }

@@ -58,6 +58,18 @@ describe("notification slots", () => {
     expect(await claimNotification(env.DB, { ...base, workspaceId: WS + 1 })).toBe(false);
   });
 
+  // The billing_opened row is the definition of "this period is open", so releasing it alone would
+  // be a half retract. tsconfig includes test/, so this @ts-expect-error is checked by `pnpm
+  // typecheck` — if the guard is ever widened back, the unused directive fails the build.
+  it("refuses to release the billing_opened marker (compile-time)", async () => {
+    const marker = { workspaceId: WS, type: "billing_opened" as const, period: P };
+    // @ts-expect-error billing_opened is excluded from ReleasableKey; retract it via core/billing.ts.
+    const release = () => releaseNotification(env.DB, marker);
+    expect(release).toBeTypeOf("function"); // never called: the point is that it does not compile
+    // The runtime path stays reachable through the claim/isBillingOpened pair it belongs to.
+    expect(await claimNotification(env.DB, marker)).toBe(false); // already claimed above
+  });
+
   it("releaseReceiptSlots frees a member's whole period, across subscriptions", async () => {
     const a = { workspaceId: WS, type: "receipt" as const, period: P, userId: 6, subscriptionId: 61, event: "reject" };
     const b = { workspaceId: WS, type: "receipt" as const, period: P, userId: 6, subscriptionId: 62, event: "verify" };
