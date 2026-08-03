@@ -287,8 +287,9 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
   .tbl-cards td:first-child::before { display: none; }
   /* opening the member's aggregate review is the card's primary action — size it for a thumb */
   .tbl-cards td:first-child .linkbtn { display: inline-flex; align-items: center; min-height: 32px; }
-  /* the trailing action cell gets one full-width, thumb-sized button */
-  .tbl-cards td:last-child { padding-top: 9px; }
+  /* the trailing action cell: one full-width button, or 2-3 equal thumb-sized ones.
+     width:100% on every child + the cell's own flex shrink = equal shares, no per-count rules. */
+  .tbl-cards td:last-child { padding-top: 9px; gap: 8px; }
   .tbl-cards td:last-child .btn { width: 100%; min-height: 42px; justify-content: center; }
   /* the loading / empty placeholder row is one plain cell, not a labelled card slot */
   .tbl-cards td[colspan] { display: block; padding: 0; font-size: 14px; font-weight: 400; }

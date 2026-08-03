@@ -17,13 +17,15 @@ export function Users() {
       {error && <div className="error-banner">{error}</div>}
       <Card title="成員" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>}>
         <div className="tbl">
-          <table>
+          <table className="tbl-cards">
             <thead><tr><th>名稱</th><th>Discord ID</th><th>Email</th><th></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={4}><Empty>載入中…</Empty></td></tr>}
               {data?.users.map((u) => (
                 <tr key={u.id}>
-                  <td>{u.display_name}</td><td className="mono" style={{ fontSize: 12.5 }}>{u.discord_id ?? "—"}</td><td>{u.email ?? "—"}</td>
+                  <td data-label="名稱">{u.display_name}</td>
+                  <td data-label="Discord ID" className="mono" style={{ fontSize: 12.5 }}>{u.discord_id ?? "—"}</td>
+                  <td data-label="Email">{u.email ?? "—"}</td>
                   <td className="right">
                     <button className="btn" onClick={() => setEdit(u)}>編輯</button>{" "}
                     <button className="btn btn--danger" onClick={() => setDel(u)}>刪除</button>
@@ -105,13 +107,17 @@ export function Subscriptions() {
       {error && <div className="error-banner">{error}</div>}
       <Card title="訂閱" action={<button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱</button>}>
         <div className="tbl">
-          <table>
+          <table className="tbl-cards">
             <thead><tr><th>成員</th><th>方案</th><th>狀態</th><th>起算日</th><th className="right">結帳日</th><th></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6}><Empty>載入中…</Empty></td></tr>}
               {data?.subscriptions.map((s) => (
                 <tr key={s.id}>
-                  <td>{s.user_name}</td><td>{s.plan_name}</td><td>{s.status}</td><td className="mono">{s.start_date}</td><td className="right mono">{s.billing_day}</td>
+                  <td data-label="成員">{s.user_name}</td>
+                  <td data-label="方案">{s.plan_name}</td>
+                  <td data-label="狀態">{s.status}</td>
+                  <td data-label="起算日" className="mono">{s.start_date}</td>
+                  <td data-label="結帳日" className="right mono">{s.billing_day}</td>
                   <td className="right">
                     <button className="btn" onClick={() => setEdit(s)}>編輯</button>{" "}
                     <button className="btn btn--danger" onClick={() => setDel(s)}>刪除</button>
@@ -199,14 +205,17 @@ export function Plans() {
           </div>
         )}
         <div className="tbl">
-          <table>
+          <table className="tbl-cards">
             <thead><tr><th>名稱</th><th>provider</th><th className="right">月費</th><th>身分組 ID</th><th>啟用</th><th></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6}><Empty>載入中…</Empty></td></tr>}
               {shown.map((p) => (
                 <tr key={p.id}>
-                  <td>{p.name}</td><td>{p.provider}</td><td className="right mono">NT${p.monthly_amount}</td>
-                  <td className="mono" style={{ fontSize: 12 }}>{p.discord_role_id ?? "—"}</td><td>{p.active ? "✓" : "—"}</td>
+                  <td data-label="名稱">{p.name}</td>
+                  <td data-label="provider">{p.provider}</td>
+                  <td data-label="月費" className="right mono">NT${p.monthly_amount}</td>
+                  <td data-label="身分組 ID" className="mono" style={{ fontSize: 12 }}>{p.discord_role_id ?? "—"}</td>
+                  <td data-label="啟用">{p.active ? "✓" : "—"}</td>
                   <td className="right">
                     <button className="btn" onClick={() => setEdit(p)}>編輯</button>{" "}
                     <button className="btn btn--danger" disabled={(p.subscription_count ?? 0) > 0} title={(p.subscription_count ?? 0) > 0 ? "使用中，請先刪除訂閱或停用" : ""} onClick={() => setDel(p)}>刪除</button>
@@ -288,15 +297,17 @@ export function ChannelTags() {
       {(error || actErr) && <div className="error-banner">{error || actErr}</div>}
       <Card title="支付渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道</button>}>
         <div className="tbl">
-          <table>
+          <table className="tbl-cards">
             <thead><tr><th>名稱</th><th>類型</th><th className="right">排序</th><th>狀態</th><th></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={5}><Empty>載入中…</Empty></td></tr>}
               {data?.channel_tags.map((t) => (
                 // Disabled channels dim the whole row so it's obvious at a glance which are off.
                 <tr key={t.id} style={t.active ? undefined : { color: "var(--muted)" }}>
-                  <td>{t.name}</td><td>{t.type ? (CHANNEL_TYPE_LABEL[t.type] ?? t.type) : "—"}</td><td className="right mono">{t.sort_order}</td>
-                  <td>
+                  <td data-label="名稱">{t.name}</td>
+                  <td data-label="類型">{t.type ? (CHANNEL_TYPE_LABEL[t.type] ?? t.type) : "—"}</td>
+                  <td data-label="排序" className="right mono">{t.sort_order}</td>
+                  <td data-label="狀態">
                     <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11.5, whiteSpace: "nowrap", ...(t.active ? { color: "var(--teal-ink)" } : { background: "#efe8da", color: "#8a7d63" }) }}>
                       {t.active ? "啟用中" : "已停用"}
                     </span>
