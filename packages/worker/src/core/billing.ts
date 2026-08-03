@@ -2,7 +2,7 @@ import type { Env } from "../env";
 import { parseSettings } from "../env";
 import { nowUtcIso, periodStart, periodEnd, dueDate } from "./time";
 import { writeAudit } from "./audit";
-import { claimNotification, type Notifier, type PlanOpenLine } from "./notify";
+import { claimNotification, isBillingOpened, type Notifier, type PlanOpenLine } from "./notify";
 
 export interface PeriodDates {
   period_start: string;
@@ -112,8 +112,14 @@ export interface InitiateInput {
 }
 
 export interface InitiateResult {
+  /** True only when the channel confirmed the notice (Notifier contract) — never a hopeful guess. */
   sent: boolean;
+  /** Why the notice did / did not go out. The apply's own truth, not the preview's prediction. */
+  notifyReason: InitiateNotifyOutcome;
   updatedPlans: number;
+  /** Bills this call actually created for the period (0 on a re-run — the insert is idempotent). */
+  createdPayments: number;
+  /** PENDING bills whose amount really changed (no-op rewrites are not counted). */
   updatedPayments: number;
 }
 
@@ -123,6 +129,10 @@ export interface InitiateResult {
  * period's still-PENDING payment amounts (paid/verified are frozen), then post the
  * billing-opened notice — claiming the same dedup slot the cron uses, so a manual trigger and
  * the cron can never both notify.
+ *
+ * `sent` is only ever true for a notice the channel confirmed, and `notifyReason` says why when it
+ * is not; the writes above happen either way and are reported exactly as they landed. The result is
+ * the apply's own account of itself — nothing here is inferred from what the preview predicted.
  */
 export async function initiateBillingOpened(
   env: Env,
@@ -130,8 +140,7 @@ export async function initiateBillingOpened(
   period: string,
   input: InitiateInput,
   actor: string,
-  notifier: Notifier,
-  opts?: { force?: boolean }
+  notifier: Notifier
 ): Promise<InitiateResult> {
   const now = nowUtcIso();
   const plans = await env.DB
@@ -142,6 +151,7 @@ export async function initiateBillingOpened(
   const amountByPlan = new Map<number, number>();
 
   let updatedPlans = 0;
+  let createdPayments = 0;
   let updatedPayments = 0;
 
   for (const a of input.amounts) {
@@ -166,15 +176,18 @@ export async function initiateBillingOpened(
     .prepare("SELECT id, plan_id FROM subscriptions WHERE workspace_id = ? AND status = 'active'")
     .bind(workspaceId)
     .all<{ id: number; plan_id: number }>();
-  for (const s of subs.results) await ensurePeriodPayment(env.DB, s.id, period);
+  for (const s of subs.results) {
+    const r = await ensurePeriodPayment(env.DB, s.id, period);
+    if (r.created) createdPayments++;
+  }
   for (const [planId, amount] of amountByPlan) {
     const res = await env.DB
       .prepare(
         `UPDATE payments SET amount = ?, updated_at = ?
-         WHERE workspace_id = ? AND period = ? AND status = 'pending'
+         WHERE workspace_id = ? AND period = ? AND status = 'pending' AND amount != ?
            AND subscription_id IN (SELECT id FROM subscriptions WHERE workspace_id = ? AND plan_id = ? AND status = 'active')`
       )
-      .bind(amount, now, workspaceId, period, workspaceId, planId)
+      .bind(amount, now, workspaceId, period, amount, workspaceId, planId)
       .run();
     updatedPayments += res.meta.changes ?? 0;
   }
@@ -183,37 +196,215 @@ export async function initiateBillingOpened(
   const ws = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(workspaceId).first<{ settings: string }>();
   const settings = parseSettings(ws!.settings);
   const channelId = settings.discord_billing_channel_id;
+
+  // The notice lines are computed BEFORE anything is claimed. The billing_opened row is not a send
+  // log — it IS "this period is open" — so a call with nothing to announce must never leave one
+  // behind: that state ("opened, but nobody was ever told") is only undoable via 收回本期開繳.
+  // previewBillingInitiate already calls this case no_plans, and the two must say the same thing.
+  const lines: PlanOpenLine[] = subs.results
+    .map((s) => planById.get(s.plan_id))
+    .filter((p): p is NonNullable<typeof p> => !!p && p.active === 1)
+    .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i) // dedupe plans
+    .map((p) => ({
+      plan_id: p.id, plan_name: p.name, role_id: p.discord_role_id,
+      amount: amountByPlan.get(p.id) ?? p.monthly_amount,
+    }));
+
   let sent = false;
-  if (channelId && env.DISCORD_BOT_TOKEN) {
-    if (opts?.force) {
-      // force = admin "resend now": clear the slot so the claim below re-sends. Non-atomic
-      // delete-then-claim, but force is an occasional single-admin action (button disabled
-      // in flight); worst case is a duplicate notice from two concurrent resends — accepted.
-      await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?")
-        .bind(workspaceId, period).run();
-    }
-    if (await claimNotification(env.DB, { workspaceId, type: "billing_opened", period })) {
-      const lines: PlanOpenLine[] = subs.results
-        .map((s) => planById.get(s.plan_id))
-        .filter((p): p is NonNullable<typeof p> => !!p && p.active === 1)
-        .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i) // dedupe plans
-        .map((p) => ({
-          plan_id: p.id, plan_name: p.name, role_id: p.discord_role_id,
-          amount: amountByPlan.get(p.id) ?? p.monthly_amount,
-        }));
-      if (lines.length > 0) {
-        await notifier.sendBillingOpened(env, channelId, period, lines, settings.billing_opened_template);
-        sent = true;
-      }
-    }
+  let notifyReason: InitiateNotifyOutcome;
+  if (!channelId) notifyReason = "no_channel";
+  else if (!env.DISCORD_BOT_TOKEN) notifyReason = "no_bot_token";
+  // Read the marker before testing the lines, in exactly the order previewBillingInitiate reports
+  // its reasons, so the apply can never contradict the sentence the admin just confirmed. The
+  // claim below is still what makes at-most-once atomic; this read only picks the honest wording.
+  else if (await isBillingOpened(env.DB, workspaceId, period)) notifyReason = "already_sent";
+  else if (lines.length === 0) notifyReason = "no_plans";
+  else if (!(await claimNotification(env.DB, { workspaceId, type: "billing_opened", period }))) notifyReason = "already_sent";
+  else {
+    // Past the claim the period IS open (the bills above are already committed). A refused send is
+    // reported as send_failed and the marker STAYS: releasing it would strand those bills in a
+    // period nobody can pay — the half-retract routes/admin.ts refuses to create. The way back is
+    // 重發開繳通知, which re-posts the notice without touching bills or prices.
+    sent = await notifier.sendBillingOpened(env, channelId, period, lines, settings.billing_opened_template);
+    notifyReason = sent ? "ok" : "send_failed";
   }
 
   await writeAudit(env.DB, {
     workspaceId, actor, action: "billing.initiate", entityType: "workspace", entityId: workspaceId,
-    after: { period, updatedPlans, updatedPayments, sent },
+    after: { period, updatedPlans, createdPayments, updatedPayments, sent, notify_reason: notifyReason },
   });
 
-  return { sent, updatedPlans, updatedPayments };
+  return { sent, notifyReason, updatedPlans, createdPayments, updatedPayments };
+}
+
+// ── "立即重發開繳通知" (re-post the notice only — never touches bills or prices) ──
+
+export type ResendOutcome = "sent" | "preview" | "not_opened" | "no_channel" | "no_bot_token" | "no_plans" | "send_failed";
+
+export interface ResendBillingResult {
+  outcome: ResendOutcome;
+  sent: boolean;
+  /** The plan lines the notice does / would list. */
+  lines: PlanOpenLine[];
+}
+
+/**
+ * Re-post an ALREADY-OPENED period's billing-opened notice. Unlike initiateBillingOpened this
+ * writes no prices and creates no bills — "重發" means exactly what it says.
+ *
+ * The dedup slot is REFRESHED with an UPDATE rather than deleted-then-reclaimed, so the period is
+ * never momentarily readable as "unopened": members' pay button, reconcile and retract all key off
+ * that single row, and a delete-then-claim window would make a resend look like a half retract.
+ *
+ * The plan lines come from the SAME query the cron uses (scheduled.ts step 2), so the admin resend
+ * and the automatic notice can never list a different set of plans.
+ *
+ * A refused send returns `send_failed` and leaves the row untouched — including its sent_at, which
+ * 推播狀態 shows as the last time this notice really went out.
+ */
+export async function resendBillingOpenedNotice(
+  env: Env,
+  workspaceId: number,
+  period: string,
+  notifier: Notifier,
+  opts: { dryRun: boolean }
+): Promise<ResendBillingResult> {
+  const bare = (outcome: ResendOutcome): ResendBillingResult => ({ outcome, sent: false, lines: [] });
+
+  if (!(await isBillingOpened(env.DB, workspaceId, period))) return bare("not_opened");
+  const wsRow = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(workspaceId).first<{ settings: string }>();
+  if (!wsRow) return bare("not_opened");
+  const settings = parseSettings(wsRow.settings);
+  const channelId = settings.discord_billing_channel_id;
+  if (!channelId) return bare("no_channel");
+  if (!env.DISCORD_BOT_TOKEN) return bare("no_bot_token");
+
+  const lines = (await env.DB
+    .prepare(
+      `SELECT pl.id AS plan_id, pl.name AS plan_name, pl.monthly_amount AS amount, pl.discord_role_id AS role_id
+       FROM plans pl
+       WHERE pl.workspace_id = ? AND pl.active = 1
+         AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.plan_id = pl.id AND s.status = 'active')
+       ORDER BY pl.id`
+    )
+    .bind(workspaceId)
+    .all<PlanOpenLine>()).results;
+  if (lines.length === 0) return { outcome: "no_plans", sent: false, lines };
+  if (opts.dryRun) return { outcome: "preview", sent: false, lines };
+
+  // sent_at is "the last time this notice actually reached the channel", and 推播狀態 prints it as
+  // fact. A refused send therefore updates nothing at all — the row keeps the older, true timestamp
+  // and the admin gets send_failed instead of a fresh "已發送" for a message nobody received.
+  if (!(await notifier.sendBillingOpened(env, channelId, period, lines, settings.billing_opened_template))) {
+    return { outcome: "send_failed", sent: false, lines };
+  }
+  await env.DB
+    .prepare("UPDATE notification_logs SET sent_at = ? WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?")
+    .bind(nowUtcIso(), workspaceId, period)
+    .run();
+  return { outcome: "sent", sent: true, lines };
+}
+
+// ── "發起繳費" dry run (what an initiate would change, before it changes it) ────
+
+export type InitiateNotifyReason = "ok" | "already_sent" | "no_channel" | "no_bot_token" | "no_plans";
+/** The apply's vocabulary: the preview's reasons plus the one only a real send can produce. */
+export type InitiateNotifyOutcome = InitiateNotifyReason | "send_failed";
+
+export interface InitiatePlanChange {
+  plan_id: number;
+  plan_name: string;
+  from: number;
+  to: number;
+}
+
+export interface InitiatePreview {
+  period: string;
+  /** The period already has a billing_opened record — an initiate would NOT notify again. */
+  opened: boolean;
+  will_notify: boolean;
+  notify_reason: InitiateNotifyReason;
+  plan_changes: InitiatePlanChange[];
+  /** Bills the initiate would create (active subs with no bill yet), priced at the confirmed amount. */
+  create: ReconcileLine[];
+  /** Existing PENDING bills whose amount would really change. */
+  reprice: ReconcileLine[];
+  /** paid/verified bills in this period — never rewritten. */
+  frozen_count: number;
+}
+
+/**
+ * Read-only twin of initiateBillingOpened: same inputs, same rules, zero writes. Every number here
+ * must equal what the apply reports (initiate's UPDATE carries `amount != ?` for exactly this
+ * reason), because the whole point of the preview is that the admin can trust it.
+ */
+export async function previewBillingInitiate(
+  env: Env,
+  workspaceId: number,
+  period: string,
+  input: InitiateInput
+): Promise<InitiatePreview> {
+  const plans = (await env.DB
+    .prepare("SELECT id, name, monthly_amount, active FROM plans WHERE workspace_id = ?")
+    .bind(workspaceId)
+    .all<{ id: number; name: string; monthly_amount: number; active: number }>()).results;
+  const planById = new Map(plans.map((p) => [p.id, p]));
+
+  const amountByPlan = new Map<number, number>();
+  const plan_changes: InitiatePlanChange[] = [];
+  for (const a of input.amounts) {
+    const plan = planById.get(a.plan_id);
+    if (!plan) continue;
+    if (!Number.isInteger(a.amount) || a.amount < 0) continue;
+    amountByPlan.set(a.plan_id, a.amount);
+    if (a.amount !== plan.monthly_amount) {
+      plan_changes.push({ plan_id: plan.id, plan_name: plan.name, from: plan.monthly_amount, to: a.amount });
+    }
+  }
+  const priceOf = (planId: number) => amountByPlan.get(planId) ?? planById.get(planId)?.monthly_amount ?? 0;
+
+  const activeSubs = (await env.DB.prepare(
+    `SELECT s.id AS subscription_id, s.plan_id AS plan_id, s.user_id AS user_id,
+            u.display_name AS user_name, u.discord_id AS discord_id, pl.name AS plan_name
+     FROM subscriptions s JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
+     WHERE s.workspace_id = ? AND s.status = 'active'`
+  ).bind(workspaceId).all<{ subscription_id: number; plan_id: number; user_id: number; user_name: string; discord_id: string | null; plan_name: string }>()).results;
+
+  const existing = (await env.DB.prepare(
+    `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.amount AS amount, p.status AS status
+     FROM payments p WHERE p.workspace_id = ? AND p.period = ?`
+  ).bind(workspaceId, period).all<{ payment_id: number; subscription_id: number; amount: number; status: string }>()).results;
+  const bySub = new Map(existing.map((e) => [e.subscription_id, e]));
+
+  const create: ReconcileLine[] = [];
+  const reprice: ReconcileLine[] = [];
+  for (const s of activeSubs) {
+    const e = bySub.get(s.subscription_id);
+    const price = priceOf(s.plan_id);
+    if (!e) {
+      create.push({ subscription_id: s.subscription_id, user_id: s.user_id, user_name: s.user_name, plan_name: s.plan_name, amount: price, discord_id: s.discord_id });
+    } else if (e.status === "pending" && amountByPlan.has(s.plan_id) && e.amount !== price) {
+      reprice.push({ payment_id: e.payment_id, subscription_id: s.subscription_id, user_id: s.user_id, user_name: s.user_name, plan_name: s.plan_name, amount: price, from: e.amount, to: price, discord_id: s.discord_id });
+    }
+  }
+  const frozen_count = existing.filter((e) => e.status === "paid" || e.status === "verified").length;
+
+  const wsRow = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(workspaceId).first<{ settings: string }>();
+  const settings = parseSettings(wsRow!.settings);
+  const opened = await isBillingOpened(env.DB, workspaceId, period);
+  // Same order of checks initiateBillingOpened applies, so the preview can't promise a notice the
+  // apply would skip (A1: no more "✓ 完成" for a send that never happened).
+  const noticePlans = activeSubs
+    .map((s) => planById.get(s.plan_id))
+    .filter((p): p is NonNullable<typeof p> => !!p && p.active === 1);
+  const notify_reason: InitiateNotifyReason =
+    !settings.discord_billing_channel_id ? "no_channel"
+    : !env.DISCORD_BOT_TOKEN ? "no_bot_token"
+    : opened ? "already_sent"
+    : noticePlans.length === 0 ? "no_plans"
+    : "ok";
+
+  return { period, opened, will_notify: notify_reason === "ok", notify_reason, plan_changes, create, reprice, frozen_count };
 }
 
 // ── "重新同步本期帳單" (reconcile a period's bills to the current roster) ──────────
@@ -239,11 +430,8 @@ export interface ReconcileDiff {
 }
 
 /** A period is "opened" once its billing_opened notice has been claimed — that is what members can pay against. */
-async function isPeriodOpened(env: Env, workspaceId: number, period: string): Promise<boolean> {
-  const row = await env.DB
-    .prepare("SELECT 1 AS ok FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ? LIMIT 1")
-    .bind(workspaceId, period).first<{ ok: number }>();
-  return !!row;
+function isPeriodOpened(env: Env, workspaceId: number, period: string): Promise<boolean> {
+  return isBillingOpened(env.DB, workspaceId, period);
 }
 
 /** Drop proof objects of removed bills whose key no longer belongs to any remaining payment (proofs can be shared). */
@@ -421,8 +609,8 @@ export async function retractPeriodBilling(
       .bind(workspaceId, period),
     // The overdue slot is claimed once per (workspace, period) and never expires, so leaving it
     // behind would permanently mute overdue reminders if this period is ever re-opened —
-    // claimNotification would lose and sendOverdueForPeriod would just return 0, with no error
-    // anywhere. Kept as its own statement so it cannot inflate the marker's changes count.
+    // claimNotification would lose and sendOverdueForPeriod would just report already_sent, with
+    // no error anywhere. Kept as its own statement so it cannot inflate the marker's changes count.
     // ('receipt' is declared in the type union but never claimed, so there is no slot to release.)
     env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ?")
       .bind(workspaceId, period),

@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { handleUploadInfo, handleUpload } from "../../src/routes/upload";
 import { hashToken } from "../../src/core/tokens";
+import { claimNotification } from "../../src/core/notify";
 import type { RouteCtx } from "../../src/router";
 
 const TS = "2026-05-01T00:00:00.000Z";
@@ -34,6 +35,11 @@ beforeAll(async () => {
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,expires_at,created_at) VALUES (?,?,?,?,?,?)`).bind(usedHash, WS, WS, "2026-06", PAST, TS),
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,expires_at,created_at) VALUES (?,?,?,?,?,?)`).bind(noteHash, WS, WS, "2026-07", FUTURE, TS),
   ]);
+  // Every period here is one members are being asked to pay, so it is an opened period —
+  // handleUpload refuses to settle otherwise (routes/upload.ts).
+  for (const p of ["2026-06", "2026-07", "2026-09"]) {
+    await claimNotification(env.DB, { workspaceId: WS, type: "billing_opened", period: p });
+  }
 });
 
 function uploadReq(token: string, fields: Record<string, string | File>): Request {

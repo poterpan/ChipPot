@@ -157,8 +157,11 @@ export const PAY_COMMAND = {
 export const INITIATE_COMMAND = {
   name: "發起繳費",
   type: 1,
-  description: "（管理員）確認本期各方案金額並發出開繳通知",
+  description: "（管理員）確認指定期別各方案金額並發出開繳通知",
   default_member_permissions: MANAGE_GUILD,
+  options: [
+    { type: OPT_STRING, name: "期別", description: "YYYY-MM（留空＝目前收款中的期別）", required: false },
+  ],
 };
 
 /** `/綁定` command registration payload. The optional 名字 option autocompletes unbound members,

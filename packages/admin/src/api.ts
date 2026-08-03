@@ -1,5 +1,18 @@
 const BASE = "/api/admin";
 
+/**
+ * What every failed call throws. `status` is what lets a caller tell an EXPECTED refusal apart from
+ * a real failure: 重發開繳通知 has to render 「此期尚未開繳」 as a state of its screen, and the worker
+ * reports that as a 409 rather than as an outcome in the body (routes/admin.ts notificationsResend).
+ * Callers that only read `.message` are unaffected.
+ */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function req<T = any>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method };
   if (body !== undefined) {
@@ -7,9 +20,9 @@ async function req<T = any>(method: string, path: string, body?: unknown): Promi
     init.headers = { "content-type": "application/json" };
   }
   const r = await fetch(BASE + path, init);
-  if (r.status === 401 || r.status === 403) throw new Error("未授權，請重新登入後再試。");
+  if (r.status === 401 || r.status === 403) throw new ApiError("未授權，請重新登入後再試。", r.status);
   const data = (await r.json().catch(() => ({}))) as any;
-  if (!r.ok) throw new Error(data?.error ?? `錯誤 ${r.status}`);
+  if (!r.ok) throw new ApiError(data?.error ?? `錯誤 ${r.status}`, r.status);
   return data as T;
 }
 
@@ -46,6 +59,60 @@ export interface ReconcileApplied { ok: boolean; applied: { added: number; remov
 /** 收回本期開繳 — preview and apply share `opened`/counts; `removed` only comes back on the preview. */
 export interface RetractPreview { opened: boolean; removed: ReconcileLine[]; frozen_count: number }
 export interface RetractApplied { ok: boolean; opened: boolean; applied: { removed: number; frozen: number } }
+/**
+ * POST /admin/notifications/resend, type = billing_opened.
+ * `not_opened` never arrives in a 200 body — the route turns it into a 409, so the caller sees a
+ * thrown Error instead. It stays in the union to mirror the worker's ResendOutcome.
+ */
+export interface ResendBillingPreview {
+  ok: true; dry_run: boolean;
+  outcome: "sent" | "preview" | "not_opened" | "no_channel" | "no_bot_token" | "no_plans" | "send_failed";
+  sent: boolean;
+  lines: { plan_id: number; plan_name: string; amount: number; role_id: string | null }[];
+}
+/**
+ * POST /admin/notifications/resend, type = overdue.
+ * `overdue_days` is only meaningful once the workspace settings were read: the no-channel outcomes
+ * can carry 0, so never render it outside the sent/preview outcomes.
+ */
+export interface OverduePreview {
+  ok: true; dry_run: boolean;
+  outcome: "sent" | "preview" | "no_channel" | "no_bot_token" | "none_due" | "already_sent" | "send_failed";
+  count: number; overdue_days: number;
+  people: { user_id: number; user_name: string; discord_id: string | null; total: number }[];
+}
+/** POST /admin/billing/initiate with dry_run (the default). */
+export interface InitiatePreview {
+  period: string; opened: boolean; will_notify: boolean;
+  notify_reason: "ok" | "already_sent" | "no_channel" | "no_bot_token" | "no_plans";
+  plan_changes: { plan_id: number; plan_name: string; from: number; to: number }[];
+  create: ReconcileLine[]; reprice: ReconcileLine[]; frozen_count: number;
+}
+export interface InitiateApplied {
+  ok: true; sent: boolean; updated_plans: number; created_payments: number; updated_payments: number;
+  /** THIS apply's reason (the preview's is a prediction). `send_failed` is apply-only. */
+  notify_reason: "ok" | "already_sent" | "no_channel" | "no_bot_token" | "no_plans" | "send_failed";
+}
+
+/**
+ * Why a notice will not / did not go out. Every outward-facing action reports the real outcome
+ * instead of a blanket "✓ 完成" (issue #43 / A1) — these are the sentences it reports.
+ *
+ * Only the outcomes that mean "nothing was sent" are listed: `ok` / `sent` / `preview` have no
+ * failure sentence, so a lookup on those is undefined. Index with a `??` fallback — the map is a
+ * plain Record and TypeScript will not flag the missing key.
+ */
+export const NOTIFY_REASON_TEXT: Record<string, string> = {
+  no_channel: "尚未設定繳費頻道 ID（設定 → Discord 串接）",
+  no_bot_token: "尚未設定 Discord bot token",
+  no_plans: "本期沒有任何有啟用訂閱的方案",
+  already_sent: "本期開繳通知先前已發送，不會重複發送",
+  not_opened: "此期尚未開繳",
+  none_due: "本期沒有未繳的成員",
+  // Discord did not answer 2xx. Deliberately says nothing about what was written: the three callers
+  // (發起繳費 / 重發開繳通知 / 催繳) leave very different states behind, so each adds its own clause.
+  send_failed: "Discord 沒有回應成功（發送失敗），可稍後再試一次",
+};
 export interface ImportUserLine { user_id: number | null; user_name: string; email: string }
 export interface ImportSubLine {
   subscription_id: number | null; user_id: number | null; user_name: string; email: string;
@@ -70,15 +137,16 @@ export const api = {
   updateWorkspace: (b: unknown) => req("PATCH", "/workspace", b),
   rebuildPaymentMessage: () => req<{ message_id: string }>("POST", "/discord/payment-message"),
   rebuildBindMessage: () => req<{ message_id: string }>("POST", "/discord/bind-message"),
-  registerCommands: () => req<{ ok: boolean; registered: number }>("POST", "/discord/register-commands"),
+  registerCommands: () => req<{ ok: boolean; registered: number; registered_at: string }>("POST", "/discord/register-commands"),
   reconcile: (period: string) => req<Reconcile>("GET", `/reconcile${qs({ period })}`),
   notifications: (period: string) => req<{ billing_opened: { sent_at: string } | null; overdue: { sent_at: string } | null }>("GET", `/notifications${qs({ period })}`),
-  resendNotification: (type: string, period: string) => req<{ sent?: boolean; count?: number }>("POST", "/notifications/resend", { type, period }),
-  resetNotification: (type: string, period: string) => req<{ deleted: number }>("POST", "/notifications/reset", { type, period }),
+  resendNotification: (type: string, period: string, opts: { dry_run: boolean }) =>
+    req<ResendBillingPreview | OverduePreview>("POST", "/notifications/resend", { type, period, ...opts }),
+  resetNotification: (type: string, period: string) => req<{ ok: boolean; deleted: number }>("POST", "/notifications/reset", { type, period }),
   testNotification: (b: { kind: "bark" | "webhook"; bark_key?: string; bark_server?: string; webhook_url?: string; template?: string }) =>
     req<{ ok: boolean; status?: number; error?: string }>("POST", "/notifications/test", b),
-  initiateBilling: (b: { period: string; amounts: { plan_id: number; amount: number }[] }) =>
-    req<{ sent: boolean; updated_plans: number; updated_payments: number }>("POST", "/billing/initiate", b),
+  initiateBilling: (b: { period: string; amounts: { plan_id: number; amount: number }[]; dry_run: boolean }) =>
+    req<InitiatePreview | InitiateApplied>("POST", "/billing/initiate", b),
   payments: (p?: { period?: string; status?: string; user_id?: number; id?: number }) =>
     req<{ payments: Payment[] }>("GET", `/payments${qs(p)}`),
   verify: (id: number, tagId: number | null) => req("POST", `/payments/${id}/verify`, { verified_channel_tag_id: tagId }),

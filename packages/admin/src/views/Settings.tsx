@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, currentPeriod, nextBillingPeriod, type ImportDiff, type ImportSubLine } from "../api";
+import { api, currentPeriod, periodForBillingDay, nextBillingPeriod, NOTIFY_REASON_TEXT, type ImportDiff, type ImportSubLine, type InitiatePreview, type InitiateApplied } from "../api";
 import { useAsync, Card, Field, Empty, Modal, Stat, IconCheck, IconWarning } from "../ui";
 import { DiffList } from "../components/DiffList";
 
@@ -10,6 +10,15 @@ const MSG_KEYS = ["period"];
 const NOTIFY_KEYS = ["payer", "amount", "period", "admin_url"];
 // Mirrors DEFAULT_NOTIFY_TEMPLATE in worker/src/core/payment-notify.ts.
 const DEFAULT_NOTIFY = "💳 新繳費待審核：{payer} NT${amount}（{period}）";
+
+// Settings timestamps are stored as UTC ISO (worker core/time.ts nowUtcIso). The rest of the app
+// reasons in Taipei time, so slicing the ISO string would date anything done before 08:00 Taipei to
+// the previous day. Falls back to the raw first 10 chars if the stored value is not a date.
+function taipeiDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
 
 function renderTpl(tpl: string, vars: Record<string, string>): string {
   return tpl.replace(PLACEHOLDER_RE, (whole, key) => (key in vars ? vars[key]! : whole));
@@ -88,6 +97,10 @@ export function Settings() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // What the three 立即執行 rows show once one of them runs. api.workspace() is deliberately NOT
+  // re-fetched afterwards — the effect below would overwrite the admin's unsaved edits with the
+  // server copy — so each action hands its new value back here instead of leaving a stale row.
+  const [live, setLive] = useState<{ pay?: string; bind?: string; cmd?: string }>({});
 
   useEffect(() => {
     if (!data) return;
@@ -152,6 +165,17 @@ export function Settings() {
   if (error) return <div className="error-banner">{error}</div>;
 
   const r2 = (data as any)?.r2_configured;
+  // 立即執行 rows say what is currently persisted, so "重建" reads as "this exists, redo it" rather
+  // than as an action with no visible before/after. 發起繳費 and 匯入名單 CSV get no such line:
+  // whether a period is open belongs to 繳費審核, and repeating it here is one more thing to go stale.
+  const s0 = (data as any)?.workspace?.settings ?? {};
+  const posted = (id: string) => (id ? <>目前：<b>已張貼</b>（訊息 id <span className="mono">{id}</span>）</> : <>目前：<b>尚未張貼</b></>);
+  const payMsgState = posted(live.pay ?? s0.discord_payment_message_id ?? "");
+  const bindMsgState = posted(live.bind ?? s0.discord_bind_message_id ?? "");
+  const cmdAt = String(live.cmd ?? s0.discord_commands_registered_at ?? "");
+  const cmdState = cmdAt
+    ? <>目前：<b>已註冊</b>（{taipeiDay(cmdAt)}）</>
+    : <>目前：<b>尚未註冊</b></>;
   const notifyTpl = form.notify_template.trim() || DEFAULT_NOTIFY;
   const notifySample = { payer: "廖清筆", amount: "1,258", period: currentPeriod(), admin_url: `${window.location.origin}/#payments?user=42&period=${currentPeriod()}` };
   const notifyPreview = renderTpl(notifyTpl, notifySample) + (/\{admin_url\}/.test(notifyTpl) ? "" : `\n審核 → ${notifySample.admin_url}`);
@@ -232,10 +256,10 @@ export function Settings() {
 
       <Card title="工具" desc="點下去立即執行，不受上面的「儲存」控制">
         <div className="card__body">
-          <ActionRow title="重建常駐繳費訊息" tag="立即執行" desc="在繳費頻道重新貼一則含「繳費」按鈕的常駐訊息。"><RebuildMessage /></ActionRow>
-          <ActionRow title="張貼／更新綁定按鈕訊息" tag="立即執行" desc="在帳單頻道貼一則含「綁定 Discord」按鈕的公開訊息，讓成員主動綁定（開繳／催繳才能 @ 到他）。"><RebuildBindMessage /></ActionRow>
-          <ActionRow title="註冊 Discord 指令" tag="立即執行" desc="更新 /繳費、/發起繳費、/綁定 指令到你的伺服器。"><RegisterCommands /></ActionRow>
-          <ActionRow title="發起繳費" tag="會改價＋發通知" warn desc="確認本期金額並向所有成員發出開繳通知。"><InitiateBilling billingDay={savedBillingDay} dirty={dirty} /></ActionRow>
+          <ActionRow title="重建常駐繳費訊息" tag="立即執行" desc="在繳費頻道重新貼一則含「繳費」按鈕的常駐訊息。" state={payMsgState}><RebuildMessage onDone={(id) => setLive((s) => ({ ...s, pay: id }))} /></ActionRow>
+          <ActionRow title="張貼／更新綁定按鈕訊息" tag="立即執行" desc="在帳單頻道貼一則含「綁定 Discord」按鈕的公開訊息，讓成員主動綁定（開繳／催繳才能 @ 到他）。" state={bindMsgState}><RebuildBindMessage onDone={(id) => setLive((s) => ({ ...s, bind: id }))} /></ActionRow>
+          <ActionRow title="註冊 Discord 指令" tag="立即執行" desc="更新 /繳費、/發起繳費、/綁定 指令到你的伺服器。" state={cmdState}><RegisterCommands onDone={(at) => setLive((s) => ({ ...s, cmd: at }))} /></ActionRow>
+          <ActionRow title="發起繳費" tag="會改價＋發通知" warn desc="確認指定期別的各方案金額，建立該期帳單並向所有成員發出開繳通知。送出前會先看影響預覽。"><InitiateBilling billingDay={savedBillingDay} dirty={dirty} /></ActionRow>
           <ActionRow title="匯入名單 CSV" tag="會新增/暫停訂閱" warn desc="用 CSV 批次建立或更新成員與訂閱；FALSE 的方案會暫停該訂閱。套用前先看差異預覽。"><ImportRoster /></ActionRow>
         </div>
       </Card>
@@ -252,12 +276,13 @@ export function Settings() {
   );
 }
 
-function ActionRow({ title, tag, desc, warn, children }: { title: string; tag: string; desc: string; warn?: boolean; children: ReactNode }) {
+function ActionRow({ title, tag, desc, warn, state, children }: { title: string; tag: string; desc: string; warn?: boolean; state?: ReactNode; children: ReactNode }) {
   return (
     <div className={`actionrow${warn ? " actionrow--warn" : ""}`}>
       <div className="actionrow__main">
         <div className="actionrow__title">{title} <span className={`tag${warn ? " tag--warn" : ""}`}>{tag}</span></div>
         <div className="actionrow__desc">{desc}</div>
+        {state != null && <div className="actionrow__desc" style={{ marginTop: 4 }}>{state}</div>}
       </div>
       <div className="actionrow__act">{children}</div>
     </div>
@@ -295,7 +320,7 @@ function ImportRoster() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button className="btn btn--sm btn--danger" onClick={() => setOpen(true)}>匯入…</button>
+      <button className="btn btn--sm" onClick={() => setOpen(true)}>匯入…</button>
       {open && <ImportModal onClose={() => setOpen(false)} />}
     </>
   );
@@ -413,44 +438,128 @@ function InitiateBilling({ billingDay, dirty }: { billingDay: number; dirty: boo
   );
 }
 
+/**
+ * 發起繳費 — the heaviest write in the app (new prices, new bills, a rewrite of this period's
+ * pending amounts, and a public broadcast). Two steps like SyncModal / RetractModal: preview what it
+ * would change, then a red confirm whose label says whether a notice goes out.
+ *
+ * The period defaults to the one currently being collected (periodForBillingDay), the same default
+ * the dashboard and the payments list use. Pre-opening the NEXT period is an explicit opt-in — with
+ * billing_day = 1 the old nextBillingPeriod default silently pointed at next month for 29 days a
+ * month, so "fix July's amount" pre-opened August and broadcast it.
+ */
 function InitiateModal({ plans, billingDay, dirty, onClose }: { plans: { id: number; name: string; monthly_amount: number }[]; billingDay: number; dirty: boolean; onClose: () => void }) {
-  const [period, setPeriod] = useState(nextBillingPeriod(billingDay));
+  const current = periodForBillingDay(billingDay);
+  const upcoming = nextBillingPeriod(billingDay);
+  const next = upcoming === current ? null : upcoming;
+  const [period, setPeriod] = useState(current);
   const [amounts, setAmounts] = useState<Record<number, string>>(() => Object.fromEntries(plans.map((p) => [p.id, String(p.monthly_amount)])));
+  const [preview, setPreview] = useState<InitiatePreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  async function run() {
-    setBusy(true); setErr(null); setMsg(null);
+
+  const payload = () => ({ period, amounts: plans.map((p) => ({ plan_id: p.id, amount: Number(amounts[p.id]) })) });
+  const invalid = plans.some((p) => !/^\d+$/.test((amounts[p.id] ?? "").trim()));
+
+  async function runPreview() {
+    setBusy(true); setErr(null);
+    try { setPreview(await api.initiateBilling({ ...payload(), dry_run: true }) as InitiatePreview); }
+    catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }
+
+  async function apply() {
+    if (busy) return;
+    setBusy(true); setErr(null);
     try {
-      const r = await api.initiateBilling({ period, amounts: plans.map((p) => ({ plan_id: p.id, amount: Number(amounts[p.id]) })) });
-      setMsg(r.sent ? `✓ 已發出通知（更新 ${r.updated_plans} 方案 / ${r.updated_payments} 筆）` : `✓ 已更新金額（通知先前已發送）`);
+      const r = await api.initiateBilling({ ...payload(), dry_run: false }) as InitiateApplied;
+      setMsg(
+        `${r.sent || r.notify_reason !== "send_failed" ? "✓" : "⚠️"} 已發起 ${period}：新增 ${r.created_payments} 筆帳單、改價 ${r.updated_payments} 筆、更新 ${r.updated_plans} 個方案定價。` +
+        // The reason comes from THIS apply, not from the preview: the preview only predicted, and a
+        // send can still be refused after it. send_failed adds where the period stands and the
+        // way out, because that outcome — unlike the others — leaves an opened period behind.
+        (r.sent
+          ? "已在頻道發出開繳通知。"
+          : `未發送通知：${NOTIFY_REASON_TEXT[r.notify_reason] ?? "通知未送出"}。` +
+            (r.notify_reason === "send_failed"
+              ? "本期已開繳、帳單已建立，可到「儀表板 → 推播狀態 → 重發開繳通知」補送。"
+              : ""))
+      );
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }
+
   return (
-    <Modal title="發起繳費" onClose={onClose}>
+    <Modal title={`發起繳費 · ${period}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      {msg && <div style={{ color: "var(--teal)", marginBottom: 10 }}>{msg}</div>}
-      {dirty && <div className="warnnote">你有尚未儲存的設定變更。發起繳費使用<b>已儲存</b>的設定（含結帳日）；如要套用新值，請先回上方「儲存變更」。</div>}
-      <p style={{ color: "var(--muted-strong)", fontSize: 13, margin: "0 0 12px" }}>修改金額即為該方案的新定價（下期沿用）；已繳／已驗證的紀錄不受影響。</p>
-      <Field label="期別"><input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} disabled={busy} /></Field>
-      {plans.map((p) => (
-        <Field key={p.id} label={`${p.name} 金額`}>
-          <input type="number" value={amounts[p.id] ?? ""} onChange={(e) => setAmounts((s) => ({ ...s, [p.id]: e.target.value }))} disabled={busy} />
-        </Field>
-      ))}
-      <button className="btn btn--primary" onClick={run} disabled={busy}>發起並通知</button>
+      {msg && (
+        <>
+          <div style={{ color: "var(--teal)", marginBottom: 10, lineHeight: 1.7 }}>{msg}</div>
+          <button className="btn btn--primary" onClick={() => { window.location.hash = "payments"; onClose(); }}>前往繳費審核</button>
+        </>
+      )}
+
+      {!msg && !preview && (
+        <>
+          {dirty && <div className="warnnote">你有尚未儲存的設定變更。發起繳費使用<b>已儲存</b>的設定（含結帳日）；如要套用新值，請先回上方「儲存變更」。</div>}
+          <p style={{ color: "var(--muted-strong)", fontSize: 13, margin: "0 0 12px", lineHeight: 1.7 }}>
+            修改金額即為該方案的<b>新定價</b>（下期沿用）；已繳／已驗證的紀錄不受影響。下一步會先列出這次會改動的帳單與定價，確認後才真的送出。
+          </p>
+          <Field label="期別"><input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} disabled={busy} /></Field>
+          {next && (
+            <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "-4px 0 14px", fontSize: 13, color: "var(--muted-strong)" }}>
+              <input type="checkbox" checked={period === next} onChange={(e) => setPeriod(e.target.checked ? next : current)} disabled={busy} />
+              預開下期（{next}）—— 只有在你要提前開下個月時才勾
+            </label>
+          )}
+          {plans.map((p) => (
+            <Field key={p.id} label={`${p.name} 金額`}>
+              <input type="number" value={amounts[p.id] ?? ""} onChange={(e) => setAmounts((s) => ({ ...s, [p.id]: e.target.value }))} disabled={busy} />
+            </Field>
+          ))}
+          <button className="btn btn--primary" onClick={runPreview} disabled={busy || invalid}>{busy ? "計算影響中…" : "預覽影響…"}</button>
+        </>
+      )}
+
+      {!msg && preview && (
+        <>
+          <div className="stats">
+            <Stat label="➕ 新增帳單" value={preview.create.length} />
+            <Stat label="🔄 改價" value={preview.reprice.length} />
+            <Stat label="🏷️ 方案改價" value={preview.plan_changes.length} />
+            <Stat label="🔒 保留(已繳)" value={preview.frozen_count} />
+          </div>
+          {preview.plan_changes.length > 0 && (
+            <DiffList title="方案定價（永久生效）" rows={preview.plan_changes.map((c) => `${c.plan_name} NT$${c.from.toLocaleString()} → NT$${c.to.toLocaleString()}`)} />
+          )}
+          {preview.create.length > 0 && <DiffList title="將建立的帳單" rows={preview.create.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
+          {preview.reprice.length > 0 && <DiffList title="將改價的待繳帳單" rows={preview.reprice.map((a) => `${a.user_name}·${a.plan_name} ${a.from}→${a.to}`)} />}
+          <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.7, margin: "12px 0" }}>
+            {preview.will_notify
+              ? `送出後會在繳費頻道公開發出 ${preview.period} 的開繳通知並 @ 各方案身分組。`
+              : `送出後${preview.notify_reason === "already_sent" ? "不會再發通知" : "不會發出通知"}：${NOTIFY_REASON_TEXT[preview.notify_reason] ?? preview.notify_reason}。`}
+            {preview.frozen_count > 0 && `　已繳／已驗證的 ${preview.frozen_count} 筆一律原樣保留。`}
+          </p>
+          <div className="btn-row">
+            <button className="btn" onClick={() => setPreview(null)} disabled={busy}>回上一步</button>
+            <button className="btn btn--danger" onClick={apply} disabled={busy}>
+              {preview.will_notify ? "確認發起並通知" : "確認發起（不會發通知）"}
+            </button>
+          </div>
+        </>
+      )}
     </Modal>
   );
 }
 
-function RebuildMessage() {
+function RebuildMessage({ onDone }: { onDone: (messageId: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   async function run() {
     setBusy(true); setErr(null); setMsg(null);
-    try { const r = await api.rebuildPaymentMessage(); setMsg(`✓ 已建立／更新（id ${r.message_id}）`); }
+    try { const r = await api.rebuildPaymentMessage(); setMsg(`✓ 已建立／更新（id ${r.message_id}）`); onDone(r.message_id); }
     catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }
@@ -463,13 +572,13 @@ function RebuildMessage() {
   );
 }
 
-function RebuildBindMessage() {
+function RebuildBindMessage({ onDone }: { onDone: (messageId: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   async function run() {
     setBusy(true); setErr(null); setMsg(null);
-    try { const r = await api.rebuildBindMessage(); setMsg(`✓ 已張貼／更新（id ${r.message_id}）`); }
+    try { const r = await api.rebuildBindMessage(); setMsg(`✓ 已張貼／更新（id ${r.message_id}）`); onDone(r.message_id); }
     catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }
@@ -482,13 +591,13 @@ function RebuildBindMessage() {
   );
 }
 
-function RegisterCommands() {
+function RegisterCommands({ onDone }: { onDone: (registeredAt: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   async function run() {
     setBusy(true); setErr(null); setMsg(null);
-    try { const r = await api.registerCommands(); setMsg(`✓ 已註冊 ${r.registered} 個指令`); }
+    try { const r = await api.registerCommands(); setMsg(`✓ 已註冊 ${r.registered} 個指令`); onDone(r.registered_at); }
     catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }

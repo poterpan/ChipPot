@@ -12,9 +12,9 @@ const NOW = new Date("2026-07-04T16:30:00.000Z"); // = Taipei 2026-07-05 00:30 -
 
 const sent = { billing: [] as { period: string; lines: PlanOpenLine[] }[], overdue: [] as { period: string; people: OverduePerson[] }[] };
 const notifier: Notifier = {
-  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.billing.push({ period, lines }); },
-  async sendOverdue(_e, _ch, period, people, _t) { sent.overdue.push({ period, people }); },
-  async sendPaymentNudge() {},
+  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.billing.push({ period, lines }); return true; },
+  async sendOverdue(_e, _ch, period, people, _t) { sent.overdue.push({ period, people }); return true; },
+  async sendPaymentNudge() { return true; },
 };
 
 beforeAll(async () => {
@@ -84,8 +84,8 @@ describe("sendOverdueForPeriod includes rejected payments", () => {
     ).bind(WS, WS, "2099-01", "2099-01-01", "2099-01-31", "2099-01-05", 315, "rejected", "user_slash", TS, TS).run();
 
     const before = sent.overdue.length;
-    const count = await sendOverdueForPeriod(env, WS, "2099-01", notifier, { force: true });
-    expect(count).toBe(1);
+    const r = await sendOverdueForPeriod(env, WS, "2099-01", notifier, { force: true });
+    expect(r.notified).toBe(1);
     expect(sent.overdue.length).toBe(before + 1);
     expect(sent.overdue.at(-1)!.people[0]).toMatchObject({ discord_id: "d-9010" });
   });

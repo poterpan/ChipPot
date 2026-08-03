@@ -120,7 +120,7 @@ describe("retractPeriodBilling", () => {
 
   // The overdue slot is claimed once per (workspace, period) and never expires. If a mis-opened
   // period had already sent a reminder, leaving that row behind would silently mute overdue
-  // reminders forever after a re-open — sendOverdueForPeriod just returns 0, with no error.
+  // reminders forever after a re-open — sendOverdueForPeriod just reports already_sent, no error.
   it("releases the overdue dedup slot, scoped to this workspace+period", async () => {
     expect(await countOverdueLogs(WS, P)).toBe(0);
     expect(await countOverdueLogs(WS, P_NEXT)).toBe(1);   // another period of the same workspace

@@ -12,9 +12,9 @@ const PERIOD = "2027-05";
 
 const sent: { period: string; lines: PlanOpenLine[] }[] = [];
 const notifier: Notifier = {
-  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.push({ period, lines }); },
-  async sendOverdue() {},
-  async sendPaymentNudge() {},
+  async sendBillingOpened(_e, _ch, period, lines, _t) { sent.push({ period, lines }); return true; },
+  async sendOverdue() { return true; },
+  async sendPaymentNudge() { return true; },
 };
 
 beforeAll(async () => {
@@ -63,13 +63,26 @@ describe("initiateBillingOpened", () => {
     expect(won).toBe(false);
   });
 
-  it("force re-sends even after the slot was already claimed", async () => {
+  it("已開繳的期別再次 initiate 只改金額、不重複發送通知", async () => {
     await initiateBillingOpened(env, WS, "2027-07", { amounts: [] }, "owner@x", notifier);
     const before = sent.length;
     const r2 = await initiateBillingOpened(env, WS, "2027-07", { amounts: [] }, "owner@x", notifier);
     expect(r2.sent).toBe(false);
-    const r3 = await initiateBillingOpened(env, WS, "2027-07", { amounts: [] }, "owner@x", notifier, { force: true });
-    expect(r3.sent).toBe(true);
-    expect(sent.length).toBe(before + 1);
+    expect(sent.length).toBe(before); // 沒有第二則公告
+  });
+
+  it("回報真實的建立筆數：第一次建帳單，第二次是 0", async () => {
+    const first = await initiateBillingOpened(env, WS, "2027-08", { amounts: [] }, "owner@x", notifier);
+    expect(first.createdPayments).toBe(2); // SUB_A + SUB_B
+    const again = await initiateBillingOpened(env, WS, "2027-08", { amounts: [] }, "owner@x", notifier);
+    expect(again.createdPayments).toBe(0);
+  });
+
+  it("金額沒變時 updatedPayments 不灌水", async () => {
+    // 2027-08 的 pending 帳單此時已是 PLAN_B 的現價（前一個測試建立）
+    const same = await initiateBillingOpened(
+      env, WS, "2027-08", { amounts: [{ plan_id: PLAN_B, amount: 300 }] }, "owner@x", notifier
+    );
+    expect(same.updatedPayments).toBe(0);
   });
 });

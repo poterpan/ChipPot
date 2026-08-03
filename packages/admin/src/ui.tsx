@@ -45,6 +45,34 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   );
 }
 
+/**
+ * The one confirmation shape for a destructive-but-reversible action (deleting a row, clearing a
+ * send log, unbinding). Irreversible or outward-facing actions get the two-step preview modal
+ * instead (SyncModal / RetractModal / InitiateModal). Both use `btn--danger` — there is exactly one
+ * red in this app (`--red`), and `window.confirm` is not used anywhere.
+ */
+export function ConfirmDanger({ title, message, confirmLabel = "確認刪除", busyLabel = "處理中…", onClose, onConfirm }: {
+  title: string; message: string; confirmLabel?: string; busyLabel?: string;
+  onClose: () => void; onConfirm: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function go() {
+    setBusy(true); setErr(null);
+    try { await onConfirm(); } catch (e) { setErr((e as Error).message); setBusy(false); }
+  }
+  return (
+    <Modal title={title} onClose={onClose}>
+      {err && <div className="error-banner">{err}</div>}
+      <p style={{ whiteSpace: "pre-wrap", marginBottom: 16, lineHeight: 1.7 }}>{message}</p>
+      <div className="btn-row">
+        <button className="btn" onClick={onClose} disabled={busy}>取消</button>
+        <button className="btn btn--danger" onClick={go} disabled={busy}>{busy ? busyLabel : confirmLabel}</button>
+      </div>
+    </Modal>
+  );
+}
+
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="field">

@@ -6,7 +6,7 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened, reconcilePeriodBills, retractPeriodBilling } from "../core/billing";
+import { ensureFirstPayment, initiateBillingOpened, previewBillingInitiate, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice } from "../core/billing";
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
@@ -87,7 +87,7 @@ async function reconcile(_req: Request, env: Env, ctx: RouteCtx): Promise<Respon
 
 async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
-  const b = await readJson<{ period?: string; amounts?: { plan_id: number; amount: number }[] }>(req);
+  const b = await readJson<{ period?: string; amounts?: { plan_id: number; amount: number }[]; dry_run?: boolean }>(req);
   const period = b?.period ?? taipeiPeriod();
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
   if (!Array.isArray(b?.amounts)) return errorResponse(400, "amounts is required");
@@ -96,10 +96,17 @@ async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<R
       return errorResponse(400, "each amount needs an integer plan_id and non-negative amount");
     }
   }
+  // dry_run defaults to true (safe preview) — only an explicit false applies, matching
+  // /billing/:period/sync and /billing/:period/retract.
+  if (b!.dry_run !== false) {
+    return json(await previewBillingInitiate(env, ws, period, { amounts: b!.amounts }));
+  }
   const r = await initiateBillingOpened(
     env, ws, period, { amounts: b!.amounts }, actorOf(ctx), discordNotifier
   );
-  return json({ ok: true, sent: r.sent, updated_plans: r.updatedPlans, updated_payments: r.updatedPayments });
+  // notify_reason travels with the apply so the UI explains THIS call's outcome instead of
+  // repeating the (by then stale) preview's prediction as fact.
+  return json({ ok: true, sent: r.sent, notify_reason: r.notifyReason, updated_plans: r.updatedPlans, created_payments: r.createdPayments, updated_payments: r.updatedPayments });
 }
 
 /**
@@ -136,9 +143,10 @@ async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<R
         e.total += a.amount;
       }
       const people = [...byUser.values()];
-      // The reconcile is already committed; a Discord hiccup must not turn a successful apply into a 500.
+      // The reconcile is already committed; a Discord hiccup must not turn a successful apply into a
+      // 500. `notified` counts confirmed pings only — the notifier reports a refused send as false.
       if (people.length) {
-        try { await discordNotifier.sendPaymentNudge(env, channelId, ws, period, people); notified = people.length; }
+        try { if (await discordNotifier.sendPaymentNudge(env, channelId, ws, period, people)) notified = people.length; }
         catch { notified = 0; }
       }
     }
@@ -189,23 +197,43 @@ async function notificationsStatus(_req: Request, env: Env, ctx: RouteCtx): Prom
   return json({ billing_opened: await row("billing_opened"), overdue: await row("overdue") });
 }
 
+/**
+ * "重發開繳通知" / "催繳未繳成員". dry_run defaults to true (safe preview) — only an explicit
+ * { dry_run: false } sends anything, matching /sync and /retract. Both modes return the same shape
+ * per type so the modal's preview and result render from one response; only an apply audits.
+ */
 async function notificationsResend(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
-  const b = await readJson<{ type?: string; period?: string }>(req);
+  const b = await readJson<{ type?: string; period?: string; dry_run?: boolean }>(req);
   if (b?.period !== undefined && typeof b.period !== "string") return errorResponse(400, "period must be YYYY-MM");
   const period = b?.period ?? taipeiPeriod();
   if (!b?.type || !NOTIF_TYPES.includes(b.type as any)) return errorResponse(400, "type must be billing_opened or overdue");
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
-  let result: { sent?: boolean; count?: number };
+  const dryRun = b.dry_run !== false; // safe default: preview unless explicitly false
+
+  // `outcome` is what keeps the audit trail honest: a bare `sent: false` reads as a mystery,
+  // `no_bot_token` explains itself. A preview writes none — nothing happened to record.
   if (b.type === "billing_opened") {
-    const r = await initiateBillingOpened(env, ws, period, { amounts: [] }, actorOf(ctx), discordNotifier, { force: true });
-    result = { sent: r.sent };
-  } else {
-    const count = await sendOverdueForPeriod(env, ws, period, discordNotifier, { force: true });
-    result = { count };
+    const r = await resendBillingOpenedNotice(env, ws, period, discordNotifier, { dryRun });
+    // Resend re-posts an existing notice. A period with no billing_opened record has nothing to
+    // re-post, and the old implementation quietly OPENED it (creating every bill + broadcasting).
+    if (r.outcome === "not_opened") {
+      return errorResponse(409, `${period} 尚未開繳，沒有可以重發的開繳通知。請改用「設定 → 工具 → 發起繳費」。`);
+    }
+    if (!dryRun) {
+      await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.resend", entityType: "workspace", entityId: ws, after: { type: b.type, period, outcome: r.outcome, sent: r.sent } });
+    }
+    return json({ ok: true, dry_run: dryRun, outcome: r.outcome, sent: r.sent, lines: r.lines });
   }
-  await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.resend", entityType: "workspace", entityId: ws, after: { type: b.type, period, ...result } });
-  return json({ ok: true, ...result });
+
+  const r = await sendOverdueForPeriod(env, ws, period, discordNotifier, { force: true, dryRun });
+  if (!dryRun) {
+    await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.resend", entityType: "workspace", entityId: ws, after: { type: b.type, period, outcome: r.outcome, count: r.notified } });
+  }
+  return json({
+    ok: true, dry_run: dryRun, outcome: r.outcome, count: r.notified, overdue_days: r.overdue_days,
+    people: r.people.map((p) => ({ user_id: p.user_id, user_name: p.user_name, discord_id: p.discord_id, total: p.total })),
+  });
 }
 
 async function notificationsReset(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -215,6 +243,13 @@ async function notificationsReset(req: Request, env: Env, ctx: RouteCtx): Promis
   const period = b?.period ?? taipeiPeriod();
   if (!b?.type || !NOTIF_TYPES.includes(b.type as any)) return errorResponse(400, "type must be billing_opened or overdue");
   if (!PERIOD_RE.test(period)) return errorResponse(400, "period must be YYYY-MM");
+  // The billing_opened row is not a send log — it IS the definition of "this period is open"
+  // (core/notify.ts isBillingOpened, core/db.ts listOpenPayablePeriods). Deleting it alone leaves
+  // every pending bill standing in a period members can no longer pay: a half retract. The whole
+  // operation lives in 收回本期開繳, which also deletes the bills and the upload tokens.
+  if (b.type === "billing_opened") {
+    return errorResponse(409, "開繳紀錄不能單獨重置（那會讓本期回到未開繳、帳單卻全留著）。請到「繳費審核」使用「收回本期開繳」。");
+  }
   const res = await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = ? AND period = ?")
     .bind(ws, b.type, period).run();
   const deleted = res.meta.changes ?? 0;
@@ -792,6 +827,7 @@ async function deletePayment(_req: Request, env: Env, ctx: RouteCtx): Promise<Re
 async function createUploadLink(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const b = await readJson<{ user_id?: number; period?: string; subscription_id?: number }>(req);
   if (!b?.user_id || !b.period) return errorResponse(400, "user_id and period are required");
+  if (!PERIOD_RE.test(b.period)) return errorResponse(400, "period must be YYYY-MM");
   const ws = wsId(ctx);
   const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND workspace_id = ?").bind(b.user_id, ws).first();
   if (!user) return errorResponse(400, "invalid user");
@@ -826,8 +862,9 @@ async function discordPaymentMessage(_req: Request, env: Env, ctx: RouteCtx): Pr
   let ok = false;
   if (messageId) ok = await editChannelMessage(env.DISCORD_BOT_TOKEN, channelId, messageId, body);
   if (!ok) {
-    messageId = (await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body)) ?? "";
-    ok = !!messageId;
+    const created = await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body);
+    messageId = created.id ?? "";
+    ok = created.ok && !!messageId; // the id is what we persist, so a 2xx without one is still a failure here
   }
   if (!ok) return errorResponse(502, "failed to post Discord message");
 
@@ -854,8 +891,9 @@ async function discordBindMessage(_req: Request, env: Env, ctx: RouteCtx): Promi
   let ok = false;
   if (messageId) ok = await editChannelMessage(env.DISCORD_BOT_TOKEN, channelId, messageId, body);
   if (!ok) {
-    messageId = (await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body)) ?? "";
-    ok = !!messageId;
+    const created = await createChannelMessage(env.DISCORD_BOT_TOKEN, channelId, body);
+    messageId = created.id ?? "";
+    ok = created.ok && !!messageId; // the id is what we persist, so a 2xx without one is still a failure here
   }
   if (!ok) return errorResponse(502, "failed to post Discord message");
 
@@ -879,8 +917,12 @@ async function discordRegisterCommands(_req: Request, env: Env, ctx: RouteCtx): 
   const res = await registerGuildCommands(env.DISCORD_BOT_TOKEN, env.DISCORD_APPLICATION_ID, guildId, commands);
   if (!res.ok) return errorResponse(502, "failed to register commands");
 
+  const registeredAt = nowUtcIso();
+  await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_commands_registered_at', ?), updated_at = ? WHERE id = ?")
+    .bind(registeredAt, registeredAt, ws).run();
+
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "discord.register_commands", entityType: "workspace", entityId: ws, after: { guild_id: guildId, count: commands.length } });
-  return json({ ok: true, registered: commands.length });
+  return json({ ok: true, registered: commands.length, registered_at: registeredAt });
 }
 
 // ── Router ───────────────────────────────────────────────────────────────────

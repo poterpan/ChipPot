@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { buildAdminRouter } from "../../src/routes/admin";
+import { claimNotification } from "../../src/core/notify";
 import { getPayment } from "../../src/core/payments";
 import { hashToken, findValidUploadToken } from "../../src/core/tokens";
 import { nowUtcIso } from "../../src/core/time";
@@ -212,7 +213,7 @@ describe("admin notifications", () => {
     const prevToken = (env as any).DISCORD_BOT_TOKEN;
     (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
-    const r = await call("POST", "/admin/notifications/resend", { type: "overdue", period: "2028-03" });
+    const r = await call("POST", "/admin/notifications/resend", { type: "overdue", period: "2028-03", dry_run: false });
     vi.unstubAllGlobals();
     (env as any).DISCORD_BOT_TOKEN = prevToken;
     expect(r!.status).toBe(200);
@@ -230,6 +231,88 @@ describe("admin notifications", () => {
     expect((await call("POST", "/admin/notifications/resend", { type: "bogus", period: "2028-03" }))!.status).toBe(400);
     expect((await call("POST", "/admin/notifications/reset", { type: "overdue", period: "bad" }))!.status).toBe(400);
     expect((await call("POST", "/admin/notifications/reset", { type: "overdue", period: ["2028-03"] }))!.status).toBe(400);
+  });
+});
+
+// The billing_opened resend goes through resendBillingOpenedNotice (re-post only). These drive it
+// through the HTTP route, which is where the audit trail and the "nothing was sent" outcomes live.
+describe("admin notifications resend — billing_opened", () => {
+  const PERIOD = "2028-09";
+  const STALE = "2020-01-01T00:00:00.000Z";
+
+  /** The `after` payload of the most recent notification.resend audit row. */
+  async function lastResendAudit(): Promise<{ type: string; period: string; outcome: string; sent?: boolean }> {
+    const r = await env.DB.prepare(
+      "SELECT after_json FROM audit_logs WHERE action = 'notification.resend' AND actor = ? ORDER BY id DESC LIMIT 1"
+    ).bind(IDENT.email).first<{ after_json: string }>();
+    return JSON.parse(r!.after_json);
+  }
+  const markerSentAt = () =>
+    env.DB.prepare("SELECT sent_at FROM notification_logs WHERE workspace_id = 1 AND type = 'billing_opened' AND period = ?")
+      .bind(PERIOD).first<{ sent_at: string }>();
+  const paymentCount = async () =>
+    (await env.DB.prepare("SELECT COUNT(*) AS n FROM payments WHERE workspace_id = 1 AND period = ?")
+      .bind(PERIOD).first<{ n: number }>())!.n;
+
+  async function resend(withToken: string) {
+    const prev = (env as any).DISCORD_BOT_TOKEN;
+    (env as any).DISCORD_BOT_TOKEN = withToken;
+    const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+    const res = await call("POST", "/admin/notifications/resend", { type: "billing_opened", period: PERIOD, dry_run: false });
+    vi.unstubAllGlobals();
+    (env as any).DISCORD_BOT_TOKEN = prev;
+    return { res: res!, body: (await res!.json()) as any, fetchSpy };
+  }
+
+  beforeAll(async () => {
+    await call("PATCH", "/admin/workspace", { settings: { discord_billing_channel_id: "chan-1" } });
+    const u = await call("POST", "/admin/users", { display_name: "Resend", discord_id: "d-resend" });
+    const uid = ((await u!.json()) as any).id as number;
+    await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: 1, start_date: "2028-09-01" });
+    // 開繳 marker：重發只對「已開繳」的期別有效。壓成舊時間，之後才能斷言 sent_at 真的被更新。
+    await claimNotification(env.DB, { workspaceId: 1, type: "billing_opened", period: PERIOD });
+    await env.DB.prepare(
+      "UPDATE notification_logs SET sent_at = ? WHERE workspace_id = 1 AND type = 'billing_opened' AND period = ?"
+    ).bind(STALE, PERIOD).run();
+  });
+
+  it("重貼公告：更新 sent_at、寫下 outcome 稽核，且不新增任何帳單", async () => {
+    const billsBefore = await paymentCount();
+    const { res, body, fetchSpy } = await resend("test-bot-token");
+
+    expect(res.status).toBe(200);
+    expect(body.sent).toBe(true);
+    expect(fetchSpy).toHaveBeenCalled(); // 真的打了 Discord API
+    // marker 只有一列、sent_at 由舊變新（UPDATE 而不是 delete + re-claim）
+    const after = await markerSentAt();
+    expect(after!.sent_at > STALE).toBe(true);
+    expect(await paymentCount()).toBe(billsBefore); // 重發不建帳單
+    expect(await lastResendAudit()).toMatchObject({ type: "billing_opened", period: PERIOD, outcome: "sent", sent: true });
+  });
+
+  it("沒有 bot token：回報未送出、不動 sent_at，稽核記下 no_bot_token", async () => {
+    const before = (await markerSentAt())!.sent_at;
+    const { res, body, fetchSpy } = await resend("");
+
+    expect(res.status).toBe(200);
+    expect(body.sent).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect((await markerSentAt())!.sent_at).toBe(before);
+    expect(await lastResendAudit()).toMatchObject({ outcome: "no_bot_token", sent: false });
+  });
+
+  it("沒有任何啟用中的方案：回報未送出，稽核記下 no_plans", async () => {
+    await env.DB.prepare("UPDATE plans SET active = 0 WHERE workspace_id = 1").run();
+    const before = (await markerSentAt())!.sent_at;
+    const { res, body, fetchSpy } = await resend("test-bot-token");
+    await env.DB.prepare("UPDATE plans SET active = 1 WHERE workspace_id = 1").run();
+
+    expect(res.status).toBe(200);
+    expect(body.sent).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect((await markerSentAt())!.sent_at).toBe(before);
+    expect(await lastResendAudit()).toMatchObject({ outcome: "no_plans", sent: false });
   });
 });
 
@@ -254,6 +337,10 @@ describe("admin discord slash registration", () => {
     const names = captured!.body.map((c: any) => c.name);
     expect(names).toHaveLength(3);
     expect(new Set(names)).toEqual(new Set(["繳費", "發起繳費", "綁定"])); // order-independent
+
+    const wsRes = await call("GET", "/admin/workspace");
+    const s = ((await wsRes!.json()) as any).workspace.settings;
+    expect(s.discord_commands_registered_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("400s when the bot token is not configured", async () => {
@@ -275,7 +362,7 @@ describe("admin billing/initiate + declared channel", () => {
     const sRes = await call("POST", "/admin/subscriptions", { user_id: uid, plan_id: planId, start_date: "2027-09-01" });
     const sid = ((await sRes!.json()) as any).id as number;
 
-    const res = await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [{ plan_id: planId, amount: 800 }] });
+    const res = await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [{ plan_id: planId, amount: 800 }], dry_run: false });
     expect(res!.status).toBe(200);
     expect(((await res!.json()) as any).updated_payments).toBeGreaterThanOrEqual(1);
 
@@ -290,6 +377,17 @@ describe("admin billing/initiate + declared channel", () => {
     expect((await call("POST", "/admin/billing/initiate", { period: "2027-09" }))!.status).toBe(400);
     expect((await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [null] }))!.status).toBe(400);
     expect((await call("POST", "/admin/billing/initiate", { period: "2027-09", amounts: [{ plan_id: 1, amount: -1 }] }))!.status).toBe(400);
+  });
+
+  it("billing/initiate 預設是 dry run：回傳預覽且不寫入", async () => {
+    const pRes = await call("POST", "/admin/plans", { name: "PreviewPlan", provider: "openai", monthly_amount: 100 });
+    const planId = ((await pRes!.json()) as any).id as number;
+    const res = await call("POST", "/admin/billing/initiate", { period: "2027-10", amounts: [{ plan_id: planId, amount: 700 }] });
+    expect(res!.status).toBe(200);
+    const body = (await res!.json()) as any;
+    expect(body.plan_changes).toEqual([{ plan_id: planId, plan_name: "PreviewPlan", from: 100, to: 700 }]);
+    const plan = await env.DB.prepare("SELECT monthly_amount FROM plans WHERE id=?").bind(planId).first<{ monthly_amount: number }>();
+    expect(plan!.monthly_amount).toBe(100); // 沒有被寫入
   });
 
   it("defaults to a dry run: returns the diff and writes nothing", async () => {

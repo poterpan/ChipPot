@@ -117,7 +117,7 @@ export function Payments() {
         </div>
         <div className="grow" style={{ flex: 1 }} />
         <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊本期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步本期</button>
-        <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除本期未繳帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回本期開繳</button>
+        <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除本期未繳／已退回帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回本期開繳</button>
         <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結</button>
         <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
       </div>
@@ -282,7 +282,9 @@ function RetractModal({ period, onClose, onDone }: { period: string; onClose: ()
             /* Still worth doing: the marker alone is what keeps the period "opened". */
             : <p style={{ color: "var(--muted)" }}>本期沒有可刪除的未繳／已退回帳單，收回只會把期別改回「未開繳」。</p>}
           <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.7, margin: "12px 0" }}>
-            收回後本期回到「未開繳」：刪掉的帳單不會被「重新同步本期」補回來，日後可以再次發起繳費（屆時會重新發送開繳通知）。
+            {/* One source line per sentence would render an ASCII space between them (JSX joins
+                adjacent text lines), which reads as a gap in a run of CJK. */}
+            收回後本期回到「未開繳」：刪掉的帳單不會被「重新同步本期」補回來，日後可以再次發起繳費（屆時會重新發送開繳通知）。此期先前用「產生上傳連結」發出去的一次性連結會<b>立即失效</b>，對方點開只會看到連結無效。
             {preview.frozen_count > 0 && `已繳／已驗證的 ${preview.frozen_count} 筆一律原樣保留，重開本期也不會重複開帳單。`}
             已經發出的 Discord 開繳通知不會撤回，必要時請自行到頻道說明。
           </p>

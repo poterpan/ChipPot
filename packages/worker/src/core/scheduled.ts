@@ -63,9 +63,16 @@ export async function runDailyTasks(
           )
           .bind(ws.id)
           .all<PlanOpenLine>();
+        // Counted only on a confirmed send — the summary is what the daily run reports as done.
+        // Note the deliberate divergence from initiateBillingOpened: the cron claims the marker
+        // BEFORE knowing whether there are lines, because step 1 has already created this day's
+        // bills and the cron will not revisit this period (it only fires on the billing day). An
+        // unclaimed marker would strand those bills in an unpayable period; the admin path has a
+        // preview promising no_plans and can simply be re-run, so it refuses to claim instead.
         if (lines.results.length > 0) {
-          await notifier.sendBillingOpened(env, channelId, period, lines.results, settings.billing_opened_template);
-          summary.billingOpenedSent++;
+          if (await notifier.sendBillingOpened(env, channelId, period, lines.results, settings.billing_opened_template)) {
+            summary.billingOpenedSent++;
+          }
         }
       }
     }
@@ -77,7 +84,7 @@ export async function runDailyTasks(
         .bind(ws.id)
         .all<{ period: string }>();
       for (const { period: pd } of periods.results) {
-        if ((await sendOverdueForPeriod(env, ws.id, pd, notifier, { force: false, now })) > 0) summary.overdueSent++;
+        if ((await sendOverdueForPeriod(env, ws.id, pd, notifier, { force: false, now })).notified > 0) summary.overdueSent++;
       }
     }
 
@@ -88,27 +95,46 @@ export async function runDailyTasks(
   return summary;
 }
 
+export type OverdueOutcome = "sent" | "preview" | "no_channel" | "no_bot_token" | "none_due" | "already_sent" | "send_failed";
+
+export interface OverdueResult {
+  /** People actually messaged. Always 0 on a dry run — use `people.length` for the preview count. */
+  notified: number;
+  outcome: OverdueOutcome;
+  /** The workspace's 逾期天數, so callers can spell out how force differs from the cron. */
+  overdue_days: number;
+  people: OverduePerson[];
+}
+
 /**
  * Send the overdue reminder for ONE period as a single batched public message listing every
  * unpaid member — pending OR rejected (a rejected submission still owes) — tagged once with
- * their plans + total, deduped per (ws, period). Cron uses
- * force=false (only fires when ≥1 member is past overdue_days, claim-then-send). The admin
- * resend uses force=true (lists ALL unpaid members regardless of overdue_days; clears the
- * dedup slot first so it always re-sends). Returns the number of members notified (0 = nothing
- * sent / already sent / can't notify).
+ * their plans + total, deduped per (ws, period).
+ *
+ * force=false (cron): only fires when ≥1 member is past overdue_days; claim-then-send.
+ * force=true (admin "催繳未繳成員"): lists ALL unpaid members regardless of overdue_days and clears
+ * the dedup slot first so it always re-sends. The two lists genuinely differ, which is why the UI
+ * must not call both "立即重發" — see the copy in views/PushStatus.tsx.
+ * dryRun: compute the list and stop. Nothing is cleared, claimed or sent.
+ * A refused send returns `send_failed` and releases the dedup slot it just claimed, so this period
+ * can still be reminded (by the cron or by another 催繳) instead of going silent for good.
  */
 export async function sendOverdueForPeriod(
   env: Env,
   workspaceId: number,
   period: string,
   notifier: Notifier,
-  opts: { force: boolean; now?: Date }
-): Promise<number> {
+  opts: { force: boolean; dryRun?: boolean; now?: Date }
+): Promise<OverdueResult> {
+  const bare = (outcome: OverdueOutcome, overdueDays = 0): OverdueResult =>
+    ({ notified: 0, outcome, overdue_days: overdueDays, people: [] });
+
   const wsRow = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(workspaceId).first<{ settings: string }>();
-  if (!wsRow) return 0;
+  if (!wsRow) return bare("no_channel");
   const settings = parseSettings(wsRow.settings);
   const channelId = settings.discord_billing_channel_id;
-  if (!channelId || !env.DISCORD_BOT_TOKEN) return 0;
+  if (!channelId) return bare("no_channel", settings.overdue_days);
+  if (!env.DISCORD_BOT_TOKEN) return bare("no_bot_token", settings.overdue_days);
   const today = taipeiDate(opts.now ?? new Date());
 
   const rows = await env.DB
@@ -137,17 +163,31 @@ export async function sendOverdueForPeriod(
   const people = [...byUser.values()]
     .filter((p) => opts.force || p.overdue)
     .map(({ overdue, ...p }) => p);
-  if (people.length === 0) return 0;
+  if (people.length === 0) return bare("none_due", settings.overdue_days);
+  if (opts.dryRun) return { notified: 0, outcome: "preview", overdue_days: settings.overdue_days, people };
 
   if (opts.force) {
-    // force = admin "resend now": clear the slot so the claim below always wins. This
-    // delete-then-claim isn't atomic, but force is an occasional single-admin dashboard
-    // action whose button is disabled while in flight; the only risk is a duplicate message
-    // from two truly-concurrent resends, which we accept (no DO/lock — YAGNI).
+    // force = admin resend: clear the slot so the claim below always wins. This delete-then-claim
+    // isn't atomic, but force is an occasional single-admin dashboard action whose button is
+    // disabled while in flight; the only risk is a duplicate message from two truly-concurrent
+    // resends, which we accept (no DO/lock — YAGNI). Unlike the billing_opened slot, the overdue
+    // row carries no "period is open" meaning, so a momentary gap is harmless.
     await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ?")
       .bind(workspaceId, period).run();
   }
-  if (!(await claimNotification(env.DB, { workspaceId, type: "overdue", period }))) return 0;
-  await notifier.sendOverdue(env, channelId, period, people, settings.overdue_template);
-  return people.length;
+  if (!(await claimNotification(env.DB, { workspaceId, type: "overdue", period }))) {
+    return { notified: 0, outcome: "already_sent", overdue_days: settings.overdue_days, people };
+  }
+  if (!(await notifier.sendOverdue(env, channelId, period, people, settings.overdue_template))) {
+    // Give the slot back. Unlike billing_opened, this row carries no "period is open" meaning — it
+    // says only "these people have already been reminded", and after a refused send nobody was.
+    // Keeping it would mute this period's reminders permanently: every later claim (cron included)
+    // would just lose and report already_sent, with no error surfacing anywhere. That is the exact
+    // trap 收回本期開繳 avoids by deleting this row, so a failed send releases it for the same reason.
+    // We can delete unconditionally: this call won the claim above, so the row is the one we wrote.
+    await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ?")
+      .bind(workspaceId, period).run();
+    return { notified: 0, outcome: "send_failed", overdue_days: settings.overdue_days, people };
+  }
+  return { notified: people.length, outcome: "sent", overdue_days: settings.overdue_days, people };
 }

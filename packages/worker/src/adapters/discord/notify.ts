@@ -4,7 +4,11 @@ import { renderTemplate } from "../../core/templates";
 import { createChannelMessage } from "./api";
 import { payButtonRow } from "./commands";
 
-/** Discord implementation of the channel-agnostic Notifier (spec §9). */
+/**
+ * Discord implementation of the channel-agnostic Notifier (spec §9). Each method hands back
+ * createChannelMessage's `ok` untouched, so "sent" upstream means "Discord answered 2xx" and
+ * nothing weaker.
+ */
 export const discordNotifier: Notifier = {
   async sendBillingOpened(env: Env, channelId, period, lines: PlanOpenLine[], template) {
     const plans = lines
@@ -16,11 +20,11 @@ export const discordNotifier: Notifier = {
     // template content can be coerced into a ping. De-dupe: two plans can share one role
     // (e.g. Standard + Premium both → @Claude), and Discord 400s on duplicate snowflakes.
     const roles = [...new Set(lines.map((l) => l.role_id).filter((r): r is string => !!r))];
-    await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
+    return (await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
       content,
       components: [payButtonRow()],
       allowed_mentions: { parse: [], roles },
-    });
+    })).ok;
   },
 
   async sendOverdue(env: Env, channelId, period, people: OverduePerson[], template) {
@@ -35,10 +39,10 @@ export const discordNotifier: Notifier = {
     // Pin mentions to exactly the overdue members' ids — template/display-name text can't ping.
     // De-dupe defensively (same Discord duplicate-snowflake 400 risk as roles above).
     const users = [...new Set(people.map((p) => p.discord_id).filter((d): d is string => !!d))];
-    await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
+    return (await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
       content,
       allowed_mentions: { parse: [], users },
-    });
+    })).ok;
   },
 
   async sendPaymentNudge(env: Env, channelId, workspaceId: number, period, people: OverduePerson[]) {
@@ -52,10 +56,10 @@ export const discordNotifier: Notifier = {
     const content = `📋 已將你加入 ${period} 繳費名單：\n${list}\n請點下方按鈕繳費。`;
     // Pin mentions to exactly the added members' ids — template/display-name text can't ping.
     const users = [...new Set(people.map((p) => p.discord_id).filter((d): d is string => !!d))];
-    await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
+    return (await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
       content,
       components: [payButtonRow(workspaceId)],
       allowed_mentions: { parse: [], users },
-    });
+    })).ok;
   },
 };

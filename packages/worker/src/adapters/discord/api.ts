@@ -13,20 +13,43 @@ export async function editOriginalResponse(
   return res.ok;
 }
 
-/** Create a message in a channel (bot token). Returns the message id, or null on failure. */
+/**
+ * Outcome of a create-message call. `ok` is the only thing that may be read as "Discord took it":
+ * it is set solely by a 2xx. `id` is a bonus — a 2xx whose body we could not parse still counts as
+ * delivered, so the two must stay separate (callers that persist a message id need both).
+ */
+export interface SentMessage {
+  ok: boolean;
+  id: string | null;
+}
+
+/**
+ * Create a message in a channel (bot token). Never throws: a transport error is a failed send like
+ * any other, and every caller is mid-way through a billing operation whose already-committed writes
+ * must not be turned into a 500 by a Discord hiccup — they report `ok: false` instead.
+ */
 export async function createChannelMessage(
   botToken: string,
   channelId: string,
   body: unknown
-): Promise<string | null> {
-  const res = await fetch(`${API}/channels/${channelId}/messages`, {
-    method: "POST",
-    headers: { authorization: `Bot ${botToken}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return null;
-  const msg = (await res.json()) as { id?: string };
-  return msg.id ?? null;
+): Promise<SentMessage> {
+  let res: Response;
+  try {
+    res = await fetch(`${API}/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bot ${botToken}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error("discord createChannelMessage failed", err);
+    return { ok: false, id: null };
+  }
+  if (!res.ok) {
+    console.error("discord createChannelMessage non-2xx", res.status);
+    return { ok: false, id: null };
+  }
+  const msg = (await res.json().catch(() => null)) as { id?: string } | null;
+  return { ok: true, id: msg?.id ?? null };
 }
 
 /** Edit an existing channel message (bot token). */
