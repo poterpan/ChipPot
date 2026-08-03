@@ -74,12 +74,34 @@ export function PushStatus({ period }: { period: string }) {
   );
 }
 
+/**
+ * Which screen one dry-run answer maps to. Every response has to land in exactly one of these:
+ * a body this build cannot read becomes "skew" instead of matching no branch at all and leaving an
+ * empty dialog. That was not hypothetical — the deployed worker (origin/main routes/admin.ts)
+ * answers `{ ok, sent }` / `{ ok, count }` with no `outcome` field, so against it every branch was
+ * false and the modal rendered blank.
+ */
+type View<T> = { k: "preview"; p: T } | { k: "blocked"; o: string } | { k: "skew" };
+
+function classify<T extends { outcome?: string }>(r: T | null | undefined): View<T> {
+  if (r && r.outcome === "preview") return { k: "preview", p: r };
+  // An outcome this build has no sentence for still prints its raw key rather than nothing, so a
+  // future enum member degrades to something readable instead of a blank modal.
+  if (r && typeof r.outcome === "string" && r.outcome.length > 0) return { k: "blocked", o: r.outcome };
+  return { k: "skew" };
+}
+
+/**
+ * Shown when the worker's answer is not one this build understands. Worded as a warning rather than
+ * an error because the likeliest cause is a worker older than this bundle — one that ignores
+ * `dry_run` and has therefore ALREADY posted to the channel on what this screen called a preview.
+ */
+const SKEW_PREVIEW = "後端回應的格式不是這個版本的後台認得的（可能後端版本較舊、還不支援預覽）。它可能已經直接送出通知了——請對照上方的發送時間與 Discord 頻道，不要重複操作。";
+const SKEW_RESULT = "無法確認結果：後端回應的格式不是這個版本的後台認得的。請對照上方的發送時間與 Discord 頻道確認。";
+
 /** 重發開繳通知 — re-posts an existing notice. Never creates bills, never changes prices. */
 function ResendBillingModal({ period, onClose, onDone }: { period: string; onClose: () => void; onDone: () => void }) {
-  const [preview, setPreview] = useState<ResendBillingPreview | null>(null);
-  // The outcome key when nothing can be re-posted — rendered as a plain sentence with no red button,
-  // never as an error banner: "此期尚未開繳" is a state of this screen, not a failure.
-  const [blocked, setBlocked] = useState<string | null>(null);
+  const [view, setView] = useState<View<ResendBillingPreview> | null>(null);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -89,15 +111,18 @@ function ResendBillingModal({ period, onClose, onDone }: { period: string; onClo
     api.resendNotification("billing_opened", period, { dry_run: true })
       .then((r) => {
         if (off) return;
-        const p = r as ResendBillingPreview;
-        if (p.outcome === "preview") setPreview(p); else setBlocked(p.outcome);
+        const v = classify(r as ResendBillingPreview);
+        setView(v);
         setBusy(false);
+        // A worker that answers in an unknown shape may have acted on this "preview", so refresh the
+        // card instead of leaving its 已發送 time asserting something that is no longer true.
+        if (v.k === "skew") onDone();
       })
       .catch((e) => {
         if (off) return;
         // 未開繳 never arrives as a 200 outcome: the route turns it into a 409 (worker
         // routes/admin.ts notificationsResend), so it lands here instead.
-        if (e instanceof ApiError && e.status === 409) setBlocked("not_opened");
+        if (e instanceof ApiError && e.status === 409) setView({ k: "blocked", o: "not_opened" });
         else setErr((e as Error).message);
         setBusy(false);
       });
@@ -109,8 +134,8 @@ function ResendBillingModal({ period, onClose, onDone }: { period: string; onClo
     setBusy(true); setErr(null);
     try {
       const r = await api.resendNotification("billing_opened", period, { dry_run: false }) as ResendBillingPreview;
-      setResult(r.sent
-        ? `✓ 已在頻道重發 ${period} 開繳通知（列出 ${r.lines.length} 個方案）。`
+      setResult(classify(r).k === "skew" ? SKEW_RESULT
+        : r.sent ? `✓ 已在頻道重發 ${period} 開繳通知（列出 ${r.lines.length} 個方案）。`
         : `未發送：${NOTIFY_REASON_TEXT[r.outcome] ?? r.outcome}`);
       onDone();
     } catch (e) { setErr((e as Error).message); setBusy(false); }
@@ -119,15 +144,16 @@ function ResendBillingModal({ period, onClose, onDone }: { period: string; onClo
   return (
     <Modal title={`重發開繳通知 · ${period}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      {busy && !preview && !blocked && <Empty>檢查中…</Empty>}
+      {busy && !view && <Empty>檢查中…</Empty>}
       {result && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{result}</div>}
-      {blocked && !result && (
-        <p style={{ color: "var(--muted)" }}>無法重發：{NOTIFY_REASON_TEXT[blocked] ?? blocked}。</p>
+      {!result && view?.k === "blocked" && (
+        <p style={{ color: "var(--muted)" }}>無法重發：{NOTIFY_REASON_TEXT[view.o] ?? view.o}。</p>
       )}
-      {preview && !result && (
+      {!result && view?.k === "skew" && <p style={{ color: "var(--muted)", lineHeight: 1.7 }}>{SKEW_PREVIEW}</p>}
+      {!result && view?.k === "preview" && (
         <>
-          <div className="stats"><Stat label="📣 公告方案" value={preview.lines.length} /></div>
-          <DiffList title="通知會列出的方案" rows={preview.lines.map((l) => `${l.plan_name} NT$${l.amount.toLocaleString()}`)} />
+          <div className="stats"><Stat label="📣 公告方案" value={view.p.lines.length} /></div>
+          <DiffList title="通知會列出的方案" rows={view.p.lines.map((l) => `${l.plan_name} NT$${l.amount.toLocaleString()}`)} />
           <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.7, margin: "12px 0" }}>
             重發只會在繳費頻道再貼一次同樣的開繳通知。<b>不會</b>新增或修改任何帳單、<b>不會</b>改動方案定價，
             期別也全程維持在「已開繳」。成員會再被 @ 一次。
@@ -144,8 +170,7 @@ function ResendBillingModal({ period, onClose, onDone }: { period: string; onClo
  * same list as the daily cron: it @s every unpaid member regardless of 逾期天數.
  */
 function OverdueModal({ period, onClose, onDone }: { period: string; onClose: () => void; onDone: () => void }) {
-  const [preview, setPreview] = useState<OverduePreview | null>(null);
-  const [blocked, setBlocked] = useState<string | null>(null);
+  const [view, setView] = useState<View<OverduePreview> | null>(null);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -155,9 +180,10 @@ function OverdueModal({ period, onClose, onDone }: { period: string; onClose: ()
     api.resendNotification("overdue", period, { dry_run: true })
       .then((r) => {
         if (off) return;
-        const p = r as OverduePreview;
-        if (p.outcome === "preview") setPreview(p); else setBlocked(p.outcome);
+        const v = classify(r as OverduePreview);
+        setView(v);
         setBusy(false);
+        if (v.k === "skew") onDone(); // it may already have @-ed the channel — see SKEW_PREVIEW
       })
       .catch((e) => { if (!off) { setErr((e as Error).message); setBusy(false); } });
     return () => { off = true; };
@@ -168,8 +194,8 @@ function OverdueModal({ period, onClose, onDone }: { period: string; onClose: ()
     setBusy(true); setErr(null);
     try {
       const r = await api.resendNotification("overdue", period, { dry_run: false }) as OverduePreview;
-      setResult(r.count > 0
-        ? `✓ 已在頻道催繳 ${r.count} 位成員。`
+      setResult(classify(r).k === "skew" ? SKEW_RESULT
+        : r.count > 0 ? `✓ 已在頻道催繳 ${r.count} 位成員。`
         : `未發送：${NOTIFY_REASON_TEXT[r.outcome] ?? r.outcome}`);
       onDone();
     } catch (e) { setErr((e as Error).message); setBusy(false); }
@@ -178,23 +204,24 @@ function OverdueModal({ period, onClose, onDone }: { period: string; onClose: ()
   return (
     <Modal title={`催繳未繳成員 · ${period}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      {busy && !preview && !blocked && <Empty>計算名單中…</Empty>}
+      {busy && !view && <Empty>計算名單中…</Empty>}
       {result && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{result}</div>}
-      {blocked && !result && (
-        <p style={{ color: "var(--muted)" }}>無法催繳：{NOTIFY_REASON_TEXT[blocked] ?? blocked}。</p>
+      {!result && view?.k === "blocked" && (
+        <p style={{ color: "var(--muted)" }}>無法催繳：{NOTIFY_REASON_TEXT[view.o] ?? view.o}。</p>
       )}
-      {preview && !result && (
+      {!result && view?.k === "skew" && <p style={{ color: "var(--muted)", lineHeight: 1.7 }}>{SKEW_PREVIEW}</p>}
+      {!result && view?.k === "preview" && (
         <>
           <div className="stats">
-            <Stat label="🔔 會 @ 的成員" value={preview.people.length} />
-            <Stat label="💰 未繳總額" value={`NT$${preview.people.reduce((s, p) => s + p.total, 0).toLocaleString()}`} />
+            <Stat label="🔔 會 @ 的成員" value={view.p.people.length} />
+            <Stat label="💰 未繳總額" value={`NT$${view.p.people.reduce((s, p) => s + p.total, 0).toLocaleString()}`} />
           </div>
-          <DiffList title="會被 @ 的成員" rows={preview.people.map((p) => `${p.user_name} NT$${p.total.toLocaleString()}${p.discord_id ? "" : "（未綁定，@ 不到）"}`)} />
+          <DiffList title="會被 @ 的成員" rows={view.p.people.map((p) => `${p.user_name} NT$${p.total.toLocaleString()}${p.discord_id ? "" : "（未綁定，@ 不到）"}`)} />
           <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.7, margin: "12px 0" }}>
-            這會在繳費頻道公開 @ {period} <b>所有</b>未繳成員（含已退回的），<b>不受</b>「逾期天數（{preview.overdue_days} 天）」限制；
+            這會在繳費頻道公開 @ {period} <b>所有</b>未繳成員（含已退回的），<b>不受</b>「逾期天數（{view.p.overdue_days} 天）」限制；
             每日自動催繳只會 @ 已超過逾期天數的人，所以這份名單通常比較長。送出後本期的催繳發送紀錄會更新為現在。
           </p>
-          <button className="btn btn--danger" disabled={busy} onClick={apply}>確認催繳這 {preview.people.length} 位</button>
+          <button className="btn btn--danger" disabled={busy} onClick={apply}>確認催繳這 {view.p.people.length} 位</button>
         </>
       )}
     </Modal>
