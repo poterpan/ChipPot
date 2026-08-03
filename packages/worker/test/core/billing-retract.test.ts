@@ -133,6 +133,21 @@ describe("retractPeriodBilling", () => {
     expect(await claimNotification(env.DB, { workspaceId: WS, type: "overdue", period: P })).toBe(true);
   });
 
+  // Uses its own period so it stays independent of the retract sequence the other tests share.
+  it("clears the period's receipt and nudge slots so a re-open can announce again", async () => {
+    const P2 = "2031-09";
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,event,sent_at) VALUES (?,?,?,?,?,?,?,?)`).bind(WS, "billing_opened", P2, 0, 0, 0, "", TS),
+      env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,event,sent_at) VALUES (?,?,?,?,?,?,?,?)`).bind(WS, "receipt", P2, 0, U, S_PEND, "reject", TS),
+      env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,event,sent_at) VALUES (?,?,?,?,?,?,?,?)`).bind(WS, "receipt", P2, 0, U, S_PEND, "verify", TS),
+      env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,event,sent_at) VALUES (?,?,?,?,?,?,?,?)`).bind(WS, "nudge", P2, 0, U, 0, "", TS),
+    ]);
+    await retractPeriodBilling(env, WS, P2, { dryRun: false });
+    const left = await env.DB.prepare("SELECT COUNT(*) c FROM notification_logs WHERE workspace_id=? AND period=?")
+      .bind(WS, P2).first<{ c: number }>();
+    expect(left!.c).toBe(0);
+  });
+
   it("leaves the period unopened, so reconcile no longer refills it", async () => {
     const d = await reconcilePeriodBills(env, WS, P, { dryRun: false });
     expect(d.opened).toBe(false);
