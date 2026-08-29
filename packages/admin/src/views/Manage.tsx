@@ -12,16 +12,28 @@ export function Users() {
   const { data, loading, error, reload } = useAsync(() => api.users(), []);
   const [edit, setEdit] = useState<User | null | undefined>(undefined); // undefined=closed, null=new
   const [del, setDel] = useState<User | null>(null);
+  // 未綁定的人收不到開繳／催繳的 @，而 onboarding 完全靠那個 @。原本這件事在後台看不出來 (C9)。
+  const [onlyUnbound, setOnlyUnbound] = useState(false);
+  const users = data?.users ?? [];
+  const unboundCount = users.filter((u) => !u.discord_id).length;
+  const shown = onlyUnbound ? users.filter((u) => !u.discord_id) : users;
   return (
     <>
       {error && <div className="error-banner">{error}</div>}
       <Card title="成員" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>}>
+        {unboundCount > 0 && (
+          <div className="pills" style={{ padding: "12px 18px 0", alignItems: "center" }}>
+            <button className={`pill ${onlyUnbound ? "" : "pill--on"}`} onClick={() => setOnlyUnbound(false)}>全部 {users.length} 人</button>
+            <button className={`pill ${onlyUnbound ? "pill--on" : ""}`} onClick={() => setOnlyUnbound(true)}>未綁定 {unboundCount} 人</button>
+            <span style={{ fontSize: 12.5, color: "var(--muted-strong)" }}>未綁定者收不到開繳／催繳的 @</span>
+          </div>
+        )}
         <div className="tbl">
           <table>
             <thead><tr><th>名稱</th><th>Discord ID</th><th>Email</th><th></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={4}><Empty>載入中…</Empty></td></tr>}
-              {data?.users.map((u) => (
+              {shown.map((u) => (
                 <tr key={u.id}>
                   <td>{u.display_name}</td><td className="mono" style={{ fontSize: 12.5 }}>{u.discord_id ?? "—"}</td><td>{u.email ?? "—"}</td>
                   <td className="right">
