@@ -74,3 +74,47 @@ describe("pay prompt discloses each entry point's limits up front", () => {
     expect(text).not.toContain("可附截圖");
   });
 });
+
+describe("web upload link from Discord", () => {
+  const webBtn = (period: string): DiscordInteraction => ({
+    type: 3, id: "i", token: "t", guild_id: GUILD,
+    member: { user: { id: DISC } },
+    data: { custom_id: `chippot:payweb:${WS}:${period}`, component_type: 2 },
+  });
+
+  it("offers the web button in the pay prompt when R2 and WEB_ORIGIN are both configured", async () => {
+    (env as any).WEB_ORIGIN = "https://pay.example.com";
+    const res = (await routeInteraction(payButton(), env, CTX)) as Response;
+    const data = ((await res.json()) as any).data;
+    const ids = data.components.flatMap((r: any) => r.components.map((c: any) => c.custom_id));
+    expect(ids).toContain(`chippot:payweb:${WS}:${PERIOD}`);
+  });
+
+  it("hides the web button when WEB_ORIGIN is missing", async () => {
+    const prev = (env as any).WEB_ORIGIN;
+    (env as any).WEB_ORIGIN = undefined;
+    const res = (await routeInteraction(payButton(), env, CTX)) as Response;
+    (env as any).WEB_ORIGIN = prev;
+    const data = ((await res.json()) as any).data;
+    const ids = data.components.flatMap((r: any) => r.components.map((c: any) => c.custom_id));
+    expect(ids.every((id: string) => !String(id ?? "").startsWith("chippot:payweb"))).toBe(true);
+  });
+
+  it("mints a one-time link on click and shows it once", async () => {
+    (env as any).WEB_ORIGIN = "https://pay.example.com";
+    const before = await env.DB.prepare("SELECT COUNT(*) c FROM upload_tokens WHERE workspace_id = ?").bind(WS).first<{ c: number }>();
+    const text = await content((await routeInteraction(webBtn(PERIOD), env, CTX)) as Response);
+    const after = await env.DB.prepare("SELECT COUNT(*) c FROM upload_tokens WHERE workspace_id = ?").bind(WS).first<{ c: number }>();
+    expect(after!.c).toBe(before!.c + 1);
+    expect(text).toContain("https://pay.example.com/u/");
+    expect(text).toContain("30 分鐘");
+  });
+
+  it("refuses a period the member cannot pay", async () => {
+    (env as any).WEB_ORIGIN = "https://pay.example.com";
+    const text = await content((await routeInteraction(webBtn("2029-12"), env, CTX)) as Response);
+    expect(text).toContain("已無待繳");
+    const rows = await env.DB.prepare("SELECT COUNT(*) c FROM upload_tokens WHERE workspace_id = ? AND period = '2029-12'").bind(WS).first<{ c: number }>();
+    expect(rows!.c).toBe(0);
+  });
+});

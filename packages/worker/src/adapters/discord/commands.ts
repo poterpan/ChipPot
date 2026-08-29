@@ -1,5 +1,8 @@
 // The persistent payment button's custom_id (action:workspace:version).
 export const PAY_BUTTON_PREFIX = "chippot:pay";
+// "改用網頁上傳" button shown next to the channel select when R2 + WEB_ORIGIN are configured.
+// MUST be dispatched BEFORE PAY_BUTTON_PREFIX ("chippot:payweb…" startsWith "chippot:pay").
+export const PAY_WEB_PREFIX = "chippot:payweb";
 // The channel string-select shown after the button (action:workspace:period).
 export const PAY_SELECT_PREFIX = "chippot:paysel";
 // The period string-select shown when the member owes more than one opened period (action:workspace).
@@ -13,6 +16,10 @@ export const BIND_SELECT_PREFIX = "chippot:bind";
 export const BIND_BUTTON_PREFIX = "chippot:bindbtn";
 // Modal opened from the bind button / pay-bind when unbound members exceed the 25-option select cap.
 export const BIND_SEARCH_MODAL_PREFIX = "chippot:bindsearch";
+// 綁錯名字的出路: "這不是我" → confirm → unbind + re-pick. Neither prefix collides with
+// BIND_SELECT_PREFIX / BIND_BUTTON_PREFIX, but rebindok MUST be dispatched before rebind.
+export const REBIND_PREFIX = "chippot:rebind";
+export const REBIND_CONFIRM_PREFIX = "chippot:rebindok";
 
 // Discord option types we use.
 export const OPT_STRING = 3;
@@ -208,4 +215,19 @@ export function bindSearchModal(workspaceId: number, origin: "pay" | "cmd") {
       }],
     },
   };
+}
+
+/** One-button row: the escape hatch (confirm=false) or its red confirmation (confirm=true). */
+export function rebindRow(workspaceId: number, confirm: boolean) {
+  return {
+    type: CT_ACTION_ROW,
+    components: [confirm
+      ? { type: CT_BUTTON, style: 4, label: "確定解除綁定", custom_id: `${REBIND_CONFIRM_PREFIX}:${workspaceId}` }
+      : { type: CT_BUTTON, style: 2, label: "這不是我", custom_id: `${REBIND_PREFIX}:${workspaceId}` }],
+  };
+}
+
+/** Secondary button that mints a one-time upload link for THIS period (action:workspace:period). */
+export function webLinkButton(workspaceId: number, period: string) {
+  return { type: CT_BUTTON, style: 2, label: "改用網頁上傳（可附截圖）", custom_id: `${PAY_WEB_PREFIX}:${workspaceId}:${period}` };
 }

@@ -4,20 +4,21 @@ import { json } from "../../http";
 import { periodForBillingDay } from "../../core/time";
 import {
   getWorkspaceIdByGuild, getUserByDiscordId, listActiveSubscriptions,
-  listActiveChannelTags, listSettleablePayments, listOpenPayablePeriods, listUnboundUsers, searchUnboundUsers, bindDiscordId,
+  listActiveChannelTags, listSettleablePayments, listOpenPayablePeriods, listUnboundUsers, searchUnboundUsers, bindDiscordId, unbindDiscordId,
   type UnboundUser,
 } from "../../core/db";
 import { ensurePeriodPayment, initiateBillingOpened } from "../../core/billing";
 import { isBillingOpened } from "../../core/notify";
 import { settleUserPeriod, assertImageOk, extForContentType, InvalidImage } from "../../core/storage";
 import { writeAudit } from "../../core/audit";
+import { issueUploadToken } from "../../core/tokens";
 import { discordNotifier } from "./notify";
 import { editOriginalResponse } from "./api";
 import {
   IT_COMMAND, IT_COMPONENT, IT_AUTOCOMPLETE, IT_MODAL_SUBMIT,
   RT_MESSAGE, RT_DEFERRED, RT_UPDATE_MESSAGE, RT_AUTOCOMPLETE, FLAG_EPHEMERAL,
-  PAY_BUTTON_PREFIX, PAY_SELECT_PREFIX, PAY_PERIOD_PREFIX, INITIATE_MODAL_PREFIX, BIND_SELECT_PREFIX, BIND_BUTTON_PREFIX, BIND_SEARCH_MODAL_PREFIX,
-  channelSelectRow, periodSelectRow, initiateModal, bindSelectRow, bindSearchModal,
+  PAY_BUTTON_PREFIX, PAY_WEB_PREFIX, PAY_SELECT_PREFIX, PAY_PERIOD_PREFIX, INITIATE_MODAL_PREFIX, BIND_SELECT_PREFIX, BIND_BUTTON_PREFIX, BIND_SEARCH_MODAL_PREFIX, REBIND_PREFIX, REBIND_CONFIRM_PREFIX,
+  channelSelectRow, periodSelectRow, initiateModal, bindSelectRow, bindSearchModal, rebindRow, webLinkButton, CT_ACTION_ROW,
 } from "./commands";
 
 export interface DiscordAttachment {
@@ -344,10 +345,13 @@ async function deferredInitiate(i: DiscordInteraction, env: Env): Promise<void> 
 
 function handleComponent(i: DiscordInteraction, env: Env, ctx: ExecutionContext): Promise<Response> {
   const cid = i.data?.custom_id ?? "";
+  if (cid.startsWith(REBIND_CONFIRM_PREFIX)) return handleRebindConfirm(i, env); // before REBIND (prefix overlap)
+  if (cid.startsWith(REBIND_PREFIX)) return handleRebindAsk(i, env);
   if (cid.startsWith(BIND_BUTTON_PREFIX)) return handleBindButton(i, env); // before BIND_SELECT (prefix overlap)
   if (cid.startsWith(BIND_SELECT_PREFIX)) return handleBindSelect(i, env);
   if (cid.startsWith(PAY_SELECT_PREFIX)) return handlePaySelect(i, env, ctx);
   if (cid.startsWith(PAY_PERIOD_PREFIX)) return handlePayPeriodSelect(i, env); // before PAY_BUTTON (prefix overlap)
+  if (cid.startsWith(PAY_WEB_PREFIX)) return handlePayWebLink(i, env); // before PAY_BUTTON (prefix overlap)
   if (cid.startsWith(PAY_BUTTON_PREFIX)) return handlePayButton(i, env);
   return Promise.resolve(ephemeral("未支援的按鈕。"));
 }
@@ -360,6 +364,18 @@ const bindSelectMsg = (
   ws: number, origin: "pay" | "cmd", unbound: UnboundUser[],
   content = "請選擇你的名字以綁定 Discord 帳號（只列出尚未綁定的成員）。"
 ) => json({ type: RT_MESSAGE, data: { flags: FLAG_EPHEMERAL, content, components: [bindSelectRow(ws, origin, unbound)] } });
+
+/** Already bound: name the binding AND offer the way out (C4) — the old dead end just said
+ *  「你已綁定為 X」 and left 綁錯名字的人 with nothing but "go ask an admin". */
+const boundAlready = (ws: number, name: string) =>
+  json({
+    type: RT_MESSAGE,
+    data: {
+      flags: FLAG_EPHEMERAL,
+      content: `你已綁定為 ${name}。如果這不是你，可以按下方按鈕解除後重新綁定。`,
+      components: [rebindRow(ws, false)],
+    },
+  });
 
 /** Bind a specific roster user id to this Discord account (used by /綁定 名字 autocomplete pick). */
 async function bindPickedUser(env: Env, ws: number, userId: number, discordId: string): Promise<Response> {
@@ -377,7 +393,7 @@ async function handleBindCommand(i: DiscordInteraction, env: Env): Promise<Respo
   if (r instanceof Response) return r;
   const { ws, discordId } = r;
   const existing = await getUserByDiscordId(env.DB, ws, discordId);
-  if (existing) return ephemeral(`你已綁定為 ${existing.display_name}。`);
+  if (existing) return boundAlready(ws, existing.display_name);
   const picked = getOption(i, "名字")?.value;
   if (picked != null && String(picked).trim() !== "") return bindPickedUser(env, ws, Number(picked), discordId);
   const unbound = await listUnboundUsers(env.DB, ws);
@@ -392,7 +408,7 @@ async function handleBindButton(i: DiscordInteraction, env: Env): Promise<Respon
   if (r instanceof Response) return r;
   const { ws, discordId } = r;
   const existing = await getUserByDiscordId(env.DB, ws, discordId);
-  if (existing) return ephemeral(`你已綁定為 ${existing.display_name}。`);
+  if (existing) return boundAlready(ws, existing.display_name);
   const unbound = await listUnboundUsers(env.DB, ws);
   if (unbound.length === 0) return ephemeral("目前沒有可綁定的成員，請聯絡管理員。");
   if (unbound.length > BIND_SELECT_CAP) return json(bindSearchModal(ws, "cmd"));
@@ -451,6 +467,52 @@ async function handleBindSelect(i: DiscordInteraction, env: Env): Promise<Respon
   return updateErr(`✅ 已綁定為 ${result.boundName}。之後點「繳費」按鈕或用 \`/繳費\` 即可登記繳費。`);
 }
 
+/** "這不是我" → name the binding we are about to release and ask for a second click. */
+async function handleRebindAsk(i: DiscordInteraction, env: Env): Promise<Response> {
+  const r = await resolveWs(i, env);
+  if (r instanceof Response) return r;
+  const { ws, discordId } = r;
+  if (Number((i.data?.custom_id ?? "").split(":")[2]) !== ws) {
+    return json({ type: RT_UPDATE_MESSAGE, data: { content: "這個按鈕已失效，請重新用 `/綁定`。", components: [] } });
+  }
+  const existing = await getUserByDiscordId(env.DB, ws, discordId);
+  if (!existing) return json({ type: RT_UPDATE_MESSAGE, data: { content: "你的 Discord 帳號目前尚未綁定，可直接選擇你的名字。", components: [] } });
+  return json({
+    type: RT_UPDATE_MESSAGE,
+    data: {
+      content: `確定要解除「${existing.display_name}」的綁定嗎？解除後這個名字會回到可綁定清單，你必須重新選一次自己的名字才能繳費。`,
+      components: [rebindRow(ws, true)],
+    },
+  });
+}
+
+/** "確定解除綁定" → release ONLY the caller's own row, audit it, and go straight back to the picker. */
+async function handleRebindConfirm(i: DiscordInteraction, env: Env): Promise<Response> {
+  const r = await resolveWs(i, env);
+  if (r instanceof Response) return r;
+  const { ws, discordId } = r;
+  const result = await unbindDiscordId(env, ws, discordId);
+  if (result.status !== "ok") {
+    return json({ type: RT_UPDATE_MESSAGE, data: { content: "你的 Discord 帳號目前尚未綁定。", components: [] } });
+  }
+  await writeAudit(env.DB, {
+    workspaceId: ws, actor: `discord:${discordId}`, action: "member.unbind",
+    entityType: "user", entityId: result.userId!, before: { discord_id: discordId }, after: { discord_id: null },
+  });
+  // Straight back into the picker: the point of unbinding is to bind to the right name.
+  const unbound = await listUnboundUsers(env.DB, ws);
+  if (unbound.length === 0) return json({ type: RT_UPDATE_MESSAGE, data: { content: `已解除「${result.name}」的綁定。目前沒有可綁定的成員，請聯絡管理員。`, components: [] } });
+  if (unbound.length > BIND_SELECT_CAP) return json(bindSearchModal(ws, "cmd"));
+  return json({
+    type: RT_UPDATE_MESSAGE,
+    data: {
+      flags: FLAG_EPHEMERAL,
+      content: `已解除「${result.name}」的綁定，請重新選擇你的名字：`,
+      components: [bindSelectRow(ws, "cmd", unbound)],
+    },
+  });
+}
+
 // Make sure the current collection period has rows for these subs when it's open, so a member who
 // joined mid-period can still pay it. Pre-opened future periods already got their rows at 發起繳費
 // time, so listOpenPayablePeriods will surface them too.
@@ -507,15 +569,55 @@ async function payChannelPrompt(
   if (settleable.length === 0) return { content: "✅ 這個月份已登記繳費，無需重複操作。", components: [] };
   const total = settleable.reduce((s, r) => s + r.amount, 0);
   const lines = settleable.map((r) => `・${r.plan_name}：NT$${r.amount.toLocaleString()}`).join("\n");
+  const canWeb = !!env.BUCKET && !!env.WEB_ORIGIN;
+  const elsewhere = env.BUCKET
+    ? (canWeb ? "想附截圖或備註？改用 `/繳費`，或按下方「改用網頁上傳」。" : "想附截圖或備註？改用 `/繳費`。")
+    : "想附備註？改用 `/繳費`（本站未開啟截圖上傳）。";
   return {
     // Say what THIS entry point can and cannot do before the member commits to it (C8): the button
     // only picks a channel, and whether a screenshot is even possible depends on R2 (C7).
-    content: `${period} 應繳：\n${lines}\n**合計 NT$${total.toLocaleString()}**\n\n請選擇繳費渠道送出（這個按鈕只能選渠道）。${env.BUCKET ? "想附截圖或備註？改用 `/繳費`。" : "想附備註？改用 `/繳費`（本站未開啟截圖上傳）。"}`,
-    components: [channelSelectRow(ws, period, tags)],
+    content: `${period} 應繳：\n${lines}\n**合計 NT$${total.toLocaleString()}**\n\n請選擇繳費渠道送出（這個按鈕只能選渠道）。${elsewhere}`,
+    // Discord forbids mixing a select and a button in one action row — the button gets its own.
+    components: canWeb
+      ? [channelSelectRow(ws, period, tags), { type: CT_ACTION_ROW, components: [webLinkButton(ws, period)] }]
+      : [channelSelectRow(ws, period, tags)],
   };
 }
 
 /** Member owed >1 period and picked a month → show that month's channel select. */
+/** Mint a one-time upload link for the member's own period, so the web page is reachable at all
+ *  (C5). The token is created on click — not when the prompt is drawn — so browsing the prompt
+ *  never litters upload_tokens. */
+async function handlePayWebLink(i: DiscordInteraction, env: Env): Promise<Response> {
+  const m = await resolveMember(i, env);
+  if (m instanceof Response) return m;
+  const { ws, userId } = m;
+  const updateErr = (content: string) => json({ type: RT_UPDATE_MESSAGE, data: { content, components: [] } });
+
+  const parts = (i.data?.custom_id ?? "").split(":"); // chippot:payweb:<ws>:<period>
+  const period = parts[3] ?? "";
+  if (!PERIOD_RE.test(period) || Number(parts[2]) !== ws) return updateErr("這個按鈕已失效，請重新點「繳費」按鈕。");
+  if (!env.BUCKET || !env.WEB_ORIGIN) return updateErr("本站未開啟網頁上傳，請直接用 `/繳費` 指令登記。");
+
+  // Same gate as the channel path: never mint a token for a period the member can't settle.
+  const periods = await listOpenPayablePeriods(env.DB, ws, userId);
+  if (!periods.includes(period)) return updateErr("這個月份已無待繳項目，請重新點「繳費」按鈕。");
+
+  const { raw, expiresAt } = await issueUploadToken(env.DB, { workspaceId: ws, userId, period, ttlMs: 30 * 60 * 1000 });
+  await writeAudit(env.DB, {
+    workspaceId: ws, actor: `discord:${discordUserId(i)}`, action: "upload_link.create",
+    entityType: "user", entityId: userId, after: { period, expires_at: expiresAt, source: "discord_button" },
+  });
+  const url = `${env.WEB_ORIGIN.replace(/\/$/, "")}/u/${raw}`;
+  return json({
+    type: RT_UPDATE_MESSAGE,
+    data: {
+      content: `${period} 繳費網頁（只有你看得到這則訊息）：\n${url}\n\n連結 30 分鐘內有效、只能使用一次，可附截圖與備註。`,
+      components: [],
+    },
+  });
+}
+
 async function handlePayPeriodSelect(i: DiscordInteraction, env: Env): Promise<Response> {
   const m = await resolveMember(i, env);
   if (m instanceof Response) return m;
