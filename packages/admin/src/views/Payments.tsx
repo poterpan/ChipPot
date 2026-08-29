@@ -126,7 +126,7 @@ export function Payments() {
       {list.error && <div className="error-banner">{list.error}</div>}
       <Card title="繳費紀錄">
         <div className="tbl">
-          {/* tbl-cards: below 720px these rows stack into cards, each cell labelled by its data-label */}
+          {/* tbl-cards: below 1000px these rows stack into cards, each cell labelled by its data-label */}
           <table className="tbl-cards">
             <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>申報渠道</th>{showProof && <th>憑證</th>}<th></th></tr></thead>
             <tbody>

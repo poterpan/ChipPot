@@ -119,7 +119,7 @@ tbody tr.click:hover { background: #faf7f0; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid rgba(15,110,99,.3); outline-offset: 1px; }
 
 /* modal */
-/* Above .savebar (z-index 20): as a ≤720px bottom sheet the modal reaches the bottom edge, where
+/* Above .savebar (z-index 20): as a ≤1000px bottom sheet the modal reaches the bottom edge, where
    Settings' fixed save bar sits. At equal z-index the later-in-DOM save bar won and covered the
    sheet's last action (e.g. 匯入 CSV's 預覽差異). */
 /* text-align: left resets inherited alignment — Modal renders inline where it is opened, so a
@@ -146,11 +146,27 @@ tbody tr.click:hover { background: #faf7f0; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; }
 .link-box { font-family: "Spline Sans Mono", monospace; font-size: 12.5px; background: #faf7f0; border: 1px solid var(--line); border-radius: 9px; padding: 10px; word-break: break-all; }
-@media (max-width: 720px) {
-  /* rows: nav bar sizes to its content (no stretch); main absorbs the remaining height.
-     Without `auto 1fr`, grid's default align-content:stretch splits spare vertical space
-     across both rows and visibly inflates the nav bar on short pages. */
-  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
+/* ── MOBILE BREAKPOINT = 1000px ───────────────────────────────────────────────
+   Raised from 720px (issue #44 / P0-10): between 721 and 932px the desktop layout
+   snapped back — 232px sidebar plus a 489–700px content column — so the row-action
+   buttons of an 8-column table started off-screen on exactly iPad portrait (768/820)
+   and landscape phones (844/932). 980px is in range on purpose: an in-app WebView
+   (Google Messages / Samsung) that has no viewport meta applied yet falls back to the
+   legacy 980px layout viewport on first load, and must not get the desktop layout.
+   Four blocks in this file use it:
+     @media (max-width: 1000px)  — this one (shell), the settings/savebar block,
+                                    the .tbl-cards + bottom-sheet block
+     @media (min-width: 1001px)  — the .mrow two-column block
+   Change all of them together or the layout desynchronises. Above 1000px, wide tables
+   stay tables; their row actions are kept reachable by pinning the identity and action
+   columns rather than by moving this breakpoint up again.
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  /* Block flow, not grid: a sticky grid item is confined to its own grid area, which for a
+     single-row track is exactly its own box — i.e. `position: sticky` on .sidebar would be a
+     no-op. Plain block flow makes the document the sticky containing block and also removes
+     the old align-content:stretch problem that `auto 1fr` grid rows were working around. */
+  .app { display: block; height: auto; min-height: 100vh; }
   /* sidebar becomes a single-line scrollable tab bar; brand + tabs stay on one row */
   .sidebar { flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; padding: 10px 12px; min-width: 0; }
   .sidebar__brand { flex: 0 0 auto; padding: 0 6px 0 4px; font-size: 18px; white-space: nowrap; }
@@ -219,13 +235,13 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
 .savebar__note { margin-right: auto; font-size: 13px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
 .savebar__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); flex: 0 0 auto; }
 
-@media (max-width: 720px) {
+@media (max-width: 1000px) {
   .settings { max-width: none; padding-bottom: 110px; }
   .savebar { left: 0; padding: 12px 16px; }
 }
 
 /* ── member × period aggregate review (payment-notification landing) ────────── */
-/* Mobile-first: single column at any width; ≥721px the per-payment rows go two-column. */
+/* Mobile-first: single column at any width; ≥1001px the per-payment rows go two-column. */
 .mreview__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 14px; }
 .mreview__title { font-family: "Fraunces", serif; font-weight: 600; font-size: 20px; margin: 0; }
 .mreview__meta { font-size: 13px; color: var(--muted); }
@@ -254,17 +270,17 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
   border: 0; background: transparent; padding: 0; font: inherit; color: var(--teal-ink);
   text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
-@media (min-width: 721px) {
+@media (min-width: 1001px) {
   .mrow { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .mrow__acts { justify-content: flex-end; }
   .mreview__bulk .btn { flex: 0 0 auto; }
 }
 
-/* ── ≤720px: payments review on a phone ─────────────────────────────────────── */
+/* ── ≤1000px: payments review on a phone ────────────────────────────────────── */
 /* Rows stack into cards (labels come from each cell's data-label) instead of scrolling
-   sideways, and modals sit as a bottom sheet. Scoped to .tbl-cards so the dashboard and
-   manage tables keep their horizontal-scroll layout. */
-@media (max-width: 720px) {
+   sideways, and modals sit as a bottom sheet. Scoped to .tbl-cards so the read-only
+   dashboard and push-status tables keep their horizontal-scroll layout. */
+@media (max-width: 1000px) {
   .tbl-cards thead { display: none; }
   .tbl-cards, .tbl-cards tbody, .tbl-cards tr, .tbl-cards td { display: block; width: 100%; }
   .tbl-cards tr { padding: 12px 16px; border-bottom: 1px solid var(--line); }
