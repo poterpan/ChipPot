@@ -133,7 +133,20 @@ export function Payments() {
               {list.loading && <tr><td colSpan={colCount}><Empty>載入中…</Empty></td></tr>}
               {list.data?.payments.length === 0 && <tr><td colSpan={colCount}><Empty>沒有符合的紀錄</Empty></td></tr>}
               {list.data?.payments.map((p) => (
-                <tr key={p.id} className="click" onClick={() => setSelected(p)}>
+                <tr
+                  key={p.id}
+                  className="click"
+                  tabIndex={0}
+                  aria-label={`${p.user_name} · ${p.plan_name} · ${p.period} 繳費明細`}
+                  onClick={() => setSelected(p)}
+                  // PaymentDetail was reachable only by clicking the row background; the keyboard
+                  // detour (成員 → MemberReview → 完整資訊) works but nobody would find it.
+                  // No role="button": that would strip the row/cell semantics screen readers need.
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return; // a button inside the row handles its own keys
+                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(p); }
+                  }}
+                >
                   <td data-label="成員">
                     <button className="linkbtn" title="檢視這位成員本期的合併審核"
                       onClick={(e) => { e.stopPropagation(); window.location.hash = `payments?user=${p.user_id}&period=${p.period}`; }}>
