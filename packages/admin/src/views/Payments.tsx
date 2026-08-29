@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, currentPeriod, periodForBillingDay, type Payment, type ChannelTag, type ReconcileDiff, type RetractPreview, type RetractApplied } from "../api";
-import { useAsync, Card, Modal, Field, Empty, Money, Stat, StatusBadge, IconCheck, IconWarning, IconX, ErrorNote } from "../ui";
+import { useAsync, Card, Modal, Field, Empty, Money, Stat, StatusBadge, IconCheck, IconWarning, IconX, ErrorNote, FilterSelect } from "../ui";
 import { DiffList } from "../components/DiffList";
 import { PaymentDetail } from "./PaymentDetail";
 import { MemberReview } from "./MemberReview";
@@ -352,12 +352,9 @@ function ManualModal({ tags, onClose, onDone }: { tags: ChannelTag[]; onClose: (
   return (
     <Modal title="手動補登繳費" onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      <Field label="訂閱">
-        <select value={subId} onChange={(e) => setSubId(e.target.value)} disabled={busy}>
-          <option value="">選擇…</option>
-          {subs.data?.subscriptions.filter((s) => s.status === "active").map((s) => <option key={s.id} value={s.id}>{s.user_name} · {s.plan_name}</option>)}
-        </select>
-      </Field>
+      <FilterSelect label="訂閱" value={subId} disabled={busy} onChange={setSubId}
+        options={(subs.data?.subscriptions ?? []).filter((s) => s.status === "active")
+          .map((s) => ({ value: String(s.id), label: `${s.user_name} · ${s.plan_name}` }))} />
       <Field label="期別"><input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} disabled={busy} /></Field>
       <Field label="金額（留空＝方案金額）"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={busy} /></Field>
       <Field label="狀態">
@@ -400,12 +397,8 @@ function LinkModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="產生一次性上傳連結" onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      <Field label="成員">
-        <select value={userId} onChange={(e) => setUserId(e.target.value)} disabled={busy}>
-          <option value="">選擇…</option>
-          {users.data?.users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-        </select>
-      </Field>
+      <FilterSelect label="成員" value={userId} disabled={busy} onChange={setUserId}
+        options={(users.data?.users ?? []).map((u) => ({ value: String(u.id), label: u.display_name }))} />
       <Field label="期別"><input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} disabled={busy} /></Field>
       <button className="btn btn--primary" disabled={busy} onClick={gen}>產生連結</button>
       {link && (

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type User, type Plan, type ChannelTag, type Subscription } from "../api";
-import { useAsync, Card, Modal, Field, Empty, ConfirmDanger, ErrorNote } from "../ui";
+import { useAsync, Card, Modal, Field, Empty, ConfirmDanger, ErrorNote, FilterSelect, TableFilter } from "../ui";
 
 function useForm<T extends Record<string, any>>(initial: T) {
   const [v, setV] = useState<T>(initial);
@@ -12,17 +12,29 @@ export function Users() {
   const { data, loading, error, reload } = useAsync(() => api.users(), []);
   const [edit, setEdit] = useState<User | null | undefined>(undefined); // undefined=closed, null=new
   const [del, setDel] = useState<User | null>(null);
+  const [q, setQ] = useState("");
+  const all = data?.users ?? [];
+  const needle = q.trim().toLowerCase();
+  const shown = needle
+    ? all.filter((u) => [u.display_name, u.email ?? "", u.discord_id ?? ""].some((x) => x.toLowerCase().includes(needle)))
+    : all;
   return (
     <>
       {error && <ErrorNote message={error} onRetry={reload} />}
-      <Card title="成員名單" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>}>
+      <Card title="成員名單" action={
+        <>
+          <TableFilter value={q} onChange={setQ} placeholder="搜尋名稱／Email／Discord ID" shown={shown.length} total={all.length} />
+          <button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>
+        </>
+      }>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <caption className="sr-only">成員名單</caption>
             <thead><tr><th scope="col">名稱</th><th scope="col">Discord ID</th><th scope="col">Email</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={4}><Empty>載入中…</Empty></td></tr>}
-              {data?.users.map((u) => (
+              {!loading && shown.length === 0 && <tr><td colSpan={4}><Empty>{needle ? "沒有符合的成員" : "尚無成員"}</Empty></td></tr>}
+              {shown.map((u) => (
                 <tr key={u.id}>
                   <td data-label="名稱">{u.display_name}</td>
                   <td data-label="Discord ID" className="mono" style={{ fontSize: 12.5 }}>{u.discord_id ?? "—"}</td>
@@ -103,17 +115,29 @@ export function Subscriptions() {
   const [add, setAdd] = useState(false);
   const [edit, setEdit] = useState<Subscription | null>(null);
   const [del, setDel] = useState<Subscription | null>(null);
+  const [q, setQ] = useState("");
+  const all = data?.subscriptions ?? [];
+  const needle = q.trim().toLowerCase();
+  const shown = needle
+    ? all.filter((s) => [s.user_name, s.plan_name, s.status].some((x) => String(x).toLowerCase().includes(needle)))
+    : all;
   return (
     <>
       {error && <ErrorNote message={error} onRetry={reload} />}
-      <Card title="訂閱清單" action={<button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱</button>}>
+      <Card title="訂閱清單" action={
+        <>
+          <TableFilter value={q} onChange={setQ} placeholder="搜尋成員／方案" shown={shown.length} total={all.length} />
+          <button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱</button>
+        </>
+      }>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <caption className="sr-only">訂閱清單</caption>
             <thead><tr><th scope="col">成員</th><th scope="col">方案</th><th scope="col">狀態</th><th scope="col">起算日</th><th scope="col" className="right">結帳日</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6}><Empty>載入中…</Empty></td></tr>}
-              {data?.subscriptions.map((s) => (
+              {!loading && shown.length === 0 && <tr><td colSpan={6}><Empty>{needle ? "沒有符合的訂閱" : "尚無訂閱"}</Empty></td></tr>}
+              {shown.map((s) => (
                 <tr key={s.id}>
                   <td data-label="成員">{s.user_name}</td>
                   <td data-label="方案">{s.plan_name}</td>
@@ -157,8 +181,12 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   return (
     <Modal title="新增訂閱（會立即建立第一期 payment）" onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      <Field label="成員"><select value={f.user_id} onChange={(e) => set("user_id", e.target.value)} disabled={busy}><option value="">選擇…</option>{users.data?.users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}</select></Field>
-      <Field label="方案"><select value={f.plan_id} onChange={(e) => set("plan_id", e.target.value)} disabled={busy}><option value="">選擇…</option>{plans.data?.plans.filter((p) => p.active).map((p) => <option key={p.id} value={p.id}>{p.name}（NT${p.monthly_amount}）</option>)}</select></Field>
+      <FilterSelect label="成員" value={f.user_id} disabled={busy}
+        onChange={(v) => set("user_id", v)}
+        options={(users.data?.users ?? []).map((u) => ({ value: String(u.id), label: u.display_name }))} />
+      <FilterSelect label="方案" value={f.plan_id} disabled={busy}
+        onChange={(v) => set("plan_id", v)}
+        options={(plans.data?.plans ?? []).filter((p) => p.active).map((p) => ({ value: String(p.id), label: `${p.name}（NT$${p.monthly_amount}）` }))} />
       {/* type=date, not a bare text box with a placeholder: everywhere else in the app a date is
           picked (Settings and the payment modals all use type="month"). */}
       <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>

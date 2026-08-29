@@ -433,3 +433,26 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
   .kv dt:first-of-type { margin-top: 0; }
   .modal__body .btn { min-height: 42px; }
 }
+
+/* ── long-list filters (B12) ─────────────────────────────────────────────────
+   A search box in front of a >12-option <select> (ui.tsx FilterSelect), and in a card head
+   for the 成員 / 訂閱 tables (TableFilter). Type-qualified `input.fsel__q`, not a bare class:
+   this box sits inside a .field, where `.field input` (0,1,1) would otherwise outrank it and
+   hand it that rule's padding and 16px sizing instead of its own. */
+input.fsel__q {
+  width: 100%; padding: 8px 11px; margin-bottom: 6px;
+  border: 1.5px solid var(--line-strong); border-radius: 9px;
+  font: inherit; font-size: 16px; background: #fffdf8; color: var(--ink);
+}
+.cardtools { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+/* .card__head is space-between; without this the search box floats mid-head instead of
+   sitting next to the 新增 button it belongs with. */
+.card__head .cardtools { margin-left: auto; }
+.cardtools .fsel__q { width: 180px; margin-bottom: 0; }
+.cardtools .field__hint { margin-bottom: 0; white-space: nowrap; }
+@media (max-width: 1000px) {
+  /* the card head stacks; a 180px box next to a 新增 button leaves nothing for either */
+  .card__head { flex-wrap: wrap; gap: 8px; }
+  .card__head .cardtools { flex: 1 1 100%; margin-left: 0; }
+  .cardtools .fsel__q { width: 100%; }
+}

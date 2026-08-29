@@ -197,3 +197,53 @@ export function ErrorNote({ message, onRetry }: { message: string; onRetry?: () 
     </div>
   );
 }
+
+// ── long-list pickers ─────────────────────────────────────────────────────────
+// Below this many options a native <select> is fine on a phone; above it, scrolling a few hundred
+// names in the platform picker is the problem the Discord side solved with autocomplete + a search
+// modal (handler.ts:306-366). Same idea, simplest possible form: a filter in front of the select.
+const FILTER_THRESHOLD = 12;
+
+export function FilterSelect({ label, value, onChange, options, placeholder = "選擇…", disabled }: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[]; placeholder?: string; disabled?: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const id = useId();
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : [...options];
+  // Keep the current choice selectable even when the filter excludes it, or the select would
+  // render blank and the next submit would silently send a stale value.
+  if (value && !shown.some((o) => o.value === value)) {
+    const cur = options.find((o) => o.value === value);
+    if (cur) shown.unshift(cur);
+  }
+  return (
+    <div className="field">
+      <label className="field__label" htmlFor={`${id}-select`}>{label}</label>
+      {options.length > FILTER_THRESHOLD && (
+        <input className="fsel__q" type="search" value={q} disabled={disabled}
+          placeholder={`搜尋${label}…`} aria-label={`搜尋${label}`}
+          onChange={(e) => setQ(e.target.value)} />
+      )}
+      <select id={`${id}-select`} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{placeholder}</option>
+        {shown.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      {needle && <span className="field__hint">顯示 {shown.length} / {options.length}</span>}
+    </div>
+  );
+}
+
+// The same filter in a card head, narrowing a rendered table instead of an <option> list.
+export function TableFilter({ value, onChange, placeholder, shown, total }: {
+  value: string; onChange: (v: string) => void; placeholder: string; shown: number; total: number;
+}) {
+  return (
+    <span className="cardtools">
+      <input className="fsel__q" type="search" value={value} placeholder={placeholder}
+        aria-label={placeholder} onChange={(e) => onChange(e.target.value)} />
+      {value.trim() && <span className="field__hint">{shown} / {total}</span>}
+    </span>
+  );
+}
