@@ -116,10 +116,15 @@ export function Payments() {
           ))}
         </div>
         <div className="grow" style={{ flex: 1 }} />
-        <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊本期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步本期</button>
-        <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除本期未繳／已退回帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回本期開繳</button>
-        <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結</button>
-        <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
+        {/* One group so the four one-off period tools can become a single scrollable row on a
+            phone instead of four stacked bands. Below 1000px .toolbar__acts is a nowrap scroller
+            with an edge fade; above it, it is a plain flex row and looks unchanged. */}
+        <div className="toolbar__acts">
+          <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊本期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步本期</button>
+          <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除本期未繳／已退回帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回本期開繳</button>
+          <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結</button>
+          <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
+        </div>
       </div>
 
       {deepMiss && <div className="warnnote">找不到通知連結指向的那筆繳費紀錄，可能已被刪除。以下是目前的繳費列表。</div>}

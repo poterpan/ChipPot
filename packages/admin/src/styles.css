@@ -2,11 +2,18 @@
   --bg: #f3f1ea;
   --panel: #ffffff;
   --ink: #1f1c17;
-  --muted: #8b8173;
-  --line: #e7e0d2;
+  /* 6.00:1 on --panel, 5.31:1 on --bg. Was #8b8173 (3.83 / 3.39) — used for th, .stat__label,
+     .empty, .kv dt, the mobile card labels and ten inline styles, i.e. real body text, not
+     decoration, so the token itself moves rather than each call site. */
+  --muted: #6b6253;
+  --muted-strong: #6b6253; /* kept as an alias: the Settings redesign already references it */
+  --line: #e7e0d2;         /* card / table / topbar borders — deliberately soft, do not darken */
+  --line-strong: #948871;  /* form-field boundaries only: 3.43:1 on #fffdf8, WCAG 1.4.11 */
   --teal: #0f6e63;
   --teal-ink: #0a4d45;
-  --amber: #b3701a;
+  /* 5.94:1 on --panel, 4.98:1 on .tag--warn's #f6ead2. Was #b3701a (4.00 / 3.36) — 純聲明 is a
+     real status signal, not decoration. */
+  --amber: #8f570f;
   --red: #b23a2e;
   --sidebar: #11302c;
   --sidebar-ink: #cfe3df;
@@ -49,7 +56,7 @@ button { font-family: inherit; }
 /* inline icon + label, vertically centered with a small gap */
 .iconlbl { display: inline-flex; align-items: center; gap: 5px; }
 .sidebar__logout:hover { background: rgba(255,255,255,0.06); color: #fff; }
-.sidebar__foot { font-size: 11.5px; color: rgba(207,227,223,0.55); padding: 6px 10px 0; }
+.sidebar__foot { font-size: 11.5px; color: rgba(207,227,223,0.72); padding: 6px 10px 0; } /* 6.24:1 (was 4.28) */
 
 /* min-width:0 lets the 1fr grid track shrink below its content's min-content width,
    so wide tables scroll inside .tbl instead of blowing out the whole page. */
@@ -131,7 +138,7 @@ tbody tr.click:hover { background: #faf7f0; }
 
 /* badges */
 .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 500; }
-.badge--pending { background: #f3ede0; color: #8a6d2f; }
+.badge--pending { background: #f3ede0; color: #7a5f27; } /* 5.15:1 (was 4.18) */
 .badge--paid { background: #e3eef0; color: #0a4d45; }
 .badge--verified { background: #def0e6; color: #176a4a; }
 .badge--rejected { background: #f6e2df; color: #9a2f24; }
@@ -156,10 +163,18 @@ tbody tr.click:hover { background: #faf7f0; }
 .field { display: block; margin-bottom: 14px; }
 .field__label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
 .field input, .field select, .field textarea {
-  width: 100%; padding: 9px 11px; border: 1.5px solid var(--line); border-radius: 9px;
+  width: 100%; padding: 9px 11px; border: 1.5px solid var(--line-strong); border-radius: 9px;
   font: inherit; font-size: 14px; background: #fffdf8; color: var(--ink);
 }
-.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid rgba(15,110,99,.3); outline-offset: 1px; }
+/* One global focus indicator. Was the app's ONLY :focus rule and it composited to 1.58:1 against
+   --panel, far under WCAG 1.4.11's 3:1; every other interactive class fell back to the UA's thin
+   blue line, invisible on a teal button and on the #11302c sidebar. outline-offset puts the ring
+   on the surrounding surface rather than on the control, so one colour works for all of them. */
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible { outline-offset: 1px; }
+.sidebar :focus-visible { outline-color: var(--sidebar-ink); } /* 10.59:1 on the dark strip */
+/* a focused row must not push the table sideways, so the ring goes inside the cell box */
+tbody tr.click:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }
 
 /* modal */
 /* Above .savebar (z-index 20): as a ≤1000px bottom sheet the modal reaches the bottom edge, where
@@ -183,7 +198,7 @@ html.modal-open .main { overflow: hidden; }
 
 /* misc */
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
-.toolbar select, .toolbar input { padding: 8px 11px; border: 1.5px solid var(--line); border-radius: 9px; font: inherit; background: var(--panel); }
+.toolbar select, .toolbar input { padding: 8px 11px; border: 1.5px solid var(--line-strong); border-radius: 9px; font: inherit; background: var(--panel); }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill { padding: 6px 13px; border: 1.5px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); cursor: pointer; font-size: 13px; }
 .pill:hover { border-color: var(--teal); }
@@ -250,10 +265,28 @@ html.modal-open .main { overflow: hidden; }
   .topbar h1 { font-size: 19px; }
   .content { padding: 18px 14px 48px; }
   .toolbar .grow { display: none; }
+  /* The toolbar was 183px tall at 375px — the 期別 row, two rows of status pills and four
+     buttons each on its own line — leaving 2 payment rows above the fold. Both the pills and
+     the one-off tools become single scrollable rows with the same edge fade as .tbl. */
+  .toolbar { gap: 8px; }
+  .pills, .toolbar__acts {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    width: 100%; padding-bottom: 2px;
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(to right, var(--bg) 40%, rgba(243,241,234,0)),
+      linear-gradient(to left, var(--bg) 40%, rgba(243,241,234,0)),
+      radial-gradient(farthest-side at 0 50%, rgba(31,28,23,.13), rgba(31,28,23,0)),
+      radial-gradient(farthest-side at 100% 50%, rgba(31,28,23,.13), rgba(31,28,23,0));
+    background-repeat: no-repeat;
+    background-position: left center, right center, left center, right center;
+    background-size: 24px 100%, 24px 100%, 10px 100%, 10px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+  .pills .pill, .toolbar__acts .btn { flex: 0 0 auto; }
 }
 
 /* ── settings redesign ─────────────────────────────────────────────────────── */
-:root { --muted-strong: #6b6253; } /* darker muted for small helper text (>=4.5:1 on --bg) */
 /* fill the content area (capped by .content's max-width) so cards are wide enough that
    field hints sit on one line and same-row inputs line up — width stays uniform across cards. */
 .settings { max-width: 1040px; padding-bottom: 96px; }
@@ -273,7 +306,7 @@ html.modal-open .main { overflow: hidden; }
 /* status chip in a card head */
 .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
 .chip--ok { background: #def0e6; color: var(--teal-ink); }
-.chip--off { background: #f3ede0; color: #8a6d2f; }
+.chip--off { background: #f3ede0; color: #7a5f27; } /* 5.15:1 (was 4.18) */
 
 /* notification preview + disclosures */
 .notify-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -296,7 +329,7 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
 .actionrow__desc { font-size: 12.5px; color: var(--muted-strong); margin-top: 2px; }
 .actionrow__act { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; text-align: right; }
 .actionrow--warn { padding-left: 12px; border-left: 3px solid #ecc98e; margin-left: -12px; }
-.tag { font-size: 10.5px; letter-spacing: .5px; padding: 2px 7px; border-radius: 999px; background: #eee7d8; color: #8a7d63; white-space: nowrap; }
+.tag { font-size: 10.5px; letter-spacing: .5px; padding: 2px 7px; border-radius: 999px; background: #eee7d8; color: #6b6253; white-space: nowrap; } /* 4.88:1 (was 3.28) */
 .tag--warn { background: #f6ead2; color: var(--amber); }
 .act-feedback { font-size: 12.5px; }
 .warnnote { background: #fbf1dd; border: 1px solid #ecc98e; color: #7a5a16; font-size: 12.5px; border-radius: 8px; padding: 8px 11px; margin-bottom: 14px; line-height: 1.5; }
@@ -334,7 +367,7 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
 .mrow__acts .btn { flex: 1 1 auto; min-height: 40px; }
 .mrow__reject { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
 .mrow__reject input {
-  flex: 1 1 180px; padding: 9px 11px; border: 1.5px solid var(--line); border-radius: 9px;
+  flex: 1 1 180px; padding: 9px 11px; border: 1.5px solid var(--line-strong); border-radius: 9px;
   font: inherit; font-size: 14px; background: #fffdf8; color: var(--ink);
 }
 .linkbtn {
