@@ -215,15 +215,32 @@ tbody tr.click:hover { background: #faf7f0; }
      no-op. Plain block flow makes the document the sticky containing block and also removes
      the old align-content:stretch problem that `auto 1fr` grid rows were working around. */
   .app { display: block; height: auto; min-height: 100vh; }
-  /* sidebar becomes a single-line scrollable tab bar; brand + tabs stay on one row */
-  .sidebar { flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; padding: 10px 12px; min-width: 0; }
+  /* sidebar becomes a single-line scrollable tab bar; brand + tabs stay on one row.
+     Sticky (z above .topbar) so switching view never means scrolling back to the top of a
+     2500px Settings page. The four background layers are the same scroll-shadow trick as .tbl,
+     tinted for the dark strip — 41% of the tabs are off-screen at 375px with no other hint. */
+  .sidebar {
+    flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; padding: 10px 12px; min-width: 0;
+    position: sticky; top: 0; z-index: 6;
+    background-image:
+      linear-gradient(to right, var(--sidebar) 40%, rgba(17,48,44,0)),
+      linear-gradient(to left, var(--sidebar) 40%, rgba(17,48,44,0)),
+      radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.45), rgba(0,0,0,0)),
+      radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.45), rgba(0,0,0,0));
+    background-repeat: no-repeat;
+    background-position: left center, right center, left center, right center;
+    background-size: 26px 100%, 26px 100%, 11px 100%, 11px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
   .sidebar__brand { flex: 0 0 auto; padding: 0 6px 0 4px; font-size: 18px; white-space: nowrap; }
   .nav { flex-direction: row; gap: 4px; }
   .nav button { flex: 0 0 auto; white-space: nowrap; padding: 8px 11px; font-size: 13.5px; }
   .sidebar__logout { margin-top: 0; flex: 0 0 auto; white-space: nowrap; padding: 8px 11px; font-size: 13.5px; }
   .sidebar__foot { display: none; }
   .main { overflow: visible; }
-  .topbar { padding: 14px 16px; }
+  /* not sticky on mobile: the nav is. Two sticky bars at top:0 would overlap, and pinning the
+     page title while the navigation scrolls away is the inversion the audit called out. */
+  .topbar { padding: 14px 16px; position: static; }
   .topbar h1 { font-size: 19px; }
   .content { padding: 18px 14px 48px; }
   .toolbar .grow { display: none; }

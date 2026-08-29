@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dashboard } from "./views/Dashboard";
 import { Payments } from "./views/Payments";
 import { Users, Subscriptions, Plans, ChannelTags } from "./views/Manage";
@@ -51,6 +51,18 @@ export default function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  // The mobile tab strip hides 41% of its tabs at 375px; without this the highlighted tab for
+  // 方案 / 支付渠道 / 設定 sits past the right edge, so the strip never shows where you are.
+  // scrollLeft rather than scrollIntoView: the latter can also scroll the document vertically.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const strip = navRef.current?.parentElement; // .sidebar is the scroller, .nav is inside it
+    const on = navRef.current?.querySelector<HTMLElement>("button.on");
+    if (!strip || !on || strip.scrollWidth <= strip.clientWidth) return;
+    strip.scrollTo({ left: on.offsetLeft - (strip.clientWidth - on.offsetWidth) / 2, behavior: "smooth" });
+  }, [view]);
+
   const current = VIEWS.find((v) => v.id === view) ?? VIEWS[0]!;
 
   return (
@@ -58,7 +70,7 @@ export default function App() {
       <R2Notice />
       <aside className="sidebar">
         <div className="sidebar__brand">ChipPot</div>
-        <nav className="nav">
+        <nav className="nav" ref={navRef}>
           {VIEWS.map((v) => (
             <button key={v.id} className={v.id === current.id ? "on" : ""} onClick={() => { window.location.hash = v.id; }}>
               {v.label}
