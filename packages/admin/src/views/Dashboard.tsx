@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, periodForBillingDay } from "../api";
-import { useAsync, Card, Stat, Empty, Money } from "../ui";
+import { useAsync, Card, Stat, Empty, Money, ErrorNote } from "../ui";
 import { PushStatus } from "./PushStatus";
 
 export function Dashboard() {
@@ -9,7 +9,7 @@ export function Dashboard() {
   // null = "follow the billing-day-aware default"; a string = the admin typed a period.
   const [period, setPeriod] = useState<string | null>(null);
   const effPeriod = period ?? periodForBillingDay(billingDay);
-  const { data, loading, error } = useAsync(() => api.reconcile(effPeriod), [effPeriod]);
+  const { data, loading, error, reload } = useAsync(() => api.reconcile(effPeriod), [effPeriod]);
 
   return (
     <>
@@ -19,7 +19,7 @@ export function Dashboard() {
           <input type="month" value={effPeriod} onChange={(e) => setPeriod(e.target.value)} style={{ width: 160 }} />
         </label>
       </div>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorNote message={error} onRetry={reload} />}
       {loading && <Empty>載入中…</Empty>}
       {data && (
         <>
