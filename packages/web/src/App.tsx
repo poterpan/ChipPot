@@ -42,7 +42,7 @@ export default function App() {
     setPreview(f ? URL.createObjectURL(f) : null);
   }
 
-  const subs = info?.subscriptions ?? [];
+  const subs = info?.lines ?? [];
   const tags = info?.channel_tags ?? [];
   const total = subs.reduce((s, x) => s + x.amount, 0);
   const canSubmit = !!file || !!note.trim() || channelId != null;
@@ -184,7 +184,7 @@ function Stub({
 }: {
   period: string;
   name: string;
-  subs: { id: number; plan_name: string; amount: number }[];
+  subs: { payment_id: number; plan_name: string; amount: number }[];
   total: number;
 }) {
   return (
@@ -195,7 +195,7 @@ function Stub({
       </div>
       <div className="stub__hi">嗨，{name || "夥伴"}</div>
       {subs.map((s) => (
-        <div key={s.id} className="stub__row stub__row--amt">
+        <div key={s.payment_id} className="stub__row stub__row--amt">
           <span className="stub__plan">{s.plan_name}</span>
           <span className="stub__amt">NT${s.amount}</span>
         </div>

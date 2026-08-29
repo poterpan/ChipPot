@@ -30,6 +30,9 @@ beforeAll(async () => {
     env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(SUB_A, WS, WS, WS, "2026-06-01", 5, TS, TS),
     env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(SUB_B, WS, WS, PLAN_B, "2026-06-01", 5, TS, TS),
     env.DB.prepare(`INSERT INTO channel_tags (id,workspace_id,name,type,sort_order,created_at) VALUES (?,?,?,?,?,?)`).bind(TAG, WS, "LINE Pay", "mobilepayment", 1, TS),
+    // The GET now reports the period's BILLS (C6), so the period needs real payment rows.
+    env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS, SUB_A, "2026-06", "2026-06-01", "2026-06-30", "2026-06-05", 315, "pending", "cron", TS, TS),
+    env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS, SUB_B, "2026-06", "2026-06-01", "2026-06-30", "2026-06-05", 251, "pending", "cron", TS, TS),
     // unbound tokens (one settlement covers all the user's subs).
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,expires_at,created_at) VALUES (?,?,?,?,?,?)`).bind(okHash, WS, WS, "2026-06", FUTURE, TS),
     env.DB.prepare(`INSERT INTO upload_tokens (token_hash,workspace_id,user_id,period,expires_at,created_at) VALUES (?,?,?,?,?,?)`).bind(usedHash, WS, WS, "2026-06", PAST, TS),
@@ -50,14 +53,32 @@ function uploadReq(token: string, fields: Record<string, string | File>): Reques
 const pngFile = () => new File([new Uint8Array([1, 2, 3])], "s.png", { type: "image/png" });
 
 describe("upload info", () => {
-  it("returns period, subscriptions, and active channel tags", async () => {
+  it("returns period, the period's outstanding bill lines, and active channel tags", async () => {
     const res = await handleUploadInfo(new Request("https://x"), env, ctxFor(RAW_OK));
     const body = (await res.json()) as any;
     expect(body.valid).toBe(true);
     expect(body.period).toBe("2026-06");
     expect(body.user.display_name).toBe("Alice");
-    expect(body.subscriptions.map((s: any) => s.id).sort()).toEqual([SUB_A, SUB_B]);
+    // Bill amounts, not plan pricing — one line per still-owed payment row (C6).
+    expect(body.lines.map((l: any) => l.plan_name).sort()).toEqual(["ChatGPT", "Claude"]);
+    expect(body.subscriptions).toBeUndefined();
     expect(body.channel_tags.some((t: any) => t.id === TAG)).toBe(true);
+  });
+
+  it("shows the overridden bill amount, not the plan's price", async () => {
+    await env.DB.prepare("UPDATE payments SET amount = 99 WHERE subscription_id = ? AND period = '2026-06'").bind(SUB_A).run();
+    const body = (await (await handleUploadInfo(new Request("https://x"), env, ctxFor(RAW_OK))).json()) as any;
+    expect(body.lines.find((l: any) => l.amount === 99)).toBeDefined();
+    await env.DB.prepare("UPDATE payments SET amount = 315 WHERE subscription_id = ? AND period = '2026-06'").bind(SUB_A).run();
+  });
+
+  it("returns no lines once the period is settled, instead of re-listing paid subscriptions", async () => {
+    await env.DB.prepare("UPDATE payments SET status = 'verified' WHERE workspace_id = ? AND period = '2026-06'").bind(WS).run();
+    const body = (await (await handleUploadInfo(new Request("https://x"), env, ctxFor(RAW_OK))).json()) as any;
+    expect(body.valid).toBe(true);
+    expect(body.lines).toEqual([]);
+    // Storage is per-file cumulative: put the fixtures back for the submit tests below.
+    await env.DB.prepare("UPDATE payments SET status = 'pending' WHERE workspace_id = ? AND period = '2026-06'").bind(WS).run();
   });
 
   it("404s an invalid token", async () => {

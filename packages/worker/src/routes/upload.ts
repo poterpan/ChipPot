@@ -3,7 +3,7 @@ import type { RouteCtx } from "../router";
 import { errorResponse, json } from "../http";
 import { nowUtcIso } from "../core/time";
 import { hashToken, findValidUploadToken } from "../core/tokens";
-import { listActiveSubscriptions, listActiveChannelTags } from "../core/db";
+import { listSettleablePayments, listActiveChannelTags } from "../core/db";
 import { isBillingOpened } from "../core/notify";
 import {
   settleUserPeriod, assertImageOk, extForContentType,
@@ -26,14 +26,17 @@ export async function handleUploadInfo(_req: Request, env: Env, ctx: RouteCtx): 
   if (!tok) return errorResponse(404, "連結無效或已過期。", { valid: false });
 
   const user = await env.DB.prepare("SELECT display_name FROM users WHERE id = ?").bind(tok.user_id).first<{ display_name: string }>();
-  const subscriptions = await listActiveSubscriptions(env.DB, tok.workspace_id, tok.user_id);
+  // ONE source of truth for 「你要繳多少」: the period's own bills (pending/rejected), exactly what
+  // POST will settle. Plan pricing was the old source — it re-listed already-paid subscriptions and
+  // ignored per-bill overrides, so the page's total disagreed with the Discord prompt (C6).
+  const settleable = await listSettleablePayments(env.DB, tok.workspace_id, tok.user_id, tok.period);
   const channel_tags = await listActiveChannelTags(env.DB, tok.workspace_id);
 
   return json({
     valid: true,
     period: tok.period,
     user: { display_name: user?.display_name ?? "" },
-    subscriptions,
+    lines: settleable.map((p) => ({ payment_id: p.id, plan_name: p.plan_name, amount: p.amount })),
     channel_tags,
     proof_enabled: !!env.BUCKET,
   });
