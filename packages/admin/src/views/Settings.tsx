@@ -313,7 +313,7 @@ function TestButton({ kind, form }: { kind: "bark" | "webhook"; form: Form }) {
   }
   return (
     <>
-      <button type="button" className="btn btn--sm" onClick={run} disabled={busy}>{busy ? "送出中…" : "送出測試"}</button>
+      <button type="button" className="btn" onClick={run} disabled={busy}>{busy ? "送出中…" : "送出測試"}</button>
       {res && <span className="act-feedback" style={{ color: res.ok ? "var(--teal)" : "var(--red)" }} title={res.msg}>{res.msg}</span>}
     </>
   );
@@ -323,7 +323,7 @@ function ImportRoster() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button className="btn btn--sm" onClick={() => setOpen(true)}>匯入…</button>
+      <button className="btn" onClick={() => setOpen(true)}>匯入…</button>
       {open && <ImportModal onClose={() => setOpen(false)} />}
     </>
   );
@@ -435,7 +435,7 @@ function InitiateBilling({ billingDay, dirty }: { billingDay: number; dirty: boo
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button className="btn btn--sm btn--danger" onClick={() => setOpen(true)}>發起繳費…</button>
+      <button className="btn btn--danger" onClick={() => setOpen(true)}>發起繳費…</button>
       {open && plans.data && <InitiateModal plans={plans.data.plans.filter((p) => p.active)} billingDay={billingDay} dirty={dirty} onClose={() => setOpen(false)} />}
     </>
   );
@@ -568,7 +568,7 @@ function RebuildMessage({ onDone }: { onDone: (messageId: string) => void }) {
   }
   return (
     <>
-      <button className="btn btn--sm" onClick={run} disabled={busy}>{busy ? "處理中…" : "重建"}</button>
+      <button className="btn" onClick={run} disabled={busy}>{busy ? "處理中…" : "重建"}</button>
       {err && <span className="act-feedback" style={{ color: "var(--red)" }}>{err}</span>}
       {msg && <span className="act-feedback" style={{ color: "var(--teal)" }}>{msg}</span>}
     </>
@@ -587,7 +587,7 @@ function RebuildBindMessage({ onDone }: { onDone: (messageId: string) => void })
   }
   return (
     <>
-      <button className="btn btn--sm" onClick={run} disabled={busy}>{busy ? "處理中…" : "張貼／更新"}</button>
+      <button className="btn" onClick={run} disabled={busy}>{busy ? "處理中…" : "張貼／更新"}</button>
       {err && <span className="act-feedback" style={{ color: "var(--red)" }}>{err}</span>}
       {msg && <span className="act-feedback" style={{ color: "var(--teal)" }}>{msg}</span>}
     </>
@@ -606,7 +606,7 @@ function RegisterCommands({ onDone }: { onDone: (registeredAt: string) => void }
   }
   return (
     <>
-      <button className="btn btn--sm" onClick={run} disabled={busy}>{busy ? "處理中…" : "註冊"}</button>
+      <button className="btn" onClick={run} disabled={busy}>{busy ? "處理中…" : "註冊"}</button>
       {err && <span className="act-feedback" style={{ color: "var(--red)" }}>{err}</span>}
       {msg && <span className="act-feedback" style={{ color: "var(--teal)" }}>{msg}</span>}
     </>
