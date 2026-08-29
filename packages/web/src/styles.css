@@ -64,6 +64,9 @@ body::before {
 }
 
 .brand {
+  /* margin: 0 — this is an <h1> now (document outline, B20); the UA's default heading margin
+     would otherwise push the card's header apart. .stub__hi already sets its own margin. */
+  margin: 0;
   font-family: "Fraunces", serif;
   font-weight: 600;
   font-size: 18px;
