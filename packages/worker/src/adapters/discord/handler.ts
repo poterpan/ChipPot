@@ -479,7 +479,16 @@ async function buildPayPrompt(
     };
   }
   const tags = await listActiveChannelTags(env.DB, ws);
-  if (tags.length === 0) return { content: "管理員尚未設定繳費渠道，請改用 `/繳費` 指令（可附截圖或備註）。", components: [] };
+  if (tags.length === 0) {
+    // Don't point at a capability this deployment doesn't have (C7): with no R2 there is no
+    // screenshot path, so the only thing left to offer is a note.
+    return {
+      content: env.BUCKET
+        ? "管理員尚未設定繳費渠道，請改用 `/繳費` 指令（可附截圖或備註）。"
+        : "管理員尚未設定繳費渠道，請改用 `/繳費` 指令並填寫備註（本站未開啟截圖上傳）。",
+      components: [],
+    };
+  }
   if (periods.length > 1) {
     return {
       content: `你有多個月份待繳：${periods.join("、")}。\n請先選擇要繳的月份。`,
@@ -499,7 +508,9 @@ async function payChannelPrompt(
   const total = settleable.reduce((s, r) => s + r.amount, 0);
   const lines = settleable.map((r) => `・${r.plan_name}：NT$${r.amount.toLocaleString()}`).join("\n");
   return {
-    content: `${period} 應繳：\n${lines}\n**合計 NT$${total.toLocaleString()}**\n\n請選擇繳費渠道送出。想附截圖／備註？改用 \`/繳費\`。`,
+    // Say what THIS entry point can and cannot do before the member commits to it (C8): the button
+    // only picks a channel, and whether a screenshot is even possible depends on R2 (C7).
+    content: `${period} 應繳：\n${lines}\n**合計 NT$${total.toLocaleString()}**\n\n請選擇繳費渠道送出（這個按鈕只能選渠道）。${env.BUCKET ? "想附截圖或備註？改用 `/繳費`。" : "想附備註？改用 `/繳費`（本站未開啟截圖上傳）。"}`,
     components: [channelSelectRow(ws, period, tags)],
   };
 }
