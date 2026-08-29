@@ -40,20 +40,20 @@ export function PushStatus({ period }: { period: string }) {
           </div>
         </div>
       )}
-      <div className="tbl">
-        <table>
+      <div className="tbl tbl--pin-last">
+        <table className="tbl-cards">
           <thead><tr><th>通知</th><th>狀態</th><th></th></tr></thead>
           <tbody>
             <tr>
-              <td>開繳通知</td>
-              <td className="mono" style={{ fontSize: 12.5 }}>{sentLabel(data?.billing_opened?.sent_at)}</td>
+              <td data-label="通知">開繳通知</td>
+              <td data-label="狀態" className="mono" style={{ fontSize: 12.5 }}>{sentLabel(data?.billing_opened?.sent_at)}</td>
               <td className="right">
                 <button className="btn btn--danger" disabled={!!holdReason} title={holdReason} onClick={() => setOpen("resend")}>重發開繳通知…</button>
               </td>
             </tr>
             <tr>
-              <td>逾期催繳</td>
-              <td className="mono" style={{ fontSize: 12.5 }}>{sentLabel(data?.overdue?.sent_at)}</td>
+              <td data-label="通知">逾期催繳</td>
+              <td data-label="狀態" className="mono" style={{ fontSize: 12.5 }}>{sentLabel(data?.overdue?.sent_at)}</td>
               <td className="right">
                 <button className="btn btn--danger" disabled={!!holdReason} title={holdReason} onClick={() => setOpen("overdue")}>催繳未繳成員…</button>{" "}
                 <button className="btn btn--danger" disabled={!!holdReason} title={holdReason} onClick={() => setOpen("reset")}>重置催繳發送紀錄…</button>
