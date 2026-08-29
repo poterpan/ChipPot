@@ -10,7 +10,7 @@ import { ensureFirstPayment, initiateBillingOpened, previewBillingInitiate, reco
 import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
-import { payButtonRow, bindButtonRow, payCommand, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
+import { payButtonRow, bindButtonRow, payCommand, MY_BILLS_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
 import { discordNotifier } from "../adapters/discord/notify";
 import { announcePaymentReceipt } from "../core/receipt";
 import { parseRosterCsv, importRoster } from "../core/import";
@@ -931,7 +931,7 @@ async function discordRegisterCommands(_req: Request, env: Env, ctx: RouteCtx): 
   if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "bot token not configured");
 
   // The registered payload mirrors this deployment: no R2 → no 截圖 option to offer.
-  const commands = [payCommand(!!env.BUCKET), INITIATE_COMMAND, BIND_COMMAND];
+  const commands = [payCommand(!!env.BUCKET), MY_BILLS_COMMAND, INITIATE_COMMAND, BIND_COMMAND];
   const res = await registerGuildCommands(env.DISCORD_BOT_TOKEN, env.DISCORD_APPLICATION_ID, guildId, commands);
   if (!res.ok) return errorResponse(502, "failed to register commands");
 

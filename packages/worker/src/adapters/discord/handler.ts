@@ -4,7 +4,7 @@ import { json } from "../../http";
 import { periodForBillingDay } from "../../core/time";
 import {
   getWorkspaceIdByGuild, getUserByDiscordId, listActiveSubscriptions,
-  listActiveChannelTags, listSettleablePayments, listOpenPayablePeriods, listUnboundUsers, searchUnboundUsers, bindDiscordId, unbindDiscordId,
+  listActiveChannelTags, listSettleablePayments, listOpenPayablePeriods, listRecentPayments, listUnboundUsers, searchUnboundUsers, bindDiscordId, unbindDiscordId,
   type UnboundUser,
 } from "../../core/db";
 import { ensurePeriodPayment, initiateBillingOpened } from "../../core/billing";
@@ -129,6 +129,7 @@ function handleCommand(i: DiscordInteraction, env: Env, ctx: ExecutionContext): 
     return json({ type: RT_DEFERRED, data: { flags: FLAG_EPHEMERAL } });
   }
   if (i.data?.name === "發起繳費") return handleInitiateCommand(i, env);
+  if (i.data?.name === "我的帳單") return handleMyBillsCommand(i, env);
   if (i.data?.name === "綁定") return handleBindCommand(i, env);
   return ephemeral("未知指令。");
 }
@@ -388,6 +389,44 @@ async function bindPickedUser(env: Env, ws: number, userId: number, discordId: s
 }
 
 /** `/綁定` slash command: bind the picked name (autocomplete), or show the picker / search hint. */
+// The member-facing status vocabulary. Mirrors the admin badge labels, with 'paid' spelled out as
+// 已繳待驗 — 「已繳」 alone reads as "the money arrived", which is exactly what it doesn't mean.
+const MY_BILL_STATUS: Record<string, string> = {
+  pending: "待繳", paid: "已繳待驗", verified: "已驗證", rejected: "已退回",
+};
+
+/** `/我的帳單`: what you owe right now + your recent history, ephemeral. Reuses the same two
+ *  queries the pay prompt uses, so the numbers can never disagree with the button (C3/C6). */
+async function handleMyBillsCommand(i: DiscordInteraction, env: Env): Promise<Response> {
+  const r = await resolveWs(i, env);
+  if (r instanceof Response) return r;
+  const { ws, discordId } = r;
+  const user = await getUserByDiscordId(env.DB, ws, discordId);
+  if (!user) return ephemeral("你還沒綁定 Discord 帳號，請點「綁定 Discord」按鈕或用 `/綁定` 完成綁定後再試。");
+
+  const periods = await listOpenPayablePeriods(env.DB, ws, user.id);
+  const blocks: string[] = [];
+  let grandTotal = 0;
+  for (const period of periods) {
+    const rows = await listSettleablePayments(env.DB, ws, user.id, period);
+    if (rows.length === 0) continue;
+    const sub = rows.reduce((s, x) => s + x.amount, 0);
+    grandTotal += sub;
+    blocks.push(`**${period}**\n${rows.map((x) => `・${x.plan_name} NT$${x.amount.toLocaleString()}`).join("\n")}`);
+  }
+
+  const recent = await listRecentPayments(env.DB, ws, user.id, 6);
+  const history = recent.length
+    ? recent.map((p) => `・${p.period} ${p.plan_name} NT$${p.amount.toLocaleString()}（${MY_BILL_STATUS[p.status] ?? p.status}）`).join("\n")
+    : "（還沒有任何紀錄）";
+
+  const owed = blocks.length
+    ? `${blocks.join("\n")}\n**合計 NT$${grandTotal.toLocaleString()}**\n請點頻道裡的「繳費」按鈕或用 \`/繳費\` 登記。`
+    : "目前沒有待繳項目 🎉";
+
+  return ephemeral(`📄 **${user.display_name} 的帳單**\n\n__待繳__\n${owed}\n\n__最近紀錄__\n${history}`);
+}
+
 async function handleBindCommand(i: DiscordInteraction, env: Env): Promise<Response> {
   const r = await resolveWs(i, env);
   if (r instanceof Response) return r;

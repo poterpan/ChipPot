@@ -332,11 +332,11 @@ describe("admin discord slash registration", () => {
     (env as any).DISCORD_BOT_TOKEN = prevToken;
 
     expect(res!.status).toBe(200);
-    expect(((await res!.json()) as any).registered).toBe(3);
+    expect(((await res!.json()) as any).registered).toBe(4);
     expect(captured!.url).toContain("/guilds/guild-777/commands");
     const names = captured!.body.map((c: any) => c.name);
-    expect(names).toHaveLength(3);
-    expect(new Set(names)).toEqual(new Set(["繳費", "發起繳費", "綁定"])); // order-independent
+    expect(names).toHaveLength(4);
+    expect(new Set(names)).toEqual(new Set(["繳費", "我的帳單", "發起繳費", "綁定"])); // order-independent
 
     const wsRes = await call("GET", "/admin/workspace");
     const s = ((await wsRes!.json()) as any).workspace.settings;

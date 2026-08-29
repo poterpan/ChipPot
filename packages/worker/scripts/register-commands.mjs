@@ -48,6 +48,10 @@ const commands = [
     ],
   },
   {
+    name: "我的帳單", type: 1,
+    description: "查詢你目前的待繳項目與最近的繳費紀錄",
+  },
+  {
     name: "發起繳費", type: 1,
     description: "（管理員）確認本期各方案金額並發出開繳通知",
     default_member_permissions: "32",

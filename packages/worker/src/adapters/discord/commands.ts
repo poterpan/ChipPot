@@ -171,6 +171,13 @@ export function payCommand(proofEnabled: boolean) {
   };
 }
 
+/** `/我的帳單` command registration payload. Read-only; every member may run it. */
+export const MY_BILLS_COMMAND = {
+  name: "我的帳單",
+  type: 1,
+  description: "查詢你目前的待繳項目與最近的繳費紀錄",
+};
+
 /** `/發起繳費` command registration payload (admin-only; real auth = admin_discord_ids). */
 export const INITIATE_COMMAND = {
   name: "發起繳費",
