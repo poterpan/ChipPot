@@ -18,6 +18,7 @@ const notifier: Notifier = {
   async sendBillingOpened() { return true; },
   async sendOverdue(_e, _ch, period, people, _t) { sent.overdue.push({ period, people }); return true; },
   async sendPaymentNudge() { return true; },
+  async sendPaymentReceipt() { return true; },
 };
 
 /** Seed a workspace + one member + one unpaid bill in `period`, due on day 5 of that month. */
@@ -90,6 +91,7 @@ describe("#48 每日催繳", () => {
       async sendBillingOpened() { return true; },
       async sendOverdue() { return false; },
       async sendPaymentNudge() { return true; },
+  async sendPaymentReceipt() { return true; },
     };
     const r = await sendOverdueForPeriod(env, 9891, "2028-06", failing, { force: true, now: new Date("2028-06-12T00:00:00Z") });
     expect(r).toMatchObject({ outcome: "send_failed", notified: 0 });

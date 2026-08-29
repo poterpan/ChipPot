@@ -77,6 +77,41 @@ describe("schema", () => {
     await expect(ins()).rejects.toThrow(); // plan_id/user_id/subscription_id default to 0
   });
 
+  // 0006 (#48) added `event` and put it in the UNIQUE; 0007 (#45) only widened the type CHECK.
+  // The rebuild in 0007 must carry `event` across verbatim — an INSERT ... SELECT that wrote ''
+  // instead would silently wipe the live overdue day-keys and degrade #48 back to one reminder
+  // per period, with no error and no failing test anywhere.
+  it("0006+0007 keep an event column that survives the rebuild", async () => {
+    const cols = await env.DB.prepare("PRAGMA table_info(notification_logs)").all<{ name: string }>();
+    expect(cols.results.map((c) => c.name)).toContain("event");
+
+    await env.DB.prepare(
+      `INSERT INTO notification_logs (workspace_id, type, period, event, sent_at)
+       VALUES (?, 'overdue', '2026-05', '2026-05-08', '2026-05-08T01:00:00.000Z')`
+    ).bind(WS).run();
+    const row = await env.DB.prepare(
+      "SELECT event FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = '2026-05'"
+    ).bind(WS).first<{ event: string }>();
+    expect(row?.event).toBe("2026-05-08"); // not '' — the day-key is the dedup key
+  });
+
+  it("0007 allows the nudge type and dedupes per (entity, event)", async () => {
+    await env.DB.prepare(
+      `INSERT INTO notification_logs (workspace_id, type, period, user_id, sent_at)
+       VALUES (?, 'nudge', '2026-06', 7, '2026-06-01T01:00:00.000Z')`
+    ).bind(WS).run();
+
+    // same day-key twice = one slot; a different event = a different slot
+    const receipt = (event: string) =>
+      env.DB.prepare(
+        `INSERT INTO notification_logs (workspace_id, type, period, user_id, event, sent_at)
+         VALUES (?, 'receipt', '2026-06', 7, ?, '2026-06-02T01:00:00.000Z')`
+      ).bind(WS, event).run();
+    await receipt("reject");
+    await expect(receipt("reject")).rejects.toThrow(); // same event → deduped
+    await expect(receipt("verify")).resolves.toBeDefined(); // different event → allowed
+  });
+
   it("0004 adds declared_channel_tag_id and drops the screenshot_key unique index", async () => {
     const cols = await env.DB.prepare("PRAGMA table_info(payments)").all<{ name: string }>();
     expect(cols.results.map((c) => c.name)).toContain("declared_channel_tag_id");
