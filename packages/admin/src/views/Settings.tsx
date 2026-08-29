@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, currentPeriod, periodForBillingDay, nextBillingPeriod, NOTIFY_REASON_TEXT, type ImportDiff, type ImportSubLine, type InitiatePreview, type InitiateApplied } from "../api";
+import { api, currentPeriod, periodForBillingDay, nextBillingPeriod, NOTIFY_REASON_TEXT, nudgeSummary, type ImportDiff, type ImportSubLine, type InitiatePreview, type InitiateApplied } from "../api";
 import { useAsync, Card, Field, Empty, Modal, Stat, IconCheck, IconWarning } from "../ui";
 import { DiffList } from "../components/DiffList";
 
@@ -361,6 +361,8 @@ function ImportModal({ onClose }: { onClose: () => void }) {
   const [diff, setDiff] = useState<ImportDiff | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [notify, setNotify] = useState(true);
+  const [nudged, setNudged] = useState<string | null>(null);
 
   async function preview() {
     if (!file) { setErr("請選擇 CSV 檔"); return; }
@@ -380,6 +382,16 @@ function ImportModal({ onClose }: { onClose: () => void }) {
       const d = r.diff;
       setDiff(d);
       setDone(`✓ 已套用：新增 ${d.users_created.length} 人 / 新增 ${d.subs_added.length} 訂閱 / 恢復 ${d.subs_reactivated.length} / 暫停 ${d.subs_paused.length}`);
+      // 匯入建立的帳單來自 ensureFirstPayment，不會出現在之後的同步 diff —— 通知要在這裡發，
+      // 否則新成員從頭到尾不會收到任何訊息 (C1)。
+      const ids = [...new Set(
+        [...d.subs_added, ...d.subs_reactivated].map((l) => l.user_id).filter((v): v is number => v != null)
+      )];
+      if (notify && ids.length > 0) {
+        try {
+          setNudged(nudgeSummary(await api.nudgeMembers({ period: d.period, user_ids: ids, kind: "added" })));
+        } catch (e) { setNudged(`通知發送失敗：${(e as Error).message}`); }
+      }
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
   }
@@ -443,6 +455,13 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           {!done && (
             <>
               {changes === 0 && <p style={{ color: "var(--muted)" }}>沒有新增／暫停／恢復；套用只會同步 {diff.users_updated} 位成員的姓名。</p>}
+          {!done && changes > 0 && (
+            <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
+              <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} disabled={busy} />
+              套用後在頻道 @ 通知這批成員繳費（尚未綁定 Discord 的人通知不到，會列出來）
+            </label>
+          )}
+          {nudged && <div style={{ color: "var(--muted-strong)", fontSize: 13, padding: "4px 0" }}>{nudged}</div>}
               <button className="btn btn--primary" onClick={apply} disabled={busy}>{busy ? "套用中…" : "確認套用"}</button>
             </>
           )}

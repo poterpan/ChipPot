@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, type User, type Plan, type ChannelTag, type Subscription } from "../api";
+import { api, nudgeSummary, type User, type Plan, type ChannelTag, type Subscription } from "../api";
 import { useAsync, Card, Modal, Field, Empty, ConfirmDanger } from "../ui";
 
 function useForm<T extends Record<string, any>>(initial: T) {
@@ -151,12 +151,22 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const users = useAsync(() => api.users(), []);
   const plans = useAsync(() => api.plans(), []);
   const [f, set] = useForm({ user_id: "", plan_id: "", start_date: "" });
+  const [notify, setNotify] = useState(true);
+  const [nudged, setNudged] = useState<string | null>(null);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   async function save() {
     if (!f.user_id || !f.plan_id || !f.start_date) { setErr("請填成員、方案、起算日"); return; }
     setBusy(true); setErr(null);
-    try { await api.createSubscription({ user_id: Number(f.user_id), plan_id: Number(f.plan_id), start_date: f.start_date }); onDone(); }
-    catch (e) { setErr((e as Error).message); setBusy(false); }
+    try {
+      await api.createSubscription({ user_id: Number(f.user_id), plan_id: Number(f.plan_id), start_date: f.start_date });
+      // 建立訂閱會立刻開出第一期帳單，但沒有任何人會告訴這位成員 (C1)。訂閱已經建立成功，
+      // 所以通知沒送成不算失敗——顯示原因後停在原地，讓管理員知道發生什麼事再自行關閉。
+      if (notify) {
+        const r = await api.nudgeMembers({ period: f.start_date.slice(0, 7), user_ids: [Number(f.user_id)], kind: "added" });
+        if (r.notified === 0) { setNudged(nudgeSummary(r)); setBusy(false); return; }
+      }
+      onDone();
+    } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
   return (
     <Modal title="新增訂閱（會立即建立第一期 payment）" onClose={onClose}>
@@ -164,6 +174,10 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
       <Field label="成員"><select value={f.user_id} onChange={(e) => set("user_id", e.target.value)} disabled={busy}><option value="">選擇…</option>{users.data?.users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}</select></Field>
       <Field label="方案"><select value={f.plan_id} onChange={(e) => set("plan_id", e.target.value)} disabled={busy}><option value="">選擇…</option>{plans.data?.plans.filter((p) => p.active).map((p) => <option key={p.id} value={p.id}>{p.name}（NT${p.monthly_amount}）</option>)}</select></Field>
       <Field label="起算日 (YYYY-MM-DD)"><input value={f.start_date} onChange={(e) => set("start_date", e.target.value)} placeholder="2026-05-01" disabled={busy} /></Field>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
+        <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} disabled={busy} /> 建立後在頻道 @ 通知這位成員繳費
+      </label>
+      {nudged && <div style={{ color: "var(--muted-strong)", fontSize: 13, marginBottom: 10 }}>{nudged}</div>}
       <button className="btn btn--primary" onClick={save} disabled={busy}>建立</button>
     </Modal>
   );
