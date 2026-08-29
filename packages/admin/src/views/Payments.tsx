@@ -125,7 +125,7 @@ export function Payments() {
       {deepMiss && <div className="warnnote">找不到通知連結指向的那筆繳費紀錄，可能已被刪除。以下是目前的繳費列表。</div>}
       {list.error && <div className="error-banner">{list.error}</div>}
       <Card title="繳費紀錄">
-        <div className="tbl">
+        <div className="tbl tbl--pin-first tbl--pin-last">
           {/* tbl-cards: below 1000px these rows stack into cards, each cell labelled by its data-label */}
           <table className="tbl-cards">
             <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>申報渠道</th>{showProof && <th>憑證</th>}<th></th></tr></thead>

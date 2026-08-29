@@ -34,7 +34,7 @@ export function Dashboard() {
           </div>
 
           <Card title="各方案">
-            <div className="tbl">
+            <div className="tbl tbl--pin-first">
               <table>
                 <thead>
                   <tr><th>方案</th><th className="right">筆數</th><th className="right">待繳</th><th className="right">已繳</th><th className="right">已驗證</th><th className="right">應收</th><th className="right">已驗證金額</th></tr>

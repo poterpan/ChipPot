@@ -60,7 +60,10 @@ button { font-family: inherit; }
   position: sticky; top: 0; z-index: 5;
 }
 .topbar h1 { font-family: "Fraunces", serif; font-weight: 600; font-size: 22px; margin: 0; }
-.content { padding: 24px 28px 60px; max-width: 1100px; }
+/* 1180 (was 1100): minus 2×28px padding and the card's 1px borders this leaves 1122px, enough for
+   the 8-column payments table's 1058px on a 1440px display. Narrower displays still scroll the
+   table sideways — that is what the sticky columns below are for. */
+.content { padding: 24px 28px 60px; max-width: 1180px; }
 
 /* stat cards */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 22px; }
@@ -76,9 +79,49 @@ button { font-family: inherit; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-bottom: 22px; }
 .card__head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .card__head h2 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: 0.3px; }
-/* horizontal scroll container so wide tables never get clipped by the card on narrow screens */
-.tbl { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+/* horizontal scroll container so wide tables never get clipped by the card on narrow screens.
+   The four background layers are the classic scroll-shadow: the two `local` gradients scroll with
+   the content and cover the shadow when you reach an end, the two `scroll` gradients stay put.
+   Pure CSS — it appears only when the table actually overflows and disappears at both ends. */
+.tbl {
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  background-color: var(--panel);
+  background-image:
+    linear-gradient(to right, var(--panel) 40%, rgba(255,255,255,0)),
+    linear-gradient(to left, var(--panel) 40%, rgba(255,255,255,0)),
+    radial-gradient(farthest-side at 0 50%, rgba(31,28,23,.14), rgba(31,28,23,0)),
+    radial-gradient(farthest-side at 100% 50%, rgba(31,28,23,.14), rgba(31,28,23,0));
+  background-repeat: no-repeat;
+  background-position: left center, right center, left center, right center;
+  background-size: 30px 100%, 30px 100%, 12px 100%, 12px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+/* separate + zero spacing (not collapse): with collapsed borders the border belongs to the table,
+   not the cell, so a `position: sticky` cell paints without its divider in WebKit. Visually
+   identical here — only `border-bottom` is ever set, so nothing doubles up. */
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; }
+
+/* ── ≥1001px: wide tables keep their identity and their actions on screen ─────
+   The 8-column payments table is 1058px wide; .content caps at 1180px minus 56px of padding,
+   so below a ~1350px viewport it scrolls sideways no matter what. Pinning the first cell (who
+   the row is about) and the last cell (what you can do to it) makes that scroll harmless instead
+   of hiding the only two things that matter. Opt-in per table so a 3-column table isn't pinned
+   for no reason. Below 1000px these tables are cards and the rules do not apply. */
+@media (min-width: 1001px) {
+  .tbl--pin-first th:first-child,
+  .tbl--pin-first td:first-child {
+    position: sticky; left: 0; z-index: 1;
+    background: var(--panel); box-shadow: 1px 0 0 var(--line);
+  }
+  .tbl--pin-last th:last-child,
+  .tbl--pin-last td:last-child {
+    position: sticky; right: 0; z-index: 1;
+    background: var(--panel); box-shadow: -1px 0 0 var(--line);
+  }
+  /* the sticky cells are opaque, so the row-hover tint has to be repainted on them */
+  .tbl--pin-first tbody tr.click:hover td:first-child,
+  .tbl--pin-last tbody tr.click:hover td:last-child { background: #faf7f0; }
+}
 th { text-align: left; font-size: 11.5px; letter-spacing: 1px; color: var(--muted); font-weight: 600; padding: 10px 18px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 td { padding: 12px 18px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 tr:last-child td { border-bottom: 0; }
@@ -153,10 +196,11 @@ tbody tr.click:hover { background: #faf7f0; }
    and landscape phones (844/932). 980px is in range on purpose: an in-app WebView
    (Google Messages / Samsung) that has no viewport meta applied yet falls back to the
    legacy 980px layout viewport on first load, and must not get the desktop layout.
-   Four blocks in this file use it:
+   Five blocks in this file use it:
      @media (max-width: 1000px)  — this one (shell), the settings/savebar block,
                                     the .tbl-cards + bottom-sheet block
-     @media (min-width: 1001px)  — the .mrow two-column block
+     @media (min-width: 1001px)  — the sticky pinned-column block (.tbl--pin-*),
+                                    the .mrow two-column block
    Change all of them together or the layout desynchronises. Above 1000px, wide tables
    stay tables; their row actions are kept reachable by pinning the identity and action
    columns rather than by moving this breakpoint up again.
