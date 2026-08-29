@@ -175,6 +175,12 @@ tbody tr.click:hover { background: #faf7f0; }
 .modal__body { padding: 18px 20px 22px; }
 .iconbtn { border: 0; background: transparent; cursor: pointer; font-size: 16px; color: var(--muted); }
 
+/* background scroll lock while a modal / bottom sheet is open (set by ui.tsx's Modal).
+   Two selectors because the scrolling element differs by breakpoint: <body> below 1000px
+   (.main is overflow: visible there), .main above it. */
+html.modal-open, html.modal-open body { overflow: hidden; }
+html.modal-open .main { overflow: hidden; }
+
 /* misc */
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
 .toolbar select, .toolbar input { padding: 8px 11px; border: 1.5px solid var(--line); border-radius: 9px; font: inherit; background: var(--panel); }
