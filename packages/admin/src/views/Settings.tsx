@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, currentPeriod, periodForBillingDay, nextBillingPeriod, NOTIFY_REASON_TEXT, type ImportDiff, type ImportSubLine, type InitiatePreview, type InitiateApplied } from "../api";
-import { useAsync, Card, Field, Empty, Modal, Stat, IconCheck, IconWarning } from "../ui";
+import { useAsync, Card, Field, Empty, Modal, Stat, IconCheck, IconWarning, ErrorNote } from "../ui";
 import { DiffList } from "../components/DiffList";
 
 const PLACEHOLDER_RE = /\{(\w+)\}/g;
@@ -91,7 +91,7 @@ const EMPTY: Form = {
 };
 
 export function Settings() {
-  const { data, loading, error } = useAsync(() => api.workspace(), []);
+  const { data, loading, error, reload } = useAsync(() => api.workspace(), []);
   const [form, setForm] = useState<Form>(EMPTY);
   const [saved, setSaved] = useState<Form>(EMPTY);
   const [busy, setBusy] = useState(false);
@@ -162,7 +162,7 @@ export function Settings() {
   }
 
   if (loading) return <Empty>載入中…</Empty>;
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorNote message={error} onRetry={reload} />;
 
   const r2 = (data as any)?.r2_configured;
   // 立即執行 rows say what is currently persisted, so "重建" reads as "this exists, redo it" rather

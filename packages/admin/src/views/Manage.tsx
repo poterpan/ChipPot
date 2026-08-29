@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type User, type Plan, type ChannelTag, type Subscription } from "../api";
-import { useAsync, Card, Modal, Field, Empty, ConfirmDanger } from "../ui";
+import { useAsync, Card, Modal, Field, Empty, ConfirmDanger, ErrorNote } from "../ui";
 
 function useForm<T extends Record<string, any>>(initial: T) {
   const [v, setV] = useState<T>(initial);
@@ -14,7 +14,7 @@ export function Users() {
   const [del, setDel] = useState<User | null>(null);
   return (
     <>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorNote message={error} onRetry={reload} />}
       <Card title="成員" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>}>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
@@ -104,7 +104,7 @@ export function Subscriptions() {
   const [del, setDel] = useState<Subscription | null>(null);
   return (
     <>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorNote message={error} onRetry={reload} />}
       <Card title="訂閱" action={<button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱</button>}>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
@@ -202,7 +202,7 @@ export function Plans() {
   const shown = (data?.plans ?? []).filter((p) => !pFilter || p.provider === pFilter);
   return (
     <>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorNote message={error} onRetry={reload} />}
       <Card title="方案" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增方案</button>}>
         {providers.length > 1 && (
           <div className="pills" style={{ padding: "12px 18px 0" }}>
@@ -302,7 +302,7 @@ export function ChannelTags() {
   }
   return (
     <>
-      {(error || actErr) && <div className="error-banner">{error || actErr}</div>}
+      {(error || actErr) && <ErrorNote message={(error || actErr)!} onRetry={reload} />}
       <Card title="支付渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道</button>}>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">

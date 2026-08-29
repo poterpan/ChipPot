@@ -129,3 +129,18 @@ export function IconWarning({ size = 14 }: { size?: number }) {
 export function IconX({ size = 13 }: { size?: number }) {
   return <Svg size={size}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Svg>;
 }
+
+// useAsync has always returned `reload` and no error UI ever used it: a failed load left a red
+// line and no way forward. The 401/403 case is special — api.ts turns it into 未授權，請重新登入，
+// but Cloudflare Access only re-issues a session on a fresh page load, so that button reloads.
+export function ErrorNote({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const needsLogin = message.includes("重新登入");
+  return (
+    <div className="error-banner error-banner--act" role="alert">
+      <span>{message}</span>
+      {needsLogin
+        ? <button className="btn" onClick={() => window.location.reload()}>重新登入</button>
+        : onRetry && <button className="btn" onClick={onRetry}>重試</button>}
+    </div>
+  );
+}
