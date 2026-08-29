@@ -607,10 +607,11 @@ export async function retractPeriodBilling(
     // call is the one that closed the period (see marker_cleared).
     env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'billing_opened' AND period = ?")
       .bind(workspaceId, period),
-    // The overdue slot is claimed once per (workspace, period) and never expires, so leaving it
-    // behind would permanently mute overdue reminders if this period is ever re-opened —
-    // claimNotification would lose and sendOverdueForPeriod would just report already_sent, with
-    // no error anywhere. Kept as its own statement so it cannot inflate the marker's changes count.
+    // The cron's overdue slot is keyed per day (#48), so a re-opened period's stale slots would
+    // otherwise fire "already_sent" reminders that describe a period that no longer exists — and
+    // sendOverdueForPeriod reports already_sent with no error anywhere. Delete every overdue row
+    // (all days) so reminders restart from clean. Kept as its own statement so it cannot inflate
+    // the marker's changes count.
     // ('receipt' is declared in the type union but never claimed, so there is no slot to release.)
     env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ?")
       .bind(workspaceId, period),

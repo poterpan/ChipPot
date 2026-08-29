@@ -38,22 +38,24 @@ export interface NotificationKey {
   planId?: number;
   userId?: number;
   subscriptionId?: number;
+  /** Distinguishes two messages that share one entity. '' = the whole-entity slot. */
+  event?: string;
 }
 
 /**
  * Claim a notification slot to guarantee at-most-once sending. Inserts a notification_logs
  * row; returns true if this caller won the slot (should send), false if already sent.
- * Uses NOT NULL DEFAULT 0 sentinels so the UNIQUE actually dedupes (roadmap §4.1).
+ * Uses NOT NULL DEFAULT 0 / '' sentinels so the UNIQUE actually dedupes (roadmap §4.1).
  */
 export async function claimNotification(db: D1Database, k: NotificationKey): Promise<boolean> {
   const res = await db
     .prepare(
       `INSERT INTO notification_logs
-        (workspace_id, type, period, plan_id, user_id, subscription_id, external_channel_type, sent_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'discord', ?)
-       ON CONFLICT(workspace_id, type, period, plan_id, user_id, subscription_id) DO NOTHING`
+        (workspace_id, type, period, plan_id, user_id, subscription_id, event, external_channel_type, sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'discord', ?)
+       ON CONFLICT(workspace_id, type, period, plan_id, user_id, subscription_id, event) DO NOTHING`
     )
-    .bind(k.workspaceId, k.type, k.period, k.planId ?? 0, k.userId ?? 0, k.subscriptionId ?? 0, nowUtcIso())
+    .bind(k.workspaceId, k.type, k.period, k.planId ?? 0, k.userId ?? 0, k.subscriptionId ?? 0, k.event ?? "", nowUtcIso())
     .run();
   return (res.meta.changes ?? 0) > 0;
 }
