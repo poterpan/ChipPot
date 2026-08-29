@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-349%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-355%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -60,11 +60,11 @@ ChipPot 解決的是一個很具體的痛點：社團大量採購 OpenAI / Anthr
 - 📲 **繳費推播** — 成員送出繳費時，可推一則 Bark 和／或 webhook（Discord／Google Chat／Slack，body
   格式依主機自動判斷）給擁有者，並帶上直接跳到該成員該期審核的深連結——一次送出會結清所有訂閱，
   所以連結會把它們一起打開，可一鍵全部核准。
-- ⏰ **每日 cron、冪等** — 自動開帳、每期發**一則**整批催繳、執行截圖保存期清理，全部經
-  `notification_logs` 去重。
+- ⏰ **每日 cron、冪等** — 自動開帳、進入催繳後**每天發一則**整批催繳（直到全部繳完）、執行
+  截圖保存期清理，全部經 `notification_logs` 去重。
 - 🛡️ **Access 保護的後台** — 整個後台主機在 Cloudflare Access 後（email OTP）；SPA 與其 API 同源，
   Access JWT 因此能到達 Worker。
-- 🧪 **真環境測試** — 349 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
+- 🧪 **真環境測試** — 355 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
 
 ## 一筆繳費怎麼跑
 
@@ -132,7 +132,7 @@ packages/
     src/core/             與管道無關的核心邏輯
     src/adapters/discord/ Ed25519 驗章 · 指令 · handler · 通知
     src/routes/           interactions · upload · admin · images
-    migrations/           D1 schema（0001…0005）
+    migrations/           D1 schema（0001…0006）
     scripts/              register-commands.mjs
     test/                 Vitest（真 Miniflare D1/R2）
   web/                    公開的 token-gated 上傳頁（Vite/React）
@@ -224,7 +224,8 @@ pnpm --filter @chippot/worker register
   手機上也好操作。存檔前可先按**送出測試**確認打得通。兩者都選填、best-effort（端點慢或掛掉都不會
   卡住成員繳費）。
 - **每日 cron**（01:00 UTC = 台北 09:00）— 冪等地開出各期帳單、發開繳通知（tag 方案身分組）、
-  **每期發一則整批逾期催繳**（列出所有未繳者），並執行截圖保存期清理。全部經 `notification_logs` 去重。
+  **每天對仍有未繳者的期別發一則整批逾期催繳**（直到全部繳完），並執行截圖保存期清理。全部經
+  `notification_logs` 去重。
 
 ## 後續規劃
 

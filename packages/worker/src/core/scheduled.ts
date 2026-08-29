@@ -3,7 +3,7 @@ import { parseSettings } from "../env";
 import { taipeiPeriod, taipeiDate, taipeiDayOfMonth, daysBetween } from "./time";
 import { ensurePeriodPayment } from "./billing";
 import { runRetention } from "./retention";
-import { claimNotification, type Notifier, type PlanOpenLine, type OverduePerson } from "./notify";
+import { claimNotification, claimNotificationSlot, releaseSlot, type Notifier, type PlanOpenLine, type OverduePerson } from "./notify";
 
 export interface DailySummary {
   paymentsEnsured: number;
@@ -109,9 +109,11 @@ export interface OverdueResult {
 /**
  * Send the overdue reminder for ONE period as a single batched public message listing every
  * unpaid member — pending OR rejected (a rejected submission still owes) — tagged once with
- * their plans + total, deduped per (ws, period).
+ * their plans + total, deduped per (ws, period, DAY): the daily cron keeps reminding every day
+ * until the period has no unpaid bills left (#48).
  *
- * force=false (cron): only fires when ≥1 member is past overdue_days; claim-then-send.
+ * force=false (cron): only fires when ≥1 member is past overdue_days; claim-then-send. The slot
+ * carries the Taipei business date, so a re-run the same day is deduped but the next day fires.
  * force=true (admin "催繳未繳成員"): lists ALL unpaid members regardless of overdue_days and clears
  * the dedup slot first so it always re-sends. The two lists genuinely differ, which is why the UI
  * must not call both "立即重發" — see the copy in views/PushStatus.tsx.
@@ -124,7 +126,7 @@ export async function sendOverdueForPeriod(
   workspaceId: number,
   period: string,
   notifier: Notifier,
-  opts: { force: boolean; dryRun?: boolean; now?: Date }
+  opts: { force: boolean; dryRun?: boolean; now?: Date; dayKey?: string }
 ): Promise<OverdueResult> {
   const bare = (outcome: OverdueOutcome, overdueDays = 0): OverdueResult =>
     ({ notified: 0, outcome, overdue_days: overdueDays, people: [] });
@@ -136,6 +138,10 @@ export async function sendOverdueForPeriod(
   if (!channelId) return bare("no_channel", settings.overdue_days);
   if (!env.DISCORD_BOT_TOKEN) return bare("no_bot_token", settings.overdue_days);
   const today = taipeiDate(opts.now ?? new Date());
+  // The cron dedupes per business day; the admin force-resend keeps the entity-wide slot so it can
+  // always fire (it deletes that whole-entity slot below). A caller-provided dayKey overrides the
+  // date (tests / replay).
+  const dayKey = opts.dayKey ?? today;
 
   const rows = await env.DB
     .prepare(
@@ -167,15 +173,20 @@ export async function sendOverdueForPeriod(
   if (opts.dryRun) return { notified: 0, outcome: "preview", overdue_days: settings.overdue_days, people };
 
   if (opts.force) {
-    // force = admin resend: clear the slot so the claim below always wins. This delete-then-claim
-    // isn't atomic, but force is an occasional single-admin dashboard action whose button is
-    // disabled while in flight; the only risk is a duplicate message from two truly-concurrent
-    // resends, which we accept (no DO/lock — YAGNI). Unlike the billing_opened slot, the overdue
-    // row carries no "period is open" meaning, so a momentary gap is harmless.
-    await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ?")
+    // force = admin resend: clear the entity-wide ('' slot) only, then claim it afresh below. The
+    // cron's per-day slots are left untouched, so a same-day cron retry still reads as already sent.
+    // The delete-then-claim isn't atomic, but force is an occasional single-admin dashboard action
+    // whose button is disabled while in flight; the only risk is a duplicate message from two
+    // truly-concurrent resends, which we accept (no DO/lock — YAGNI). Unlike the billing_opened
+    // slot, the overdue row carries no "period is open" meaning, so a momentary gap is harmless.
+    await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ? AND event = ''")
       .bind(workspaceId, period).run();
   }
-  if (!(await claimNotification(env.DB, { workspaceId, type: "overdue", period }))) {
+  // The cron's slot is per day (dayKey); the admin's force resend reuses the '' entity-wide slot,
+  // which is what the DELETE above just cleared.
+  const event = opts.force ? "" : dayKey;
+  const slot = await claimNotificationSlot(env.DB, { workspaceId, type: "overdue", period, event });
+  if (!slot.won) {
     return { notified: 0, outcome: "already_sent", overdue_days: settings.overdue_days, people };
   }
   if (!(await notifier.sendOverdue(env, channelId, period, people, settings.overdue_template))) {
@@ -184,9 +195,8 @@ export async function sendOverdueForPeriod(
     // Keeping it would mute this period's reminders permanently: every later claim (cron included)
     // would just lose and report already_sent, with no error surfacing anywhere. That is the exact
     // trap 收回本期開繳 avoids by deleting this row, so a failed send releases it for the same reason.
-    // We can delete unconditionally: this call won the claim above, so the row is the one we wrote.
-    await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ?")
-      .bind(workspaceId, period).run();
+    // The release goes by the row id we won, so it can never delete a concurrent claim's row.
+    await releaseSlot(env.DB, slot.id!);
     return { notified: 0, outcome: "send_failed", overdue_days: settings.overdue_days, people };
   }
   return { notified: people.length, outcome: "sent", overdue_days: settings.overdue_days, people };

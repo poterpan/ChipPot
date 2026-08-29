@@ -76,15 +76,18 @@ describe("sendOverdueForPeriod 結果物件", () => {
     expect(sent.length).toBe(before + 1);
   });
 
-  it("非 force 的第二次送出回 already_sent 而不是假的 sent", async () => {
-    // 上一個 it 已經佔用 (ws, overdue, period) 的 slot；cron 再跑一次不能重送。
+  it("非 force 的第二次送出回 already_sent 而不是假的 sent（同日去重）", async () => {
+    // #48: the cron slot is per DAY. This second force=false send uses the same `now` as the
+    // previous it block's send above would have — but that send was force=true (the '' slot), so
+    // pin the day here to exercise the cron's per-day slot directly: two sends on one day.
     const before = sent.length;
-    const r = await sendOverdueForPeriod(env, WS, PERIOD, notifier, {
-      force: false, dryRun: false, now: new Date("2098-06-30T00:00:00Z"),
-    });
+    const day = new Date("2098-06-30T00:00:00Z");
+    const first = await sendOverdueForPeriod(env, WS, PERIOD, notifier, { force: false, dryRun: false, now: day });
+    expect(first).toMatchObject({ outcome: "sent", notified: 2 });
+    const r = await sendOverdueForPeriod(env, WS, PERIOD, notifier, { force: false, dryRun: false, now: day });
     expect(r).toMatchObject({ outcome: "already_sent", notified: 0 });
     expect(r.people.length).toBe(2); // 名單還是要帶回來，UI 才講得出「這 2 位已經催過了」
-    expect(sent.length).toBe(before);
+    expect(sent.length).toBe(before + 1);
   });
 
   it("沒有 bot token 時回 no_bot_token 而不是假成功", async () => {
