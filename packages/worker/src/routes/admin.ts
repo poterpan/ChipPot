@@ -638,7 +638,11 @@ async function verifyPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
   try {
     const after = await verifyPayment(env.DB, id, { verifiedBy: actorOf(ctx), verifiedChannelTagId: tagId });
     await writeAudit(env.DB, { workspaceId: before.workspace_id, actor: actorOf(ctx), action: "payment.verify", entityType: "payment", entityId: id, before, after });
-    return json({ ok: true, payment: after });
+    // Opt-in per workspace (receipt_notify_verified); best-effort like the reject path.
+    const notified = await announcePaymentReceipt(
+      env, { workspaceId: before.workspace_id, kind: "verify", paymentIds: [id] }, discordNotifier
+    ).catch((e) => { console.error("verify receipt failed", e); return 0; });
+    return json({ ok: true, payment: after, notified });
   } catch (e) {
     if (e instanceof InvalidPaymentTransition) return errorResponse(409, e.message);
     throw e;
@@ -703,7 +707,12 @@ async function verifyAllHandler(req: Request, env: Env, ctx: RouteCtx): Promise<
     });
   }
   await writeSummary();
-  return json({ ok: true, verified: paymentIds.length, payment_ids: paymentIds });
+  // One member × one period → announcePaymentReceipt aggregates into a SINGLE channel message,
+  // however many bills were swept (Task 4). Opt-in per workspace; best-effort like the reject path.
+  const notified = await announcePaymentReceipt(
+    env, { workspaceId: ws, kind: "verify", paymentIds }, discordNotifier
+  ).catch((e) => { console.error("verify-all receipt failed", e); return 0; });
+  return json({ ok: true, verified: paymentIds.length, payment_ids: paymentIds, notified });
 }
 
 async function rejectPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {

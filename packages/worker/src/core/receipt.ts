@@ -42,6 +42,9 @@ export async function announcePaymentReceipt(
   // we must not consume the dedup slot — otherwise configuring Discord later would arrive to a
   // bill that already counts as announced.
   if (!channelId || !env.DISCORD_BOT_TOKEN) return 0;
+  // 退回 always notifies — that is the P0-5 death end. 確認 is opt-in: a busy month would post one
+  // message per verified bill. Checked BEFORE any claim so switching it on later can still announce.
+  if (req.kind === "verify" && !settings.receipt_notify_verified) return 0;
 
   const marks = req.paymentIds.map(() => "?").join(",");
   const rows = (await env.DB.prepare(

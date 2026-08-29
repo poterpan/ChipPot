@@ -34,6 +34,9 @@ export interface WorkspaceSettings {
   payment_bark_server: string; // Bark server base (default https://api.day.app; for self-hosters)
   payment_webhook_url: string; // incoming webhook (Discord / Google Chat / Slack / generic); body shape by host
   payment_notify_template: string; // message body; empty = the built-in default
+  /** Also tell the member when their payment is 確認 (退回 always notifies; this one is opt-in
+   *  because a channel gets noisy fast when every verified bill posts). */
+  receipt_notify_verified: boolean;
 }
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -53,6 +56,7 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   payment_bark_server: "https://api.day.app",
   payment_webhook_url: "",
   payment_notify_template: "",
+  receipt_notify_verified: false,
 };
 
 function intInRange(v: unknown, fallback: number, min: number, max: number): number {
@@ -61,6 +65,10 @@ function intInRange(v: unknown, fallback: number, min: number, max: number): num
     throw new Error(`invalid settings number: ${String(v)}`);
   }
   return v;
+}
+
+function bool(v: unknown, fallback: boolean): boolean {
+  return typeof v === "boolean" ? v : fallback;
 }
 
 function str(v: unknown, fallback: string): string {
@@ -92,5 +100,6 @@ export function parseSettings(json: string): WorkspaceSettings {
     payment_bark_server: str(raw.payment_bark_server, DEFAULT_SETTINGS.payment_bark_server),
     payment_webhook_url: str(raw.payment_webhook_url, ""),
     payment_notify_template: str(raw.payment_notify_template, ""),
+    receipt_notify_verified: bool(raw.receipt_notify_verified, false),
   };
 }

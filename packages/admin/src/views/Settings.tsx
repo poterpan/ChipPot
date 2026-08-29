@@ -82,12 +82,15 @@ interface Form {
   discord_guild_id: string; discord_billing_channel_id: string; admin_discord_ids: string;
   bark_key: string; bark_server: string; webhook_url: string; notify_template: string;
   overdue_template: string; billing_opened_template: string; payment_message_template: string;
+  /** '1' = on, '' = off — the Form is all strings so `dirty` stays a plain JSON compare. */
+  receipt_notify_verified: string;
 }
 const EMPTY: Form = {
   billing_day: "", overdue_days: "", proof_retention_months: "",
   discord_guild_id: "", discord_billing_channel_id: "", admin_discord_ids: "",
   bark_key: "", bark_server: "https://api.day.app", webhook_url: "", notify_template: "",
   overdue_template: "", billing_opened_template: "", payment_message_template: "",
+  receipt_notify_verified: "",
 };
 
 export function Settings() {
@@ -119,6 +122,7 @@ export function Settings() {
       overdue_template: s.overdue_template ?? "",
       billing_opened_template: s.billing_opened_template ?? "",
       payment_message_template: s.payment_message_template ?? "",
+      receipt_notify_verified: s.receipt_notify_verified ? "1" : "",
     };
     setForm(f); setSaved(f);
   }, [data]);
@@ -154,6 +158,7 @@ export function Settings() {
           payment_bark_server: form.bark_server.trim() || "https://api.day.app",
           payment_webhook_url: form.webhook_url.trim(),
           payment_notify_template: form.notify_template.trim(),
+          receipt_notify_verified: form.receipt_notify_verified === "1",
         },
       });
       setSaved(form); flash("已儲存變更");
@@ -194,6 +199,26 @@ export function Settings() {
             <Field label="逾期天數"><span className="field__hint">開帳後幾天仍未繳就列入催繳。</span><input type="number" min={0} value={form.overdue_days} onChange={(e) => set("overdue_days")(e.target.value)} disabled={busy} /></Field>
             <Field label="截圖保存月數"><span className="field__hint">超過月數的繳費截圖自動清除（對帳資料保留）。</span><input type="number" min={1} value={form.proof_retention_months} onChange={(e) => set("proof_retention_months")(e.target.value)} disabled={busy} /></Field>
           </div>
+        </div>
+      </Card>
+
+      <Card title="審核結果通知" desc="成員送出繳費後，審核結果要不要回到 Discord 頻道給他">
+        <div className="card__body">
+          <Field label="確認時也通知成員">
+            <span className="field__hint">
+              <b>退回一定會通知</b>（附退回原因），這是成員唯一知道要重繳的管道，不能關閉。
+              確認則預設不通知 —— 每張帳單都貼一則，頻道很快就洗版。打開後，一位成員同期多筆會合併成一則。
+            </span>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: busy ? "default" : "pointer" }}>
+              <input
+                type="checkbox"
+                checked={form.receipt_notify_verified === "1"}
+                onChange={(e) => set("receipt_notify_verified")(e.target.checked ? "1" : "")}
+                disabled={busy}
+              />
+              <span>確認繳費時，在頻道 @ 該成員告知已確認</span>
+            </label>
+          </Field>
         </div>
       </Card>
 

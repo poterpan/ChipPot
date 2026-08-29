@@ -25,7 +25,8 @@ const failing: Notifier = { ...base, async sendPaymentReceipt() { return false; 
 
 beforeAll(async () => {
   (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
-  const settings = JSON.stringify({ discord_billing_channel_id: CHAN });
+  // verify receipts are opt-in (Task 4); this fixture turns them on so both kinds are exercised.
+  const settings = JSON.stringify({ discord_billing_channel_id: CHAN, receipt_notify_verified: true });
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(WS, "W", "o", "discord", 5, settings, TS, TS),
     env.DB.prepare(`INSERT INTO users (id,workspace_id,discord_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(USER, WS, "d-9810", "王小明", TS, TS),
@@ -92,5 +93,43 @@ describe("announcePaymentReceipt", () => {
     expect(await announcePaymentReceipt(env, { workspaceId: noChannel, kind: "reject", paymentIds: [PAY_A] }, base)).toBe(0);
     const rows = await env.DB.prepare("SELECT COUNT(*) c FROM notification_logs WHERE workspace_id = ?").bind(noChannel).first<{ c: number }>();
     expect(rows!.c).toBe(0);
+  });
+});
+
+describe("verify receipts are opt-in", () => {
+  const WS_OFF = 9818;
+  const CHAN_OFF = "chan-9818";
+  const U_OFF = 98181, S_OFF = 98182, P_OFF = 98183;
+
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(WS_OFF, "W", "o", "discord", 5, JSON.stringify({ discord_billing_channel_id: CHAN_OFF }), TS, TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,discord_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(U_OFF, WS_OFF, "d-9818", "李小華", TS, TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(WS_OFF, WS_OFF, "ChatGPT", "openai", 315, TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_OFF, WS_OFF, U_OFF, WS_OFF, "2029-04-01", 5, "active", TS, TS),
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(P_OFF, WS_OFF, S_OFF, P, `${P}-01`, `${P}-30`, `${P}-05`, 315, "paid", "user_slash", TS, TS),
+    ]);
+  });
+
+  it("stays silent on verify when receipt_notify_verified is off (the default)", async () => {
+    sent.length = 0;
+    expect(await announcePaymentReceipt(env, { workspaceId: WS_OFF, kind: "verify", paymentIds: [P_OFF] }, base)).toBe(0);
+    expect(sent).toHaveLength(0);
+    // The slot must stay free: turning the setting on later has to be able to announce.
+    expect(await claimNotification(env.DB, { workspaceId: WS_OFF, type: "receipt", period: P, userId: U_OFF, subscriptionId: S_OFF, event: "verify" })).toBe(true);
+  });
+
+  it("still announces a rejection when verify receipts are off", async () => {
+    sent.length = 0;
+    expect(await announcePaymentReceipt(env, { workspaceId: WS_OFF, kind: "reject", paymentIds: [P_OFF], reason: "重複" }, base)).toBe(1);
+  });
+
+  it("announces the verify once the workspace turns it on", async () => {
+    await env.DB.prepare("UPDATE workspaces SET settings = ? WHERE id = ?")
+      .bind(JSON.stringify({ discord_billing_channel_id: CHAN_OFF, receipt_notify_verified: true }), WS_OFF).run();
+    // the probe claim above took this slot; give it back so the real call can win it
+    await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'receipt' AND event = 'verify'").bind(WS_OFF).run();
+    sent.length = 0;
+    expect(await announcePaymentReceipt(env, { workspaceId: WS_OFF, kind: "verify", paymentIds: [P_OFF] }, base)).toBe(1);
   });
 });

@@ -314,3 +314,43 @@ describe("POST /admin/payments/:id/reject 會發回條", () => {
     expect(left!.c).toBe(0);
   });
 });
+
+/**
+ * Task 4: 一鍵全部核准 verifies N bills but must post ONE receipt, not N — and only when the
+ * workspace opted into verify receipts.
+ */
+describe("POST /admin/payments/verify-all 的回條只發一則", () => {
+  const U_V = 9405, SUB_V1 = 9418, SUB_V2 = 9419, P_V1 = 9450, P_V2 = 9451;
+  const PERIOD_V = "2028-09";
+
+  beforeAll(async () => {
+    (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
+    await env.DB.prepare("UPDATE workspaces SET settings = ? WHERE id = 1")
+      .bind(JSON.stringify({ discord_billing_channel_id: "chan-9405", receipt_notify_verified: true })).run();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,discord_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(U_V, WS, "d-9405", "合併回條", TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(SUB_V1, WS, U_V, 1, `${PERIOD_V}-01`, 5, "active", TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(SUB_V2, WS, U_V, 1, `${PERIOD_V}-01`, 5, "active", TS, TS),
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(P_V1, WS, SUB_V1, PERIOD_V, `${PERIOD_V}-01`, `${PERIOD_V}-30`, `${PERIOD_V}-05`, 315, "paid", "user_slash", TS, TS),
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(P_V2, WS, SUB_V2, PERIOD_V, `${PERIOD_V}-01`, `${PERIOD_V}-30`, `${PERIOD_V}-05`, 251, "paid", "user_slash", TS, TS),
+    ]);
+  });
+
+  it("兩筆一起核准，只送出一則回條，但兩筆的 slot 都佔用", async () => {
+    const posts = vi.fn(async () => new Response(JSON.stringify({ id: "m-9405" }), { status: 200 }));
+    vi.stubGlobal("fetch", posts);
+    const res = await call("POST", "/admin/payments/verify-all", { user_id: U_V, period: PERIOD_V });
+    vi.unstubAllGlobals();
+
+    expect(res!.status).toBe(200);
+    const b = (await res!.json()) as any;
+    expect(b.verified).toBe(2);
+    expect(b.notified).toBe(2); // two bills announced...
+    expect(posts).toHaveBeenCalledTimes(1); // ...in ONE channel message
+
+    const slots = await env.DB.prepare(
+      "SELECT COUNT(*) c FROM notification_logs WHERE workspace_id = 1 AND type = 'receipt' AND period = ? AND event = 'verify'"
+    ).bind(PERIOD_V).first<{ c: number }>();
+    expect(slots!.c).toBe(2);
+  });
+});
