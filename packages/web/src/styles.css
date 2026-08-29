@@ -4,6 +4,7 @@
   --ink: #211d18;
   --muted: #8a8073;
   --line: #e4dccb;
+  --line-strong: #948871;  /* form-field boundaries only: 3.29:1 on --card, WCAG 1.4.11 */
   --accent: #0f6e63;
   --accent-ink: #0a4d45;
   --bad: #b23a2e;
@@ -127,6 +128,25 @@ body::before {
 .plan--on { border-color: var(--accent); background: rgba(15, 110, 99, 0.05); }
 .plan__name { flex: 1; font-weight: 500; }
 .plan__amt { font-family: "Spline Sans Mono", monospace; color: var(--muted); }
+
+/* .field / .field__label are admin classes that web never had — App.tsx has always used them, so
+   the 繳費渠道 picker rendered as a ~152x19px browser default at 13.3px next to a fully styled drop
+   zone and submit button. Sized to match .note and .submit: 16px (no iOS auto-zoom), >=48px tall for
+   a thumb, --line-strong border for WCAG 1.4.11. Native appearance is kept, so iOS still draws its
+   own chevron. */
+.field { display: block; }
+.field__label {
+  display: block; font-size: 12px; letter-spacing: 2px;
+  color: var(--muted); margin-bottom: 8px;
+}
+.field select {
+  width: 100%; min-height: 48px; padding: 12px 14px;
+  font-family: inherit; font-size: 16px; color: var(--ink);
+  background: #fffdf8;
+  border: 1.5px solid var(--line-strong); border-radius: 12px;
+  cursor: pointer;
+}
+.field select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .drop {
   display: block; position: relative;
