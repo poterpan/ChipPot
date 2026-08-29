@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-355%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-423%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -49,6 +49,16 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   settles *all* of a member's subscriptions for the period (multi-plan aggregation).
 - 🔗 **Self-service linking** — members link their Discord account to the roster themselves
   (`/綁定`, the pay button, or a persistent public **綁定** button posted in the channel); admins can also assign IDs by hand.
+- 🧾 **Review outcomes reach the member** — a rejection always @s them in the channel with the
+  reason (their only way to know a re-submit is needed, so it cannot be switched off); notifying on
+  approval is opt-in. One member's bills for a period collapse into a single message, not one each.
+- 📄 **`/我的帳單`** — members look up what they still owe plus their last 6 bills themselves, read
+  from the same queries as the pay button so the numbers can never disagree.
+- 🔁 **Bound the wrong name? Self-serve rebind** — two-step confirm, ephemeral throughout, both the
+  unbind and the rebind audited; the update can only ever release the caller's own row.
+- 🔔 **Onboarding pings and per-member reminders** — CSV import, new subscription and re-sync can all
+  @ the member at the moment their bill is created; the member × period view can nudge one person.
+  All deduped, and members who are **not linked (so cannot be @-ed)** are reported by name.
 - 📥 **CSV roster import** — onboard *and* maintain a roster (e.g. a Google-Forms export) from one
   upload: a plan cell of `TRUE` subscribes (or un-pauses), `FALSE` pauses that subscription, blank
   leaves it alone. Every run previews a full diff (new members, added / paused / reactivated subs,
@@ -71,7 +81,7 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   `notification_logs`.
 - 🛡️ **Access-gated admin** — the whole admin host sits behind Cloudflare Access (email OTP); the
   SPA and its API are same-origin so the Access JWT reaches the Worker.
-- 🧪 **Real-runtime tests** — 355 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
+- 🧪 **Real-runtime tests** — 423 Vitest cases run against actual Miniflare D1 + R2 (FK constraints
   enforced), not mocks.
 
 ## How a payment flows
@@ -142,7 +152,7 @@ packages/
     src/core/             channel-agnostic domain logic
     src/adapters/discord/ Ed25519 verify · commands · handler · notify
     src/routes/           interactions · upload · admin · images
-    migrations/           D1 schema (0001…0006)
+    migrations/           D1 schema (0001…0007)
     scripts/              register-commands.mjs
     test/                 Vitest (real Miniflare D1/R2)
   web/                    public token-gated upload page (Vite/React)
