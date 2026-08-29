@@ -16,7 +16,7 @@ export function Users() {
     <>
       {error && <div className="error-banner">{error}</div>}
       <Card title="成員" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>}>
-        <div className="tbl">
+        <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <thead><tr><th>名稱</th><th>Discord ID</th><th>Email</th><th></th></tr></thead>
             <tbody>
@@ -106,7 +106,7 @@ export function Subscriptions() {
     <>
       {error && <div className="error-banner">{error}</div>}
       <Card title="訂閱" action={<button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱</button>}>
-        <div className="tbl">
+        <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <thead><tr><th>成員</th><th>方案</th><th>狀態</th><th>起算日</th><th className="right">結帳日</th><th></th></tr></thead>
             <tbody>
@@ -157,7 +157,9 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
       {err && <div className="error-banner">{err}</div>}
       <Field label="成員"><select value={f.user_id} onChange={(e) => set("user_id", e.target.value)} disabled={busy}><option value="">選擇…</option>{users.data?.users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}</select></Field>
       <Field label="方案"><select value={f.plan_id} onChange={(e) => set("plan_id", e.target.value)} disabled={busy}><option value="">選擇…</option>{plans.data?.plans.filter((p) => p.active).map((p) => <option key={p.id} value={p.id}>{p.name}（NT${p.monthly_amount}）</option>)}</select></Field>
-      <Field label="起算日 (YYYY-MM-DD)"><input value={f.start_date} onChange={(e) => set("start_date", e.target.value)} placeholder="2026-05-01" disabled={busy} /></Field>
+      {/* type=date, not a bare text box with a placeholder: everywhere else in the app a date is
+          picked (Settings and the payment modals all use type="month"). */}
+      <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
       <button className="btn btn--primary" onClick={save} disabled={busy}>建立</button>
     </Modal>
   );
@@ -174,11 +176,17 @@ function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: ()
     <Modal title={`編輯訂閱 · ${sub.user_name} · ${sub.plan_name}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
       <Field label="狀態"><select value={f.status} onChange={(e) => set("status", e.target.value)} disabled={busy}><option value="active">active</option><option value="paused">paused</option><option value="cancelled">cancelled</option></select></Field>
-      <Field label="起算日"><input value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
-      <Field label="結帳日 (1-28)"><input type="number" value={f.billing_day} onChange={(e) => set("billing_day", e.target.value)} disabled={busy} /></Field>
-      <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
+      <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
+      <Field label="結帳日 (1-28)">
+        <span className="field__hint">每月幾號為這個訂閱結帳。29–31 在短月會落空，所以上限是 28。</span>
+        <input type="number" min={1} max={28} value={f.billing_day} onChange={(e) => set("billing_day", e.target.value)} disabled={busy} />
+      </Field>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
         <input type="checkbox" checked={!!f.custom_cycle} onChange={(e) => set("custom_cycle", e.target.checked ? 1 : 0)} disabled={busy} /> 自訂週期（不對齊統一結帳日）
       </label>
+      <span className="field__hint" style={{ marginBottom: 14 }}>
+        勾選後這個訂閱依自己的結帳日出帳，不跟著工作區的統一結帳日；排程只會在該日產生它的帳單。
+      </span>
       <button className="btn btn--primary" onClick={save} disabled={busy}>儲存</button>
     </Modal>
   );
@@ -204,7 +212,7 @@ export function Plans() {
             ))}
           </div>
         )}
-        <div className="tbl">
+        <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <thead><tr><th>名稱</th><th>provider</th><th className="right">月費</th><th>身分組 ID</th><th>啟用</th><th></th></tr></thead>
             <tbody>
@@ -296,7 +304,7 @@ export function ChannelTags() {
     <>
       {(error || actErr) && <div className="error-banner">{error || actErr}</div>}
       <Card title="支付渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道</button>}>
-        <div className="tbl">
+        <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <thead><tr><th>名稱</th><th>類型</th><th className="right">排序</th><th>狀態</th><th></th></tr></thead>
             <tbody>
