@@ -15,10 +15,11 @@ export function Users() {
   return (
     <>
       {error && <ErrorNote message={error} onRetry={reload} />}
-      <Card title="成員" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>}>
+      <Card title="成員名單" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>}>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
-            <thead><tr><th>名稱</th><th>Discord ID</th><th>Email</th><th></th></tr></thead>
+            <caption className="sr-only">成員名單</caption>
+            <thead><tr><th scope="col">名稱</th><th scope="col">Discord ID</th><th scope="col">Email</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={4}><Empty>載入中…</Empty></td></tr>}
               {data?.users.map((u) => (
@@ -105,10 +106,11 @@ export function Subscriptions() {
   return (
     <>
       {error && <ErrorNote message={error} onRetry={reload} />}
-      <Card title="訂閱" action={<button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱</button>}>
+      <Card title="訂閱清單" action={<button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱</button>}>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
-            <thead><tr><th>成員</th><th>方案</th><th>狀態</th><th>起算日</th><th className="right">結帳日</th><th></th></tr></thead>
+            <caption className="sr-only">訂閱清單</caption>
+            <thead><tr><th scope="col">成員</th><th scope="col">方案</th><th scope="col">狀態</th><th scope="col">起算日</th><th scope="col" className="right">結帳日</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6}><Empty>載入中…</Empty></td></tr>}
               {data?.subscriptions.map((s) => (
@@ -203,7 +205,7 @@ export function Plans() {
   return (
     <>
       {error && <ErrorNote message={error} onRetry={reload} />}
-      <Card title="方案" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增方案</button>}>
+      <Card title="方案清單" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增方案</button>}>
         {providers.length > 1 && (
           <div className="pills" style={{ padding: "12px 18px 0" }}>
             <button className={`pill ${pFilter === "" ? "pill--on" : ""}`} onClick={() => setPFilter("")}>全部</button>
@@ -214,7 +216,8 @@ export function Plans() {
         )}
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
-            <thead><tr><th>名稱</th><th>provider</th><th className="right">月費</th><th>身分組 ID</th><th>啟用</th><th></th></tr></thead>
+            <caption className="sr-only">方案清單</caption>
+            <thead><tr><th scope="col">名稱</th><th scope="col">provider</th><th scope="col" className="right">月費</th><th scope="col">身分組 ID</th><th scope="col">啟用</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6}><Empty>載入中…</Empty></td></tr>}
               {shown.map((p) => (
@@ -306,7 +309,8 @@ export function ChannelTags() {
       <Card title="支付渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道</button>}>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
-            <thead><tr><th>名稱</th><th>類型</th><th className="right">排序</th><th>狀態</th><th></th></tr></thead>
+            <caption className="sr-only">支付渠道清單</caption>
+            <thead><tr><th scope="col">名稱</th><th scope="col">類型</th><th scope="col" className="right">排序</th><th scope="col">狀態</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={5}><Empty>載入中…</Empty></td></tr>}
               {data?.channel_tags.map((t) => (

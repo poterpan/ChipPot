@@ -133,7 +133,8 @@ export function Payments() {
         <div className="tbl tbl--pin-first tbl--pin-last">
           {/* tbl-cards: below 1000px these rows stack into cards, each cell labelled by its data-label */}
           <table className="tbl-cards">
-            <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>申報渠道</th>{showProof && <th>憑證</th>}<th></th></tr></thead>
+            <caption className="sr-only">繳費紀錄</caption>
+            <thead><tr><th scope="col">成員</th><th scope="col">方案</th><th scope="col">期別</th><th scope="col" className="right">金額</th><th scope="col">狀態</th><th scope="col">申報渠道</th>{showProof && <th scope="col">憑證</th>}<th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {list.loading && <tr><td colSpan={colCount}><Empty>載入中…</Empty></td></tr>}
               {list.data?.payments.length === 0 && <tr><td colSpan={colCount}><Empty>沒有符合的紀錄</Empty></td></tr>}

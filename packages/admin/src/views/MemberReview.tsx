@@ -124,7 +124,7 @@ export function MemberReview({ userId, period, tags, onBack }: {
                 </div>
                 {rejecting === p.id && (
                   <div className="mrow__reject">
-                    <input placeholder="退回原因（選填）" value={reason} disabled={busy}
+                    <input aria-label="退回原因" placeholder="退回原因（選填）" value={reason} disabled={busy}
                       onChange={(e) => setReason(e.target.value)} />
                     <button className="btn btn--danger" disabled={busy}
                       onClick={() => run(async () => { await api.reject(p.id, reason); setRejecting(null); setReason(""); return null; })}>確認退回</button>

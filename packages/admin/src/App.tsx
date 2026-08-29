@@ -81,7 +81,7 @@ export default function App() {
         <div className="sidebar__foot">社團 AI 訂閱 · 管理後台</div>
       </aside>
       <main className="main">
-        <div className="topbar"><h1>{current.label}</h1></div>
+        <header className="topbar"><h1>{current.label}</h1></header>
         <div className="content" key={current.id}>{current.el}</div>
       </main>
     </div>

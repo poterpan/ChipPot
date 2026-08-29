@@ -210,10 +210,12 @@ export function Settings() {
       <Card title="繳費通知" desc="有人送出繳費時通知你，並附一鍵直達的審核連結（選填）">
         <div className="card__body">
           <div className="field">
-            <span className="field__label">Bark（手機推播）</span>
+            {/* htmlFor rather than the Field component: the row contains a 送出測試 button, and a
+                button nested inside a <label> would be activated by clicks meant for the label. */}
+            <label className="field__label" htmlFor="set-bark-key">Bark（手機推播）</label>
             <span className="field__hint">貼上 Bark App 的裝置金鑰即可，不必自己組網址。</span>
             <div className="notify-row">
-              <input value={form.bark_key} onChange={(e) => set("bark_key")(e.target.value)} disabled={busy} placeholder="例如 3hGxx6xNqpHE7h5keQZNni" />
+              <input id="set-bark-key" value={form.bark_key} onChange={(e) => set("bark_key")(e.target.value)} disabled={busy} placeholder="例如 3hGxx6xNqpHE7h5keQZNni" />
               <TestButton kind="bark" form={form} />
             </div>
           </div>
@@ -222,10 +224,10 @@ export function Settings() {
             <Field label="Bark 伺服器網址"><input value={form.bark_server} onChange={(e) => set("bark_server")(e.target.value)} disabled={busy} placeholder="https://api.day.app" /></Field>
           </details>
           <div className="field">
-            <span className="field__label">Webhook</span>
+            <label className="field__label" htmlFor="set-webhook-url">Webhook</label>
             <span className="field__hint">貼上 Discord／Google Chat／Slack 的 Webhook 網址，格式自動判斷。</span>
             <div className="notify-row">
-              <input value={form.webhook_url} onChange={(e) => set("webhook_url")(e.target.value)} disabled={busy} placeholder="https://discord.com/api/webhooks/..." />
+              <input id="set-webhook-url" value={form.webhook_url} onChange={(e) => set("webhook_url")(e.target.value)} disabled={busy} placeholder="https://discord.com/api/webhooks/..." />
               <TestButton kind="webhook" form={form} />
             </div>
           </div>
@@ -236,8 +238,9 @@ export function Settings() {
           <details className="custom" open={!!form.notify_template}>
             <summary>自訂通知文字</summary>
             <div className="field">
+              <label className="field__label" htmlFor="set-notify-tpl">自訂通知文字</label>
               <span className="field__hint">可用 <code className="ph">{"{payer}"}</code> <code className="ph">{"{amount}"}</code> <code className="ph">{"{period}"}</code> <code className="ph">{"{admin_url}"}</code>。留空＝用預設。</span>
-              <textarea value={form.notify_template} onChange={(e) => set("notify_template")(e.target.value)} disabled={busy} rows={3} placeholder={DEFAULT_NOTIFY} style={{ width: "100%", fontFamily: "inherit" }} />
+              <textarea id="set-notify-tpl" value={form.notify_template} onChange={(e) => set("notify_template")(e.target.value)} disabled={busy} rows={3} placeholder={DEFAULT_NOTIFY} style={{ width: "100%", fontFamily: "inherit" }} />
               {unknownKeys(form.notify_template, NOTIFY_KEYS).length > 0 && (
                 <div className="error-banner" style={{ marginTop: 6 }}>未知的佔位符：{unknownKeys(form.notify_template, NOTIFY_KEYS).map((k) => `{${k}}`).join(", ")}</div>
               )}

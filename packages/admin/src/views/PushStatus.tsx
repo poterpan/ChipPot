@@ -42,7 +42,8 @@ export function PushStatus({ period }: { period: string }) {
       )}
       <div className="tbl tbl--pin-last">
         <table className="tbl-cards">
-          <thead><tr><th>通知</th><th>狀態</th><th></th></tr></thead>
+          <caption className="sr-only">本期推播通知狀態</caption>
+          <thead><tr><th scope="col">通知</th><th scope="col">狀態</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             <tr>
               <td data-label="通知">開繳通知</td>
