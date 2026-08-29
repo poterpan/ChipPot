@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { nowUtcIso } from "./time";
 import { ensurePeriodPayment } from "./billing";
 import { notifyPaymentSubmitted } from "./payment-notify";
+import { releaseReceiptSlots } from "./notify";
 
 // ── R2 key + image validation ────────────────────────────────────────────────
 
@@ -235,6 +236,9 @@ export async function settleUserPeriod(env: Env, input: SettleInput): Promise<Se
   // even though the push went out), so callers pass ctx.waitUntil to run it in the background.
   // Without waitUntil (e.g. the web upload route, no hard limit) we await it inline.
   if (paidCount > 0) {
+    // The ball is back with the admin: any 退回/確認 slot from the previous round is stale, so the
+    // next review of these bills is a new fact and must be announced again (core/receipt.ts).
+    await releaseReceiptSlots(env.DB, workspaceId, period, userId);
     const u = await env.DB.prepare("SELECT display_name FROM users WHERE id = ?")
       .bind(userId).first<{ display_name: string }>();
     const notifying = notifyPaymentSubmitted(env, {
