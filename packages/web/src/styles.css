@@ -159,7 +159,7 @@ body::before {
 
 .note {
   width: 100%; min-height: 64px; resize: vertical;
-  font-family: inherit; font-size: 15px; color: var(--ink);
+  font-family: inherit; font-size: 16px; color: var(--ink); /* <16px triggers iOS Safari auto-zoom */
   padding: 12px 14px; border: 1.5px solid var(--line-strong); border-radius: 12px;
   background: #fffdf8;
 }
