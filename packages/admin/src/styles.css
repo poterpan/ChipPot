@@ -181,6 +181,10 @@ tbody tr.click:hover { background: #faf7f0; }
    on the surrounding surface rather than on the control, so one colour works for all of them. */
 :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 .field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible { outline-offset: 1px; }
+/* 13×13 glyphs inside a label that measured exactly 24px — at the threshold with no margin.
+   Type-qualified so it outranks `.field input`'s width: 100%. accent-color keeps the checked
+   state on-brand now that the box is big enough to see it. */
+input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--teal); }
 .sidebar :focus-visible { outline-color: var(--sidebar-ink); } /* 10.59:1 on the dark strip */
 /* a focused row must not push the table sideways, so the ring goes inside the cell box */
 tbody tr.click:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }
@@ -324,10 +328,15 @@ html.modal-open .main { overflow: hidden; }
 .preview-label { font-size: 12px; color: var(--muted-strong); margin: 4px 0 5px; font-weight: 600; }
 .preview { border: 1px dashed var(--line); background: #faf7f0; border-radius: 9px; padding: 11px 13px; white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
 details.custom, details.adv { margin: 4px 0 14px; }
-details.custom > summary, details.adv > summary { cursor: pointer; font-size: 13px; color: var(--teal-ink); list-style: none; user-select: none; }
+details.custom > summary, details.adv > summary {
+  cursor: pointer; font-size: 13px; color: var(--teal-ink); list-style: none; user-select: none;
+  /* was a 19px strip. The flex box also makes ::before a flex item, whose trailing spaces would be
+     trimmed away — hence `gap` carries the space between the arrow and the label now. */
+  display: flex; align-items: center; gap: 6px; min-height: 32px;
+}
 details.custom > summary::-webkit-details-marker, details.adv > summary::-webkit-details-marker { display: none; }
-details.custom > summary::before, details.adv > summary::before { content: "\25B8  "; }
-details.custom[open] > summary::before, details.adv[open] > summary::before { content: "\25BE  "; }
+details.custom > summary::before, details.adv > summary::before { content: "\25B8"; }
+details.custom[open] > summary::before, details.adv[open] > summary::before { content: "\25BE"; }
 details.custom > .field, details.adv > .field { margin-top: 10px; }
 
 /* one-off action rows */
@@ -372,6 +381,9 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
 .mrow__top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .mrow__plan { font-weight: 600; }
 .mrow__facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; color: var(--muted); }
+/* 完整資訊 measured 52×19 — the only sub-24px control in an otherwise well-sized view. Same fix
+   the payments cards already give their .linkbtn (the ≤1000px block below), never applied here. */
+.mrow__facts .linkbtn { display: inline-flex; align-items: center; min-height: 32px; }
 .mrow__acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .mrow__acts .btn { flex: 1 1 auto; min-height: 40px; }
 .mrow__reject { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
@@ -431,7 +443,13 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
   .kv { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .kv dt { margin-top: 9px; font-size: 12px; }
   .kv dt:first-of-type { margin-top: 0; }
+  /* the payments cards got width: 100%; the sheets never did, so UserModal's 儲存 was 58×42
+     tucked at the left edge of a 375px sheet. Direct children go full width; a .btn-row shares
+     the width between its buttons instead of stacking them. */
   .modal__body .btn { min-height: 42px; }
+  .modal__body > .btn { width: 100%; }
+  .modal__body .btn-row { gap: 8px; }
+  .modal__body .btn-row .btn { flex: 1 1 auto; }
 }
 
 /* ── long-list filters (B12) ─────────────────────────────────────────────────
