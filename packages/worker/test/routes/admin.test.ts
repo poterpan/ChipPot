@@ -612,6 +612,30 @@ describe("admin billing/initiate + declared channel", () => {
   });
 });
 
+describe("POST /admin/notifications/nudge", () => {
+  it("400s a bad period", async () => {
+    const res = await call("POST", "/admin/notifications/nudge", { period: "2029-13", user_ids: [1] });
+    expect(res!.status).toBe(400);
+  });
+
+  it("400s an empty user list", async () => {
+    const res = await call("POST", "/admin/notifications/nudge", { period: "2029-01", user_ids: [] });
+    expect(res!.status).toBe(400);
+  });
+
+  it("400s a bad kind", async () => {
+    const res = await call("POST", "/admin/notifications/nudge", { period: "2029-01", user_ids: [1], kind: "shout" });
+    expect(res!.status).toBe(400);
+  });
+
+  it("reports opened:false for a period nobody opened, and sends nothing", async () => {
+    const res = await call("POST", "/admin/notifications/nudge", { period: "2029-01", user_ids: [1] });
+    const body = (await res!.json()) as any;
+    expect(res!.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, opened: false, notified: 0 });
+  });
+});
+
 describe("POST /admin/discord/bind-message", () => {
   it("400 without a billing channel configured", async () => {
     await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_billing_channel_id', '') WHERE id = 1").run();

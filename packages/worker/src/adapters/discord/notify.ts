@@ -45,7 +45,7 @@ export const discordNotifier: Notifier = {
     })).ok;
   },
 
-  async sendPaymentNudge(env: Env, channelId, workspaceId: number, period, people: OverduePerson[]) {
+  async sendPaymentNudge(env: Env, channelId, workspaceId: number, period, people: OverduePerson[], kind) {
     const list = people
       .map((p) => {
         const mention = p.discord_id ? `<@${p.discord_id}>` : `**${p.user_name}**`;
@@ -53,7 +53,8 @@ export const discordNotifier: Notifier = {
         return `・${mention} ${plans}（合計 NT$${p.total.toLocaleString()}）`;
       })
       .join("\n");
-    const content = `📋 已將你加入 ${period} 繳費名單：\n${list}\n請點下方按鈕繳費。`;
+    const head = kind === "remind" ? `🔔 ${period} 繳費提醒：` : `📋 已將你加入 ${period} 繳費名單：`;
+    const content = `${head}\n${list}\n請點下方按鈕繳費。`;
     // Pin mentions to exactly the added members' ids — template/display-name text can't ping.
     const users = [...new Set(people.map((p) => p.discord_id).filter((d): d is string => !!d))];
     return (await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
