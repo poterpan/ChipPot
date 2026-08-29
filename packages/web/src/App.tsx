@@ -50,7 +50,7 @@ export default function App() {
   async function submit() {
     if (!token) return;
     if (!canSubmit) {
-      setError("請至少附上截圖、填寫備註，或選擇渠道");
+      setError("請至少附上截圖、填寫備註，或選擇渠道。");
       return;
     }
     setError(null);

@@ -77,6 +77,29 @@ describe("upload info", () => {
 });
 
 describe("upload submit", () => {
+  // P0-6: a member must never see a raw technical string. The copy lives in the worker so every
+  // client (this page today, a Discord deep link tomorrow) gets the same sentence.
+  it("answers a non-image with a zh-TW message, not a technical string", async () => {
+    const txt = new File(["hi"], "n.txt", { type: "text/plain" });
+    const res = await handleUpload(uploadReq(RAW_OK, { screenshot: txt }), env, ctxFor(RAW_OK));
+    const body = (await res.json()) as any;
+    expect(res.status).toBe(400);
+    expect(body.code).toBe("image");
+    expect(body.error).toBe("只接受 PNG／JPG／WebP 圖片，請換一張截圖。");
+  });
+
+  it("answers an expired link in zh-TW", async () => {
+    const res = await handleUpload(uploadReq("deadbeef", {}), env, ctxFor("deadbeef"));
+    const body = (await res.json()) as any;
+    expect(res.status).toBe(410);
+    expect(body.error).toBe("這個連結已失效或已經使用過，請向管理員索取新的連結。");
+  });
+
+  it("answers an empty submission in zh-TW", async () => {
+    const res = await handleUpload(uploadReq(RAW_OK, {}), env, ctxFor(RAW_OK));
+    expect(((await res.json()) as any).error).toBe("請至少附上截圖、填寫備註，或選擇渠道。");
+  });
+
   it("rejects an empty submission (no screenshot, note, or channel)", async () => {
     const res = await handleUpload(uploadReq(RAW_OK, {}), env, ctxFor(RAW_OK));
     expect(res.status).toBe(400);

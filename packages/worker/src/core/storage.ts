@@ -20,8 +20,11 @@ export function buildScreenshotKey(
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
+export type InvalidImageReason = "type" | "size";
+/** `message` stays technical (logs); `reason` is what callers map to member-facing copy — Discord
+ *  and the web page word it differently, so neither can hardcode the other's sentence. */
 export class InvalidImage extends Error {
-  constructor(message: string) {
+  constructor(message: string, public readonly reason: InvalidImageReason = "type") {
     super(message);
     this.name = "InvalidImage";
   }
@@ -32,7 +35,7 @@ export function extForContentType(contentType: string): string {
     case "image/png": return "png";
     case "image/jpeg": return "jpg";
     case "image/webp": return "webp";
-    default: throw new InvalidImage(`unsupported content type: ${contentType}`);
+    default: throw new InvalidImage(`unsupported content type: ${contentType}`, "type");
   }
 }
 
@@ -43,11 +46,11 @@ export function assertImageOk(
   opts?: { maxBytes?: number }
 ): void {
   if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
-    throw new InvalidImage(`unsupported content type: ${contentType}`);
+    throw new InvalidImage(`unsupported content type: ${contentType}`, "type");
   }
   const max = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
   if (!(sizeBytes > 0) || sizeBytes > max) {
-    throw new InvalidImage(`size out of range: ${sizeBytes}`);
+    throw new InvalidImage(`size out of range: ${sizeBytes}`, "size");
   }
 }
 

@@ -10,11 +10,20 @@ import {
   InvalidImage, TokenUnusable, NoEligiblePayment,
 } from "../core/storage";
 
+// Member-facing copy lives here, not in the SPA: this route is the only thing that knows WHY it
+// said no, and any client (the upload page today, a Discord deep link tomorrow) needs the same
+// sentence. The `code` field stays for programmatic handling.
+const IMAGE_ERROR: Record<string, string> = {
+  type: "只接受 PNG／JPG／WebP 圖片，請換一張截圖。",
+  size: "截圖檔案太大（上限 10 MB），請壓縮後再試。",
+};
+const imageError = (e: InvalidImage) => IMAGE_ERROR[e.reason] ?? IMAGE_ERROR.type!;
+
 /** GET /upload/:token — info for the web page (user, period, subs, channel tags). */
 export async function handleUploadInfo(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const hash = await hashToken(ctx.params.token!);
   const tok = await findValidUploadToken(env.DB, hash, nowUtcIso());
-  if (!tok) return errorResponse(404, "invalid or expired link", { valid: false });
+  if (!tok) return errorResponse(404, "連結無效或已過期。", { valid: false });
 
   const user = await env.DB.prepare("SELECT display_name FROM users WHERE id = ?").bind(tok.user_id).first<{ display_name: string }>();
   const subscriptions = await listActiveSubscriptions(env.DB, tok.workspace_id, tok.user_id);
@@ -34,11 +43,11 @@ export async function handleUploadInfo(_req: Request, env: Env, ctx: RouteCtx): 
 export async function handleUpload(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const hash = await hashToken(ctx.params.token!);
   const tok = await findValidUploadToken(env.DB, hash, nowUtcIso());
-  if (!tok) return errorResponse(410, "link is no longer valid", { code: "token" });
+  if (!tok) return errorResponse(410, "這個連結已失效或已經使用過，請向管理員索取新的連結。", { code: "token" });
 
   let form: FormData;
   try { form = await req.formData(); }
-  catch { return errorResponse(400, "expected a multipart form"); }
+  catch { return errorResponse(400, "表單格式不正確，請重新整理頁面再送出。"); }
 
   const entry = form.get("screenshot");
   const hasFile = entry !== null && typeof entry !== "string";
@@ -50,12 +59,12 @@ export async function handleUpload(req: Request, env: Env, ctx: RouteCtx): Promi
   if (typeof chanRaw === "string" && chanRaw.trim()) {
     const id = Number(chanRaw);
     const ok = await env.DB.prepare("SELECT 1 AS ok FROM channel_tags WHERE id = ? AND workspace_id = ? AND active = 1").bind(id, tok.workspace_id).first<{ ok: number }>();
-    if (!ok) return errorResponse(400, "invalid channel");
+    if (!ok) return errorResponse(400, "選擇的繳費渠道無效，請重新選擇。");
     declaredChannelTagId = id;
   }
 
   if (!hasFile && !note && declaredChannelTagId === null) {
-    return errorResponse(400, "請至少附上截圖、填寫備註，或選擇渠道");
+    return errorResponse(400, "請至少附上截圖、填寫備註，或選擇渠道。");
   }
 
   let proof: { body: ArrayBuffer; ext: string; contentType: string } | null = null;
@@ -63,7 +72,7 @@ export async function handleUpload(req: Request, env: Env, ctx: RouteCtx): Promi
     const file = entry as unknown as Blob;
     const buf = await file.arrayBuffer();
     try { assertImageOk(file.type, buf.byteLength); }
-    catch (e) { if (e instanceof InvalidImage) return errorResponse(400, e.message, { code: "image" }); throw e; }
+    catch (e) { if (e instanceof InvalidImage) return errorResponse(400, imageError(e), { code: "image" }); throw e; }
     proof = { body: buf, ext: extForContentType(file.type), contentType: file.type };
   }
 
@@ -82,9 +91,9 @@ export async function handleUpload(req: Request, env: Env, ctx: RouteCtx): Promi
     });
     return json({ ok: true, paid_count: r.paidCount, total_amount: r.totalAmount, has_proof: r.screenshotKey ? 1 : 0 });
   } catch (e) {
-    if (e instanceof TokenUnusable) return errorResponse(410, "link already used", { code: "token" });
-    if (e instanceof NoEligiblePayment) return errorResponse(409, "this period is already paid or finalized", { code: "payment" });
-    if (e instanceof InvalidImage) return errorResponse(400, e.message, { code: "image" });
+    if (e instanceof TokenUnusable) return errorResponse(410, "這個連結已經使用過了，請向管理員索取新的連結。", { code: "token" });
+    if (e instanceof NoEligiblePayment) return errorResponse(409, "這一期已經登記過繳費了，不需要重複送出。", { code: "payment" });
+    if (e instanceof InvalidImage) return errorResponse(400, imageError(e), { code: "image" });
     throw e;
   }
 }
