@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-353%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-355%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -64,7 +64,7 @@ ChipPot 解決的是一個很具體的痛點：社團大量採購 OpenAI / Anthr
   截圖保存期清理，全部經 `notification_logs` 去重。
 - 🛡️ **Access 保護的後台** — 整個後台主機在 Cloudflare Access 後（email OTP）；SPA 與其 API 同源，
   Access JWT 因此能到達 Worker。
-- 🧪 **真環境測試** — 353 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
+- 🧪 **真環境測試** — 355 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
 
 ## 一筆繳費怎麼跑
 
@@ -132,7 +132,7 @@ packages/
     src/core/             與管道無關的核心邏輯
     src/adapters/discord/ Ed25519 驗章 · 指令 · handler · 通知
     src/routes/           interactions · upload · admin · images
-    migrations/           D1 schema（0001…0005）
+    migrations/           D1 schema（0001…0006）
     scripts/              register-commands.mjs
     test/                 Vitest（真 Miniflare D1/R2）
   web/                    公開的 token-gated 上傳頁（Vite/React）

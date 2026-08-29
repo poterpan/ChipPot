@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { runDailyTasks, sendOverdueForPeriod } from "../../src/core/scheduled";
-import type { Notifier, OverduePerson } from "../../src/core/notify";
+import { claimNotification, type Notifier, type OverduePerson } from "../../src/core/notify";
 
 /**
  * #48 每日催繳: the overdue reminder must fire once per DAY (not once per period) until
@@ -69,6 +69,33 @@ describe("#48 每日催繳", () => {
     await env.DB.prepare("UPDATE payments SET status = 'paid' WHERE workspace_id = ? AND period = ?").bind(9892, "2028-07").run();
     const r = await sendOverdueForPeriod(env, 9892, "2028-07", notifier, { force: false, now: new Date("2028-07-13T00:00:00Z") });
     expect(r).toMatchObject({ outcome: "none_due", notified: 0 });
+  });
+
+  it("手動催繳不會抹掉當天 cron 已送的 slot：同日 cron 重試仍回 already_sent", async () => {
+    const day = new Date("2028-05-15T00:00:00Z");
+    // cron 先送一次（event = 2028-05-15）
+    await sendOverdueForPeriod(env, 9890, "2028-05", notifier, { force: false, now: day });
+
+    // admin 手動催繳：只清 '' slot，不動每日 slot
+    await sendOverdueForPeriod(env, 9890, "2028-05", notifier, { force: true, now: day });
+
+    // 同日 cron 重試不得再送
+    const r = await sendOverdueForPeriod(env, 9890, "2028-05", notifier, { force: false, now: day });
+    expect(r).toMatchObject({ outcome: "already_sent", notified: 0 });
+  });
+
+  it("送失敗只釋放自己贏得的 slot，不刪掉他人同日的 slot", async () => {
+    // 用會失敗的 notifier 走一次 force（'' slot）：送失敗必須釋放名額，讓下一次能再送。
+    const failing: Notifier = {
+      async sendBillingOpened() { return true; },
+      async sendOverdue() { return false; },
+      async sendPaymentNudge() { return true; },
+    };
+    const r = await sendOverdueForPeriod(env, 9891, "2028-06", failing, { force: true, now: new Date("2028-06-12T00:00:00Z") });
+    expect(r).toMatchObject({ outcome: "send_failed", notified: 0 });
+
+    // '' slot 真的還回去了：再 claim 一次要成功。
+    expect(await claimNotification(env.DB, { workspaceId: 9891, type: "overdue", period: "2028-06", event: "" })).toBe(true);
   });
 
   it("每日 cron 對同一期別連續兩天都計入 overdueSent", async () => {

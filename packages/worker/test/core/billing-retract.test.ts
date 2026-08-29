@@ -45,6 +45,9 @@ beforeAll(async () => {
     // an overdue reminder already fired for the mis-opened period; its dedup slot must be released
     // on retract, or a later re-open could never remind anyone again
     env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS,"overdue",P,0,0,0,TS),
+    // #48: the cron also leaves per-day slots (event = business date); retract must clear those too,
+    // not just the '' slot — a re-open must restart reminders from clean.
+    env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,event,sent_at) VALUES (?,?,?,?,?,?,?,?)`).bind(WS,"overdue",P,0,0,0,"2027-11-05",TS),
     // scoping pins: another period of the same workspace, and the same period of another workspace
     env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS,"overdue",P_NEXT,0,0,0,TS),
     env.DB.prepare(`INSERT INTO notification_logs (workspace_id,type,period,plan_id,user_id,subscription_id,sent_at) VALUES (?,?,?,?,?,?,?)`).bind(WS_OTHER,"overdue",P,0,0,0,TS),
@@ -80,7 +83,7 @@ describe("retractPeriodBilling", () => {
     const tokens = (await env.DB.prepare("SELECT COUNT(*) c FROM upload_tokens WHERE workspace_id=? AND period=?").bind(WS, P).first<{ c: number }>())!.c;
     expect(tokens).toBe(3);
     expect(await env.BUCKET.get("proof-9700-orphan")).not.toBeNull();
-    expect(await countOverdueLogs(WS, P)).toBe(1);
+    expect(await countOverdueLogs(WS, P)).toBe(2); // '' slot + one dated (per-day) slot, both untouched on dry run
   });
 
   it("apply deletes pending/rejected + the orphaned proof, keeps paid/verified whole, clears the marker", async () => {
@@ -118,11 +121,11 @@ describe("retractPeriodBilling", () => {
     expect(await countOpenedLogs(P_NEXT)).toBe(1);
   });
 
-  // The overdue slot is claimed once per (workspace, period) and never expires. If a mis-opened
-  // period had already sent a reminder, leaving that row behind would silently mute overdue
-  // reminders forever after a re-open — sendOverdueForPeriod just reports already_sent, no error.
-  it("releases the overdue dedup slot, scoped to this workspace+period", async () => {
-    expect(await countOverdueLogs(WS, P)).toBe(0);
+  // The overdue slot is claimed once per (workspace, period, day) after #48. If a mis-opened period
+  // had already sent a reminder (one or more days), leaving those rows behind would silently mute
+  // overdue reminders forever after a re-open — sendOverdueForPeriod just reports already_sent, no error.
+  it("releases the overdue dedup slots (all days), scoped to this workspace+period", async () => {
+    expect(await countOverdueLogs(WS, P)).toBe(0);        // both the '' slot and the dated slot are gone
     expect(await countOverdueLogs(WS, P_NEXT)).toBe(1);   // another period of the same workspace
     expect(await countOverdueLogs(WS_OTHER, P)).toBe(1);  // the same period of another workspace
 

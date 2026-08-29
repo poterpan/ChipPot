@@ -48,6 +48,22 @@ export interface NotificationKey {
  * Uses NOT NULL DEFAULT 0 / '' sentinels so the UNIQUE actually dedupes (roadmap §4.1).
  */
 export async function claimNotification(db: D1Database, k: NotificationKey): Promise<boolean> {
+  return (await claimNotificationSlot(db, k)).won;
+}
+
+export interface NotificationSlot {
+  /** True if this caller won the slot (should send); false if already claimed. */
+  won: boolean;
+  /** The claimed row's id (D1 last_row_id); null when `won` is false. */
+  id: number | null;
+}
+
+/**
+ * Claim with ownership: on a win the caller owns `id`, and a later release must go through
+ * releaseSlot(id) — never a keyed DELETE — so a concurrent claim that replaced the row cannot have
+ * its slot deleted by someone else's failed send (see sendOverdueForPeriod, #48 / Codex finding 2).
+ */
+export async function claimNotificationSlot(db: D1Database, k: NotificationKey): Promise<NotificationSlot> {
   const res = await db
     .prepare(
       `INSERT INTO notification_logs
@@ -57,7 +73,15 @@ export async function claimNotification(db: D1Database, k: NotificationKey): Pro
     )
     .bind(k.workspaceId, k.type, k.period, k.planId ?? 0, k.userId ?? 0, k.subscriptionId ?? 0, k.event ?? "", nowUtcIso())
     .run();
-  return (res.meta.changes ?? 0) > 0;
+  const won = (res.meta.changes ?? 0) > 0;
+  return { won, id: won ? Number(res.meta.last_row_id) : null };
+}
+
+/** Release a slot by the row id the claim returned. Deleting by id (not by key) is what makes the
+ * release ownership-safe: a stale id simply deletes nothing instead of a concurrent claim's row. */
+export async function releaseSlot(db: D1Database, id: number): Promise<number> {
+  const res = await db.prepare("DELETE FROM notification_logs WHERE id = ?").bind(id).run();
+  return res.meta.changes ?? 0;
 }
 
 /**
