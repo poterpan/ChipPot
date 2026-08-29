@@ -270,3 +270,27 @@ export async function bindDiscordId(
   if (target.discord_id !== null) return { status: "name_taken" };
   return { status: "not_found" };
 }
+
+/**
+ * Release the caller's OWN binding. The WHERE clause is keyed on the Discord id we resolved from
+ * the interaction, so a member can only ever free the row they are standing on — after which they
+ * are exactly where they were before binding (no new capability; claiming an unbound name was
+ * always possible). Returns the released name for the confirmation message.
+ */
+export async function unbindDiscordId(
+  env: Env,
+  workspaceId: number,
+  discordId: string
+): Promise<{ status: "ok" | "not_bound"; name?: string; userId?: number }> {
+  const row = await env.DB
+    .prepare("SELECT id, display_name FROM users WHERE workspace_id = ? AND discord_id = ?")
+    .bind(workspaceId, discordId)
+    .first<{ id: number; display_name: string }>();
+  if (!row) return { status: "not_bound" };
+  const res = await env.DB
+    .prepare("UPDATE users SET discord_id = NULL, updated_at = ? WHERE id = ? AND workspace_id = ? AND discord_id = ?")
+    .bind(nowUtcIso(), row.id, workspaceId, discordId)
+    .run();
+  if ((res.meta.changes ?? 0) !== 1) return { status: "not_bound" }; // lost a race — nothing released
+  return { status: "ok", name: row.display_name, userId: row.id };
+}
