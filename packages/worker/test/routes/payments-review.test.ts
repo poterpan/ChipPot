@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { buildAdminRouter } from "../../src/routes/admin";
 
 const TS = "2026-05-01T00:00:00.000Z";
@@ -251,5 +251,66 @@ describe("POST /admin/payments/verify-all mid-batch hard error", () => {
     expect(b.payment_ids.sort()).toEqual([P_C2, P_C3]);
     expect(await auditCount("payment.verify", P_C1)).toBe(1); // already verified → not swept again
     expect(await auditCount("payment.verify", P_C2)).toBe(1);
+  });
+});
+
+/**
+ * P0-5: a 退回 has to reach the member. The route must announce it (core/receipt.ts) and report
+ * honestly in `notified` — and a Discord failure must never turn a committed rejection into a 500.
+ */
+describe("POST /admin/payments/:id/reject 會發回條", () => {
+  const U_R = 9404, SUB_R = 9416, P_R = 9440;
+  const PERIOD_R = "2028-07";
+
+  beforeAll(async () => {
+    (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
+    // wsId() is always workspace 1, so point ITS settings at a channel for these cases.
+    await env.DB.prepare("UPDATE workspaces SET settings = ? WHERE id = 1")
+      .bind(JSON.stringify({ discord_billing_channel_id: "chan-9404" })).run();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,discord_id,display_name,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(U_R, WS, "d-9404", "回條成員", TS, TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(SUB_R, WS, U_R, 1, `${PERIOD_R}-01`, 5, "active", TS, TS),
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(P_R, WS, SUB_R, PERIOD_R, `${PERIOD_R}-01`, `${PERIOD_R}-31`, `${PERIOD_R}-05`, 315, "paid", "user_slash", TS, TS),
+    ]);
+  });
+
+  it("退回時把回條記進 notification_logs，並回報 notified", async () => {
+    // The real discordNotifier is used here on purpose (this is the route wiring under test), so
+    // stub the transport: a 2xx is what "the channel confirmed it" means.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "m-9404" }), { status: 200 })));
+    const res = await call("POST", `/admin/payments/${P_R}/reject`, { rejected_reason: "金額不符" });
+    vi.unstubAllGlobals();
+    expect(res!.status).toBe(200);
+    const b = (await res!.json()) as any;
+    expect(b.ok).toBe(true);
+    expect(b.payment.status).toBe("rejected");
+    expect(b.notified).toBe(1); // the receipt really went out
+
+    const slot = await env.DB.prepare(
+      "SELECT event FROM notification_logs WHERE workspace_id = 1 AND type = 'receipt' AND period = ? AND user_id = ?"
+    ).bind(PERIOD_R, U_R).first<{ event: string }>();
+    expect(slot?.event).toBe("reject");
+  });
+
+  it("Discord 送不出去時，退回照樣成立（不 500），notified 回報 0", async () => {
+    const P_R2 = 9441, SUB_R2 = 9417;
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(SUB_R2, WS, U_R, 1, `${PERIOD_R}-01`, 5, "active", TS, TS),
+      env.DB.prepare(`INSERT INTO payments (id,workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(P_R2, WS, SUB_R2, PERIOD_R, `${PERIOD_R}-01`, `${PERIOD_R}-31`, `${PERIOD_R}-05`, 251, "paid", "user_slash", TS, TS),
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("bad gateway", { status: 502 })));
+    const res = await call("POST", `/admin/payments/${P_R2}/reject`, { rejected_reason: "看不清楚" });
+    vi.unstubAllGlobals();
+
+    expect(res!.status).toBe(200); // the rejection is committed; Discord is best-effort
+    const b = (await res!.json()) as any;
+    expect(b.payment.status).toBe("rejected");
+    expect(b.notified).toBe(0); // honest: nobody was told
+
+    // the slot was handed back, so a later retry can still announce it
+    const left = await env.DB.prepare(
+      "SELECT COUNT(*) c FROM notification_logs WHERE workspace_id = 1 AND type = 'receipt' AND period = ? AND subscription_id = ?"
+    ).bind(PERIOD_R, SUB_R2).first<{ c: number }>();
+    expect(left!.c).toBe(0);
   });
 });

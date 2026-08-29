@@ -612,8 +612,12 @@ export async function retractPeriodBilling(
     // sendOverdueForPeriod reports already_sent with no error anywhere. Delete every overdue row
     // (all days) so reminders restart from clean. Kept as its own statement so it cannot inflate
     // the marker's changes count.
-    // ('receipt' is declared in the type union but never claimed, so there is no slot to release.)
     env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'overdue' AND period = ?")
+      .bind(workspaceId, period),
+    // Same reasoning for the member-facing slots: a retracted period's 回條 (receipt) and 個別催繳
+    // (nudge) claims refer to bills that no longer exist. Appended last so the indices read back
+    // below stay put.
+    env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type IN ('receipt','nudge') AND period = ?")
       .bind(workspaceId, period),
   ]);
   await sweepOrphanProofs(env, removed);

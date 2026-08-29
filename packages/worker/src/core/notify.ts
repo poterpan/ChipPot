@@ -15,6 +15,21 @@ export interface OverduePerson {
   total: number;
 }
 
+export type ReceiptKind = "reject" | "verify";
+export interface ReceiptLine {
+  plan_name: string;
+  amount: number;
+}
+/** One member's one period — a receipt always answers "你這期那幾筆怎麼了". */
+export interface ReceiptTarget {
+  user_id: number;
+  discord_id: string | null;
+  user_name: string;
+  period: string;
+  lines: ReceiptLine[];
+  total: number;
+}
+
 /**
  * Channel-agnostic notification sink (Discord impl in adapters/discord/notify.ts).
  *
@@ -29,16 +44,30 @@ export interface Notifier {
   sendOverdue(env: Env, channelId: string, period: string, people: OverduePerson[], template: string): Promise<boolean>;
   /** Targeted nudge for members newly added to a period (e.g. after reconcile): @-mention them + pay button. */
   sendPaymentNudge(env: Env, channelId: string, workspaceId: number, period: string, people: OverduePerson[]): Promise<boolean>;
+  /**
+   * 審核結果回條: tell the member their submission was 退回 (with the reason) or 確認. Delivered in
+   * the billing channel with an @-mention — the Discord adapter has no DM capability, and every
+   * other member-facing message in this system already lands there.
+   */
+  sendPaymentReceipt(
+    env: Env, channelId: string, workspaceId: number, kind: ReceiptKind,
+    target: ReceiptTarget, reason: string | null
+  ): Promise<boolean>;
 }
 
 export interface NotificationKey {
   workspaceId: number;
-  type: "billing_opened" | "overdue" | "receipt";
+  type: "billing_opened" | "overdue" | "receipt" | "nudge";
   period: string;
   planId?: number;
   userId?: number;
   subscriptionId?: number;
-  /** Distinguishes two messages that share one entity. '' = the whole-entity slot. */
+  /**
+   * Distinguishes two messages that share one entity. A bill's 退回 and 確認 are different
+   * events on the same (period, user, subscription), so they must not share a slot; the daily
+   * overdue reminder (#48) uses the Taipei business date as its event.
+   * Omitted = '' = the entity-wide slot used by billing_opened / nudge.
+   */
   event?: string;
 }
 
@@ -81,6 +110,45 @@ export async function claimNotificationSlot(db: D1Database, k: NotificationKey):
  * release ownership-safe: a stale id simply deletes nothing instead of a concurrent claim's row. */
 export async function releaseSlot(db: D1Database, id: number): Promise<number> {
   const res = await db.prepare("DELETE FROM notification_logs WHERE id = ?").bind(id).run();
+  return res.meta.changes ?? 0;
+}
+
+/**
+ * A slot that may be released. billing_opened is excluded at the type level: that row is not a send
+ * log, it IS the definition of "this period is open" (isBillingOpened, core/db.ts
+ * listOpenPayablePeriods), so deleting it alone leaves pending bills standing in a period members
+ * can no longer pay — a half retract. routes/admin.ts:250 409s the same request for the same
+ * reason; releasing it is only ever correct as part of 收回本期開繳 (core/billing.ts).
+ */
+export type ReleasableKey = NotificationKey & { type: Exclude<NotificationKey["type"], "billing_opened"> };
+
+/**
+ * Give a claimed slot back so a genuinely new event can announce again. Two uses: an outbound send
+ * that the Notifier did not confirm (never mute a bill forever because Discord hiccuped — the
+ * release-on-false precedent is sendOverdueForPeriod in core/scheduled.ts), and an admin's explicit
+ * 重發, which releases before claiming so the claim below always wins (also core/scheduled.ts, the
+ * `force` branch). Omitting `event` releases every event of that entity. Returns rows deleted.
+ */
+export async function releaseNotification(db: D1Database, k: ReleasableKey): Promise<number> {
+  const conds = ["workspace_id = ?", "type = ?", "period = ?", "plan_id = ?", "user_id = ?", "subscription_id = ?"];
+  const binds: unknown[] = [k.workspaceId, k.type, k.period, k.planId ?? 0, k.userId ?? 0, k.subscriptionId ?? 0];
+  if (k.event !== undefined) { conds.push("event = ?"); binds.push(k.event); }
+  const res = await db.prepare(`DELETE FROM notification_logs WHERE ${conds.join(" AND ")}`).bind(...binds).run();
+  return res.meta.changes ?? 0;
+}
+
+/**
+ * Drop every receipt slot of ONE member's period. Called when the ball moves back to the member
+ * (they re-submitted after a 退回) or when an admin undoes a verification: the next 退回/確認 of
+ * those bills is then a new fact, not a retry, and must be announced again.
+ */
+export async function releaseReceiptSlots(
+  db: D1Database, workspaceId: number, period: string, userId: number
+): Promise<number> {
+  const res = await db
+    .prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = 'receipt' AND period = ? AND user_id = ?")
+    .bind(workspaceId, period, userId)
+    .run();
   return res.meta.changes ?? 0;
 }
 

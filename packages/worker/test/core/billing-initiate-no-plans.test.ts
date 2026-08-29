@@ -20,6 +20,7 @@ const notifier: Notifier = {
   async sendBillingOpened() { sends++; return true; },
   async sendOverdue() { return true; },
   async sendPaymentNudge() { return true; },
+  async sendPaymentReceipt() { return true; },
 };
 
 const markerRows = async (ws: number, period: string) =>

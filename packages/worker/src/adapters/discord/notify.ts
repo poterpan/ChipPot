@@ -1,5 +1,5 @@
 import type { Env } from "../../env";
-import type { Notifier, OverduePerson, PlanOpenLine } from "../../core/notify";
+import type { Notifier, OverduePerson, PlanOpenLine, ReceiptTarget } from "../../core/notify";
 import { renderTemplate } from "../../core/templates";
 import { createChannelMessage } from "./api";
 import { payButtonRow } from "./commands";
@@ -59,6 +59,24 @@ export const discordNotifier: Notifier = {
     return (await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
       content,
       components: [payButtonRow(workspaceId)],
+      allowed_mentions: { parse: [], users },
+    })).ok;
+  },
+
+  async sendPaymentReceipt(env: Env, channelId, workspaceId: number, kind, target: ReceiptTarget, reason) {
+    const who = target.discord_id ? `<@${target.discord_id}>` : `**${target.user_name}**`;
+    const lines = target.lines.map((l) => `・${l.plan_name} NT$${l.amount.toLocaleString()}`).join("\n");
+    const body = `${lines}\n**合計 NT$${target.total.toLocaleString()}**`;
+    const content = kind === "reject"
+      ? `↩️ ${who} 你的 ${target.period} 繳費被退回\n${body}\n退回原因：${reason?.trim() || "（管理員未填寫原因，請在頻道詢問）"}\n請確認後點下方「繳費」按鈕重新登記，或用 \`/繳費\` 補上截圖／備註。`
+      : `✅ ${who} 已確認收到你的 ${target.period} 繳費\n${body}`;
+    // Pin the mention to exactly this member's id — nothing in the reason text can be coerced
+    // into a ping (the reason is admin-authored free text).
+    const users = target.discord_id ? [target.discord_id] : [];
+    return (await createChannelMessage(env.DISCORD_BOT_TOKEN ?? "", channelId, {
+      content,
+      // 退回 puts the ball back in the member's court, so give them the way back in one tap.
+      ...(kind === "reject" ? { components: [payButtonRow(workspaceId)] } : {}),
       allowed_mentions: { parse: [], users },
     })).ok;
   },

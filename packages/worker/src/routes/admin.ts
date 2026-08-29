@@ -12,6 +12,7 @@ import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
 import { payButtonRow, bindButtonRow, PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
 import { discordNotifier } from "../adapters/discord/notify";
+import { announcePaymentReceipt } from "../core/receipt";
 import { parseRosterCsv, importRoster } from "../core/import";
 import { sendOverdueForPeriod } from "../core/scheduled";
 import { renderTemplate } from "../core/templates";
@@ -713,7 +714,14 @@ async function rejectPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
   try {
     const after = await rejectPayment(env.DB, id, { rejectedReason: b.rejected_reason ?? null, verifiedBy: actorOf(ctx) });
     await writeAudit(env.DB, { workspaceId: before.workspace_id, actor: actorOf(ctx), action: "payment.reject", entityType: "payment", entityId: id, before, after });
-    return json({ ok: true, payment: after });
+    // 退回一定要回到成員手上 (P0-5). The rejection is already committed, so a Discord failure must
+    // not turn it into a 500: announce defensively and report the truth in `notified`.
+    const notified = await announcePaymentReceipt(
+      env,
+      { workspaceId: before.workspace_id, kind: "reject", paymentIds: [id], reason: b.rejected_reason ?? null },
+      discordNotifier
+    ).catch((e) => { console.error("reject receipt failed", e); return 0; });
+    return json({ ok: true, payment: after, notified });
   } catch (e) {
     if (e instanceof InvalidPaymentTransition) return errorResponse(409, e.message);
     throw e;
