@@ -196,13 +196,13 @@ function Stub({
       {subs.map((s) => (
         <div key={s.payment_id} className="stub__row stub__row--amt">
           <span className="stub__plan">{s.plan_name}</span>
-          <span className="stub__amt">NT${s.amount}</span>
+          <span className="stub__amt">NT${s.amount.toLocaleString()}</span>
         </div>
       ))}
       {subs.length > 0 && (
         <div className="stub__row stub__row--amt">
           <span className="stub__plan">合計</span>
-          <span className="stub__amt">NT${total}</span>
+          <span className="stub__amt">NT${total.toLocaleString()}</span>
         </div>
       )}
     </header>
