@@ -335,7 +335,7 @@ function QuickVerify({ id, onDone }: { id: number; onDone: () => void }) {
     catch { setErr(true); setBusy(false); }
   }
   return (
-    <button className="btn iconlbl" disabled={busy} onClick={run} title="標記已驗證（帶入申報渠道）">
+    <button className="btn iconlbl" disabled={busy} onClick={run} title="標記為「已驗證」（帶入申報渠道）">
       {busy ? "…" : err ? <><IconX />重試</> : <><IconCheck />驗證</>}
     </button>
   );

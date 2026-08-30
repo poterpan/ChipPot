@@ -667,7 +667,7 @@ async function verifyPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
 }
 
 /**
- * 一鍵全部核准: verify every reviewable payment this member has in the period. A single member
+ * 一鍵全部驗證: verify every reviewable payment this member has in the period. A single member
  * submit settles one row per active subscription (one shared screenshot), so the review that used
  * to take N clicks is one call. Channel defaulting and the state machine match single verify — see
  * verifyUserPeriod. Audit trail: one payment.verify per row (identical to single verify) plus one
@@ -719,7 +719,7 @@ async function verifyAllHandler(req: Request, env: Env, ctx: RouteCtx): Promise<
     // matters more than the summary row (the per-row audits above are already committed).
     await writeSummary({ partial: true, error: message })
       .catch((err) => console.error("verify_all partial summary audit failed", err));
-    return errorResponse(500, `批次核准中斷，已核准 ${paymentIds.length} 筆：${message}`, {
+    return errorResponse(500, `批次驗證中斷，已驗證 ${paymentIds.length} 筆：${message}`, {
       verified: paymentIds.length, payment_ids: paymentIds,
     });
   }

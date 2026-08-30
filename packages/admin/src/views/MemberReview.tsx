@@ -7,7 +7,7 @@ import { PaymentDetail } from "./PaymentDetail";
  * Aggregate review for ONE member × ONE period — where a payment-submission notification lands
  * (#payments?user=<id>&period=<YYYY-MM>). One member submit settles one payment row per active
  * subscription, all sharing one screenshot, so this shows the screenshot once and lets the owner
- * approve the whole period with a single tap (一鍵全部核准); per-row 核准／退回 stay available for
+ * approve the whole period with a single tap (一鍵全部驗證); per-row 驗證／退回 stay available for
  * the mixed cases. Laid out mobile-first: everything stacks, actions are thumb-sized.
  */
 export function MemberReview({ userId, period, tags, onBack }: {
@@ -39,7 +39,7 @@ export function MemberReview({ userId, period, tags, onBack }: {
     setBusy(true); setErr(null); setDone(null);
     try { setDone(await fn()); }
     catch (e) { setErr((e as Error).message); }
-    // Reload on failure too: 一鍵全部核准 commits row by row, so an aborted batch really did verify
+    // Reload on failure too: 一鍵全部驗證 commits row by row, so an aborted batch really did verify
     // part of the list (the banner says how many) and the rows must not stay stale.
     list.reload();
     setBusy(false);
@@ -84,14 +84,14 @@ export function MemberReview({ userId, period, tags, onBack }: {
               onClick={() => run(async () => {
                 const r = await api.verifyAll(userId, period);
                 return outstanding.length > 0
-                  ? `已核准 ${r.verified} 筆，另 ${outstanding.length} 筆（待繳／已退回）需逐筆處理`
-                  : `已核准 ${r.verified} 筆`;
+                  ? `已驗證 ${r.verified} 筆，另 ${outstanding.length} 筆（待繳／已退回）需逐筆處理`
+                  : `已驗證 ${r.verified} 筆`;
               })}
             >
               {/* 全部 is only true when every row is 已繳待驗; otherwise name the subset the sweep covers. */}
               <IconCheck />{busy ? "處理中…" : outstanding.length > 0
-                ? `核准已繳待驗（${reviewable.length} 筆）`
-                : `一鍵全部核准（${reviewable.length} 筆）`}
+                ? `驗證已繳待驗（${reviewable.length} 筆）`
+                : `一鍵全部驗證（${reviewable.length} 筆）`}
             </button>
             {outstanding.length > 0 && (
               <button
@@ -130,9 +130,9 @@ export function MemberReview({ userId, period, tags, onBack }: {
                 </div>
                 <div className="mrow__acts">
                   {["pending", "paid", "rejected"].includes(p.status) && (
-                    <button className="btn iconlbl" disabled={busy} title="標記已驗證（帶入申報渠道）"
+                    <button className="btn iconlbl" disabled={busy} title="標記為「已驗證」（帶入申報渠道）"
                       onClick={() => run(async () => { await api.verify(p.id, null); return null; })}>
-                      <IconCheck />核准
+                      <IconCheck />驗證
                     </button>
                   )}
                   {["pending", "paid"].includes(p.status) && (

@@ -66,7 +66,7 @@ beforeAll(async () => {
   ]);
 });
 
-describe("verifyUserPeriod (一鍵全部核准)", () => {
+describe("verifyUserPeriod (一鍵全部驗證)", () => {
   it("verifies every 'paid' row of that member × period, each keeping its own declared channel", async () => {
     const r = await verifyUserPeriod(env.DB, { workspaceId: WS, userId: U, period: PERIOD, verifiedBy: ACTOR });
     expect(r.verified.map((v) => v.after.id).sort()).toEqual([P_TAG, P_NOTAG, P_FOREIGN, P_TAG2].sort());

@@ -68,14 +68,14 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   amounts (price changes never rewrite history). A **重新同步本期帳單** action re-aligns an opened
   period's bills to the current roster/price (preview before applying), optionally pinging newly-added members.
   Tapping a member's name (or a submission alert) opens the **成員×期別合併審核**: the shared
-  screenshot once, every settled row, and one 一鍵全部核准 button. The queue, that view and the
+  screenshot once, every settled row, and one 一鍵全部驗證 button. The queue, that view and the
   review dialog all work on a phone.
 - 🔔 **Customizable notifications** — editable templates (with live preview + validation) for the
   billing-opened notice, the batched overdue reminder, and the persistent pay message.
 - 📲 **Submission alerts** — when a member submits a payment, push the owner a Bark and/or webhook
   notice (Discord / Google Chat / Slack — body shape auto-detected by host) with a deep link
   straight to that member's period review — one submit settles every subscription, so the link
-  opens all of them together with a 一鍵全部核准 button.
+  opens all of them together with a 一鍵全部驗證 button.
 - ⏰ **Daily cron, idempotent** — opens billing, sends an overdue reminder **every day** until a
   period has no unpaid bills left, and enforces screenshot retention — all deduped through
   `notification_logs`.
@@ -248,7 +248,7 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
   the payments page, not here.
 - **Submission alerts** — set a Bark device key and/or a webhook (Discord / Google Chat / Slack) under
   Settings → 繳費通知; each new submission then pushes you a notice that opens that member's whole
-  period for review (shared screenshot once, every row listed, 一鍵全部核准), phone-friendly. Both
+  period for review (shared screenshot once, every row listed, 一鍵全部驗證), phone-friendly. Both
   are optional and best-effort (a slow or failing endpoint never blocks the payment).
 - **Daily cron** (01:00 UTC = 09:00 Asia/Taipei) — idempotently opens each period's bills, posts the
   billing-opened notice (tagging plan roles), sends **an overdue reminder every day** listing the
