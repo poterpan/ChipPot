@@ -189,7 +189,7 @@ function Stub({
   return (
     <header className="stub">
       <div className="stub__row">
-        <span className="stub__label">期別</span>
+        <span className="stub__label">月份</span>
         <span className="stub__period">{period}</span>
       </div>
       <h2 className="stub__hi">嗨，{name || "夥伴"}</h2>
