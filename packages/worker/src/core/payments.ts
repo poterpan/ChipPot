@@ -52,7 +52,9 @@ export class InvalidPaymentTransition extends Error {
     public readonly paymentId: number,
     public readonly to: PaymentStatus
   ) {
-    super(`payment ${paymentId} cannot transition to '${to}'`);
+    // Surfaced verbatim in the admin error banner (routes/admin.ts returns e.message on 409), so it
+    // is copy, not a log line. paymentId/to stay on the instance for logs and tests.
+    super("這筆的狀態已被變動（可能已由其他人處理），請重新載入後再試。");
     this.name = "InvalidPaymentTransition";
   }
 }

@@ -102,3 +102,15 @@ describe("payment state machine", () => {
     expect(p.amount).toBe(300);
   });
 });
+
+// #46: this is a reproducible race (two admins, or a stale list), so the message the admin sees must
+// say what to do — while the id/target stay on the error object for logs.
+describe("InvalidPaymentTransition copy (#46)", () => {
+  it("explains the race in zh-TW and keeps its fields", () => {
+    const e = new InvalidPaymentTransition(1042, "verified");
+    expect(e.message).toBe("這筆的狀態已被變動（可能已由其他人處理），請重新載入後再試。");
+    expect(e.paymentId).toBe(1042);
+    expect(e.to).toBe("verified");
+    expect(e.name).toBe("InvalidPaymentTransition");
+  });
+});
