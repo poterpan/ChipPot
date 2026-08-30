@@ -18,6 +18,13 @@ import { sendOverdueForPeriod } from "../core/scheduled";
 import { renderTemplate } from "../core/templates";
 import { sendTestNotification } from "../core/payment-notify";
 
+// Error copy (#46 / §A.14): the admin SPA renders `data.error` straight into .error-banner, so
+// every message an admin can reach BY CLICKING answers in zh-TW. The ASCII ones left below are
+// English BY DESIGN, not an oversight: they guard shapes the UI cannot produce — `period` sits
+// behind <input type="month">, `billing_day`/amounts behind <input type="number">, the required-
+// field checks behind client-side validation, and the nudge/import body shapes are built by our
+// own code. They only ever surface to someone calling the API by hand, so they stay diagnostic.
+// Do not "finish the job" by translating them.
 // Single-workspace MVP: default to the seeded workspace, overridable via ?workspace_id=.
 const DEFAULT_WORKSPACE_ID = 1;
 const UPLOAD_TOKEN_TTL_MS = 30 * 60 * 1000;
@@ -51,7 +58,7 @@ async function readJson<T>(req: Request): Promise<T | null> {
 async function getWorkspace(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const row = await env.DB.prepare("SELECT * FROM workspaces WHERE id = ?").bind(wsId(ctx))
     .first<{ id: number; name: string; billing_day: number; settings: string }>();
-  if (!row) return errorResponse(404, "not found");
+  if (!row) return errorResponse(404, "找不到工作區設定");
   return json({ workspace: { ...row, settings: parseSettings(row.settings) }, r2_configured: !!env.BUCKET });
 }
 
@@ -59,7 +66,7 @@ async function updateWorkspace(req: Request, env: Env, ctx: RouteCtx): Promise<R
   const ws = wsId(ctx);
   const before = await env.DB.prepare("SELECT billing_day, settings FROM workspaces WHERE id = ?")
     .bind(ws).first<{ billing_day: number; settings: string }>();
-  if (!before) return errorResponse(404, "not found");
+  if (!before) return errorResponse(404, "找不到工作區設定");
   const b = await readJson<{ billing_day?: number; settings?: Record<string, unknown> }>(req) ?? {};
   if (b.billing_day !== undefined && (!Number.isInteger(b.billing_day) || b.billing_day < 1 || b.billing_day > 28)) {
     return errorResponse(400, "billing_day must be 1..28");
@@ -373,7 +380,7 @@ async function createUser(req: Request, env: Env, ctx: RouteCtx): Promise<Respon
 async function updateUser(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
-  if (!before) return errorResponse(404, "not found");
+  if (!before) return errorResponse(404, "找不到這位成員");
   const b = await readJson<{ display_name?: string; discord_id?: string; email?: string; note?: string }>(req) ?? {};
   // Distinguish "field omitted" (keep current binding) from "field present-and-empty" (explicit
   // unbind). Without this, a display-name-only PATCH would silently null discord_id.
@@ -404,7 +411,7 @@ async function deleteUser(_req: Request, env: Env, ctx: RouteCtx): Promise<Respo
   const id = Number(ctx.params.id);
   const ws = wsId(ctx);
   const user = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND workspace_id = ?").bind(id, ws).first();
-  if (!user) return errorResponse(404, "not found");
+  if (!user) return errorResponse(404, "找不到這位成員");
 
   if (env.BUCKET) {
     const keys = await env.DB.prepare(
@@ -435,7 +442,7 @@ async function deleteSubscription(_req: Request, env: Env, ctx: RouteCtx): Promi
   const id = Number(ctx.params.id);
   const ws = wsId(ctx);
   const sub = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ? AND workspace_id = ?").bind(id, ws).first();
-  if (!sub) return errorResponse(404, "not found");
+  if (!sub) return errorResponse(404, "找不到這筆訂閱");
 
   if (env.BUCKET) {
     const keys = await env.DB.prepare("SELECT DISTINCT screenshot_key AS k FROM payments WHERE subscription_id = ? AND workspace_id = ? AND screenshot_key IS NOT NULL").bind(id, ws).all<{ k: string }>();
@@ -481,7 +488,7 @@ async function createPlan(req: Request, env: Env, ctx: RouteCtx): Promise<Respon
 async function updatePlan(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await env.DB.prepare("SELECT * FROM plans WHERE id = ?").bind(id).first();
-  if (!before) return errorResponse(404, "not found");
+  if (!before) return errorResponse(404, "找不到這個方案");
   const b = await readJson<{ name?: string; provider?: string; monthly_amount?: number; discord_role_id?: string; active?: number }>(req) ?? {};
   await env.DB.prepare(
     `UPDATE plans SET name = COALESCE(?, name), provider = COALESCE(?, provider), monthly_amount = COALESCE(?, monthly_amount),
@@ -496,7 +503,7 @@ async function deletePlan(_req: Request, env: Env, ctx: RouteCtx): Promise<Respo
   const id = Number(ctx.params.id);
   const ws = wsId(ctx);
   const plan = await env.DB.prepare("SELECT * FROM plans WHERE id = ? AND workspace_id = ?").bind(id, ws).first();
-  if (!plan) return errorResponse(404, "not found");
+  if (!plan) return errorResponse(404, "找不到這個方案");
   const ref = await env.DB.prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE plan_id = ? AND workspace_id = ?").bind(id, ws).first<{ c: number }>();
   if ((ref?.c ?? 0) > 0) return errorResponse(409, "此方案仍有訂閱（含已取消的歷史訂閱）：請先刪除這些訂閱，或將方案改為「停用」以保留歷史");
   await env.DB.prepare("DELETE FROM plans WHERE id = ? AND workspace_id = ?").bind(id, ws).run();
@@ -538,10 +545,10 @@ async function createSubscription(req: Request, env: Env, ctx: RouteCtx): Promis
 async function updateSubscription(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ?").bind(id).first();
-  if (!before) return errorResponse(404, "not found");
+  if (!before) return errorResponse(404, "找不到這筆訂閱");
   const b = await readJson<{ status?: string; start_date?: string; billing_day?: number; custom_cycle?: number }>(req) ?? {};
   if (b.status && !["active", "paused", "cancelled"].includes(b.status)) {
-    return errorResponse(400, "invalid status");
+    return errorResponse(400, "狀態無效。");
   }
   await env.DB.prepare(
     `UPDATE subscriptions SET status = COALESCE(?, status), start_date = COALESCE(?, start_date),
@@ -576,7 +583,7 @@ async function createChannelTag(req: Request, env: Env, ctx: RouteCtx): Promise<
 async function updateChannelTag(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await env.DB.prepare("SELECT * FROM channel_tags WHERE id = ?").bind(id).first();
-  if (!before) return errorResponse(404, "not found");
+  if (!before) return errorResponse(404, "找不到這個渠道");
   const b = await readJson<{ name?: string; type?: string; active?: number; sort_order?: number }>(req) ?? {};
   await env.DB.prepare(
     `UPDATE channel_tags SET name = COALESCE(?, name), type = COALESCE(?, type),
@@ -591,7 +598,7 @@ async function deleteChannelTag(_req: Request, env: Env, ctx: RouteCtx): Promise
   const id = Number(ctx.params.id);
   const ws = wsId(ctx);
   const tag = await env.DB.prepare("SELECT * FROM channel_tags WHERE id = ? AND workspace_id = ?").bind(id, ws).first();
-  if (!tag) return errorResponse(404, "not found");
+  if (!tag) return errorResponse(404, "找不到這個渠道");
   const ref = await env.DB.prepare(
     "SELECT COUNT(*) AS c FROM payments WHERE workspace_id = ? AND (verified_channel_tag_id = ? OR declared_channel_tag_id = ?)"
   ).bind(ws, id, id).first<{ c: number }>();
@@ -645,12 +652,12 @@ async function listPayments(_req: Request, env: Env, ctx: RouteCtx): Promise<Res
 async function verifyPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await getPayment(env.DB, id);
-  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "找不到這筆繳費紀錄");
   const b = await readJson<{ verified_channel_tag_id?: number }>(req) ?? {};
   // Default the verified channel to the user's declared channel when the admin doesn't override.
   const tagId = b.verified_channel_tag_id ?? before.declared_channel_tag_id ?? null;
   if (tagId != null && !(await tagBelongsToWorkspace(env, before.workspace_id, tagId))) {
-    return errorResponse(400, "invalid channel tag");
+    return errorResponse(400, "渠道無效，請重新選擇。");
   }
   try {
     const after = await verifyPayment(env.DB, id, { verifiedBy: actorOf(ctx), verifiedChannelTagId: tagId });
@@ -691,7 +698,7 @@ async function verifyAllHandler(req: Request, env: Env, ctx: RouteCtx): Promise<
   const period = b.period;
   const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND workspace_id = ?")
     .bind(userId, ws).first<{ id: number }>();
-  if (!user) return errorResponse(404, "not found");
+  if (!user) return errorResponse(404, "找不到這位成員");
 
   const actor = actorOf(ctx);
   const paymentIds: number[] = [];
@@ -735,7 +742,7 @@ async function verifyAllHandler(req: Request, env: Env, ctx: RouteCtx): Promise<
 async function rejectPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await getPayment(env.DB, id);
-  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "找不到這筆繳費紀錄");
   const b = await readJson<{ rejected_reason?: string }>(req) ?? {};
   try {
     const after = await rejectPayment(env.DB, id, { rejectedReason: b.rejected_reason ?? null, verifiedBy: actorOf(ctx) });
@@ -757,10 +764,10 @@ async function rejectPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
 async function overrideAmountHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await getPayment(env.DB, id);
-  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "找不到這筆繳費紀錄");
   const b = await readJson<{ amount?: number }>(req);
   if (typeof b?.amount !== "number" || !Number.isInteger(b.amount) || b.amount < 0) {
-    return errorResponse(400, "integer amount required");
+    return errorResponse(400, "金額必須是整數。");
   }
   const after = await overrideAmount(env.DB, id, b.amount);
   await writeAudit(env.DB, { workspaceId: before.workspace_id, actor: actorOf(ctx), action: "amount.override", entityType: "payment", entityId: id, before: { amount: before.amount }, after: { amount: after.amount } });
@@ -770,7 +777,7 @@ async function overrideAmountHandler(req: Request, env: Env, ctx: RouteCtx): Pro
 async function unverifyPaymentHandler(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const before = await getPayment(env.DB, id);
-  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  if (!before || before.workspace_id !== wsId(ctx)) return errorResponse(404, "找不到這筆繳費紀錄");
   try {
     const after = await unverifyPayment(env.DB, id);
     await writeAudit(env.DB, { workspaceId: before.workspace_id, actor: actorOf(ctx), action: "payment.unverify", entityType: "payment", entityId: id, before, after });
@@ -789,18 +796,18 @@ async function manualPayment(req: Request, env: Env, ctx: RouteCtx): Promise<Res
   if (!b?.subscription_id || !b.period) return errorResponse(400, "subscription_id and period are required");
   if (!PERIOD_RE.test(b.period)) return errorResponse(400, "period must be YYYY-MM");
   const status = b.status ?? "verified";
-  if (!["pending", "paid", "verified", "rejected"].includes(status)) return errorResponse(400, "invalid status");
+  if (!["pending", "paid", "verified", "rejected"].includes(status)) return errorResponse(400, "狀態無效。");
   if (b.amount !== undefined && (!Number.isInteger(b.amount) || b.amount < 0)) {
-    return errorResponse(400, "amount must be a non-negative integer");
+    return errorResponse(400, "金額必須是 0 或正整數。");
   }
   const ws = wsId(ctx);
   if (b.verified_channel_tag_id != null && !(await tagBelongsToWorkspace(env, ws, b.verified_channel_tag_id))) {
-    return errorResponse(400, "invalid channel tag");
+    return errorResponse(400, "渠道無效，請重新選擇。");
   }
   const sub = await env.DB.prepare(
     `SELECT s.billing_day AS billing_day, pl.monthly_amount AS amount FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id WHERE s.id = ? AND s.workspace_id = ?`
   ).bind(b.subscription_id, ws).first<{ billing_day: number; amount: number }>();
-  if (!sub) return errorResponse(400, "invalid subscription");
+  if (!sub) return errorResponse(400, "找不到這筆訂閱。");
   const amount = b.amount ?? sub.amount;
   const now = nowUtcIso();
   const period_start = `${b.period}-01`;
@@ -830,7 +837,7 @@ async function manualPayment(req: Request, env: Env, ctx: RouteCtx): Promise<Res
 async function deleteProof(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const p = await getPayment(env.DB, id);
-  if (!p || p.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  if (!p || p.workspace_id !== wsId(ctx)) return errorResponse(404, "找不到這筆繳費紀錄");
   if (p.screenshot_key && env.BUCKET) await env.BUCKET.delete(p.screenshot_key);
   await env.DB.prepare("UPDATE payments SET screenshot_key = NULL, proof_deleted_at = ?, updated_at = ? WHERE id = ?")
     .bind(taipeiDate(), nowUtcIso(), id).run();
@@ -841,7 +848,7 @@ async function deleteProof(_req: Request, env: Env, ctx: RouteCtx): Promise<Resp
 async function deletePayment(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
   const p = await getPayment(env.DB, id);
-  if (!p || p.workspace_id !== wsId(ctx)) return errorResponse(404, "not found");
+  if (!p || p.workspace_id !== wsId(ctx)) return errorResponse(404, "找不到這筆繳費紀錄");
   await env.DB.batch([
     env.DB.prepare("DELETE FROM upload_tokens WHERE workspace_id = ? AND subscription_id = ? AND period = ?").bind(p.workspace_id, p.subscription_id, p.period),
     env.DB.prepare("DELETE FROM payments WHERE id = ?").bind(id),
@@ -864,9 +871,9 @@ async function createUploadLink(req: Request, env: Env, ctx: RouteCtx): Promise<
   if (!PERIOD_RE.test(b.period)) return errorResponse(400, "period must be YYYY-MM");
   const ws = wsId(ctx);
   const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND workspace_id = ?").bind(b.user_id, ws).first();
-  if (!user) return errorResponse(400, "invalid user");
+  if (!user) return errorResponse(400, "找不到這位成員。");
   // Fail loud rather than mint a token only to hand back a broken relative link.
-  if (!env.WEB_ORIGIN) return errorResponse(500, "WEB_ORIGIN is not configured");
+  if (!env.WEB_ORIGIN) return errorResponse(500, "尚未設定 WEB_ORIGIN，無法產生上傳連結；請在 Worker 環境變數設定後重新部署。");
   const { raw, expiresAt } = await issueUploadToken(env.DB, {
     workspaceId: ws, userId: b.user_id, period: b.period, subscriptionId: b.subscription_id ?? null,
     ttlMs: UPLOAD_TOKEN_TTL_MS,
@@ -882,11 +889,11 @@ async function createUploadLink(req: Request, env: Env, ctx: RouteCtx): Promise<
 async function discordPaymentMessage(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
   const row = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
-  if (!row) return errorResponse(404, "not found");
+  if (!row) return errorResponse(404, "找不到工作區設定");
   const settings = parseSettings(row.settings);
   const channelId = settings.discord_billing_channel_id;
-  if (!channelId) return errorResponse(400, "discord_billing_channel_id is not set");
-  if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "bot token not configured");
+  if (!channelId) return errorResponse(400, "尚未設定繳費頻道 ID，請到「設定 → Discord 串接」填入。");
+  if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "尚未設定 Discord Bot Token，請在 Worker 環境變數設定後重新部署。");
 
   const body = {
     content: renderTemplate(settings.payment_message_template, { period: taipeiPeriod() }),
@@ -900,7 +907,7 @@ async function discordPaymentMessage(_req: Request, env: Env, ctx: RouteCtx): Pr
     messageId = created.id ?? "";
     ok = created.ok && !!messageId; // the id is what we persist, so a 2xx without one is still a failure here
   }
-  if (!ok) return errorResponse(502, "failed to post Discord message");
+  if (!ok) return errorResponse(502, "Discord 訊息張貼失敗，請確認機器人在該頻道有發言權限。");
 
   await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_payment_message_id', ?), updated_at = ? WHERE id = ?")
     .bind(messageId, nowUtcIso(), ws).run();
@@ -911,11 +918,11 @@ async function discordPaymentMessage(_req: Request, env: Env, ctx: RouteCtx): Pr
 async function discordBindMessage(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
   const row = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
-  if (!row) return errorResponse(404, "not found");
+  if (!row) return errorResponse(404, "找不到工作區設定");
   const settings = parseSettings(row.settings);
   const channelId = settings.discord_billing_channel_id;
-  if (!channelId) return errorResponse(400, "discord_billing_channel_id is not set");
-  if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "bot token not configured");
+  if (!channelId) return errorResponse(400, "尚未設定繳費頻道 ID，請到「設定 → Discord 串接」填入。");
+  if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "尚未設定 Discord Bot Token，請在 Worker 環境變數設定後重新部署。");
 
   const body = {
     content: "👋 還沒綁定的成員，點下方按鈕綁定你的 Discord 帳號；綁定後開繳／催繳才能 @ 到你。",
@@ -929,7 +936,7 @@ async function discordBindMessage(_req: Request, env: Env, ctx: RouteCtx): Promi
     messageId = created.id ?? "";
     ok = created.ok && !!messageId; // the id is what we persist, so a 2xx without one is still a failure here
   }
-  if (!ok) return errorResponse(502, "failed to post Discord message");
+  if (!ok) return errorResponse(502, "Discord 訊息張貼失敗，請確認機器人在該頻道有發言權限。");
 
   await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_bind_message_id', ?), updated_at = ? WHERE id = ?")
     .bind(messageId, nowUtcIso(), ws).run();
@@ -940,17 +947,17 @@ async function discordBindMessage(_req: Request, env: Env, ctx: RouteCtx): Promi
 async function discordRegisterCommands(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
   const row = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
-  if (!row) return errorResponse(404, "not found");
+  if (!row) return errorResponse(404, "找不到工作區設定");
   const settings = parseSettings(row.settings);
   const guildId = settings.discord_guild_id;
-  if (!guildId) return errorResponse(400, "discord_guild_id is not set");
-  if (!env.DISCORD_APPLICATION_ID) return errorResponse(400, "DISCORD_APPLICATION_ID is not set");
-  if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "bot token not configured");
+  if (!guildId) return errorResponse(400, "尚未設定伺服器 ID（Guild），請到「設定 → Discord 串接」填入。");
+  if (!env.DISCORD_APPLICATION_ID) return errorResponse(400, "尚未設定 DISCORD_APPLICATION_ID，請在 Worker 環境變數設定後重新部署。");
+  if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "尚未設定 Discord Bot Token，請在 Worker 環境變數設定後重新部署。");
 
   // The registered payload mirrors this deployment: no R2 → no 截圖 option to offer.
   const commands = [payCommand(!!env.BUCKET), MY_BILLS_COMMAND, INITIATE_COMMAND, BIND_COMMAND];
   const res = await registerGuildCommands(env.DISCORD_BOT_TOKEN, env.DISCORD_APPLICATION_ID, guildId, commands);
-  if (!res.ok) return errorResponse(502, "failed to register commands");
+  if (!res.ok) return errorResponse(502, "指令註冊失敗，請確認 Bot Token 與伺服器 ID 是否正確。");
 
   const registeredAt = nowUtcIso();
   await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_commands_registered_at', ?), updated_at = ? WHERE id = ?")
