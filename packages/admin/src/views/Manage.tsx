@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, type User, type Plan, type ChannelTag, type Subscription } from "../api";
+import { api, nudgeSummary, type User, type Plan, type ChannelTag, type Subscription } from "../api";
 import { useAsync, Card, Modal, Field, Empty, ConfirmDanger, ErrorNote, FilterSelect, TableFilter } from "../ui";
 
 function useForm<T extends Record<string, any>>(initial: T) {
@@ -13,11 +13,16 @@ export function Users() {
   const [edit, setEdit] = useState<User | null | undefined>(undefined); // undefined=closed, null=new
   const [del, setDel] = useState<User | null>(null);
   const [q, setQ] = useState("");
+  // 未綁定的人收不到開繳／催繳的 @，而 onboarding 完全靠那個 @。原本這件事在後台看不出來 (C9)。
+  const [onlyUnbound, setOnlyUnbound] = useState(false);
   const all = data?.users ?? [];
+  const unboundCount = all.filter((u) => !u.discord_id).length;
   const needle = q.trim().toLowerCase();
+  // The two filters compose: 未綁定 narrows the set, the search box narrows it further.
+  const base = onlyUnbound ? all.filter((u) => !u.discord_id) : all;
   const shown = needle
-    ? all.filter((u) => [u.display_name, u.email ?? "", u.discord_id ?? ""].some((x) => x.toLowerCase().includes(needle)))
-    : all;
+    ? base.filter((u) => [u.display_name, u.email ?? "", u.discord_id ?? ""].some((x) => x.toLowerCase().includes(needle)))
+    : base;
   return (
     <>
       {error && <ErrorNote message={error} onRetry={reload} />}
@@ -27,13 +32,20 @@ export function Users() {
           <button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>
         </>
       }>
+        {unboundCount > 0 && (
+          <div className="pills" style={{ padding: "12px 18px 0", alignItems: "center" }}>
+            <button className={`pill ${onlyUnbound ? "" : "pill--on"}`} onClick={() => setOnlyUnbound(false)}>全部 {all.length} 人</button>
+            <button className={`pill ${onlyUnbound ? "pill--on" : ""}`} onClick={() => setOnlyUnbound(true)}>未綁定 {unboundCount} 人</button>
+            <span style={{ fontSize: 12.5, color: "var(--muted-strong)" }}>未綁定者收不到開繳／催繳的 @</span>
+          </div>
+        )}
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <caption className="sr-only">成員名單</caption>
             <thead><tr><th scope="col">名稱</th><th scope="col">Discord ID</th><th scope="col">Email</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={4}><Empty>載入中…</Empty></td></tr>}
-              {!loading && shown.length === 0 && <tr><td colSpan={4}><Empty>{needle ? "沒有符合的成員" : "尚無成員"}</Empty></td></tr>}
+              {!loading && shown.length === 0 && <tr><td colSpan={4}><Empty>{needle || onlyUnbound ? "沒有符合的成員" : "尚無成員"}</Empty></td></tr>}
               {shown.map((u) => (
                 <tr key={u.id}>
                   <td data-label="名稱">{u.display_name}</td>
@@ -171,12 +183,22 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const users = useAsync(() => api.users(), []);
   const plans = useAsync(() => api.plans(), []);
   const [f, set] = useForm({ user_id: "", plan_id: "", start_date: "" });
+  const [notify, setNotify] = useState(true);
+  const [nudged, setNudged] = useState<string | null>(null);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   async function save() {
     if (!f.user_id || !f.plan_id || !f.start_date) { setErr("請填成員、方案、起算日"); return; }
     setBusy(true); setErr(null);
-    try { await api.createSubscription({ user_id: Number(f.user_id), plan_id: Number(f.plan_id), start_date: f.start_date }); onDone(); }
-    catch (e) { setErr((e as Error).message); setBusy(false); }
+    try {
+      await api.createSubscription({ user_id: Number(f.user_id), plan_id: Number(f.plan_id), start_date: f.start_date });
+      // 建立訂閱會立刻開出第一期帳單，但沒有任何人會告訴這位成員 (C1)。訂閱已經建立成功，
+      // 所以通知沒送成不算失敗——顯示原因後停在原地，讓管理員知道發生什麼事再自行關閉。
+      if (notify) {
+        const r = await api.nudgeMembers({ period: f.start_date.slice(0, 7), user_ids: [Number(f.user_id)], kind: "added" });
+        if (r.notified === 0) { setNudged(nudgeSummary(r)); setBusy(false); return; }
+      }
+      onDone();
+    } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
   return (
     <Modal title="新增訂閱（會立即建立第一期 payment）" onClose={onClose}>
@@ -190,6 +212,10 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
       {/* type=date, not a bare text box with a placeholder: everywhere else in the app a date is
           picked (Settings and the payment modals all use type="month"). */}
       <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
+        <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} disabled={busy} /> 建立後在頻道 @ 通知這位成員繳費
+      </label>
+      {nudged && <div style={{ color: "var(--muted-strong)", fontSize: 13, marginBottom: 10 }}>{nudged}</div>}
       <button className="btn btn--primary" onClick={save} disabled={busy}>建立</button>
     </Modal>
   );

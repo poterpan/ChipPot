@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-355%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-426%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -48,6 +48,13 @@ ChipPot 解決的是一個很具體的痛點：社團大量採購 OpenAI / Anthr
 - 🔗 **自助綁定** — 成員自己把 Discord 帳號接到名單：`/綁定`、繳費按鈕，或帳單頻道裡常駐的公開
   **綁定 Discord** 按鈕。名單超過 Discord 選單的 25 筆上限時改用搜尋（`/綁定` 的「名字」自動完成，
   或按鈕跳出的搜尋彈窗）。管理員也能手動指定 ID，或**解除綁定**讓成員重新綁。
+- 🧾 **審核結果會回到成員手上** — 退回一定在頻道 @ 當事人並附上原因（成員唯一知道要重繳的管道，
+  不能關閉）；確認收款則可自行選擇要不要通知。一位成員同期多筆合併成一則，不洗版。
+- 📄 **`/我的帳單`** — 成員自助查詢目前待繳與最近 6 筆紀錄，數字與「繳費」按鈕同源。
+- 🔁 **綁錯名字可自助解綁重綁** — 兩段確認、全程僅本人可見，解綁與重綁都寫入稽核；
+  只能釋放自己那一列。
+- 🔔 **入職通知與個別催繳** — CSV 匯入、新增訂閱、重新同步都能在建立帳單的當下 @ 通知；
+  成員×期別頁可單獨催繳某一位。全部去重，並照實列出**未綁定、@ 不到**的人。
 - 📥 **CSV 名單匯入** — 一次上傳就能建立**並維護**名單（例如 Google 表單匯出）：方案欄填 `TRUE`
   代表訂閱（或恢復暫停中的訂閱），`FALSE` 代表暫停該訂閱，留空則完全不動。每次上傳都會先顯示完整
   差異預覽（新成員、新增／暫停／恢復的訂閱、對不到的方案、需人工處理的已取消訂閱）再套用，可冪等重跑。
@@ -64,7 +71,7 @@ ChipPot 解決的是一個很具體的痛點：社團大量採購 OpenAI / Anthr
   截圖保存期清理，全部經 `notification_logs` 去重。
 - 🛡️ **Access 保護的後台** — 整個後台主機在 Cloudflare Access 後（email OTP）；SPA 與其 API 同源，
   Access JWT 因此能到達 Worker。
-- 🧪 **真環境測試** — 355 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
+- 🧪 **真環境測試** — 426 個 Vitest 案例跑在真正的 Miniflare D1 + R2（強制 FK 約束），不是 mock。
 
 ## 一筆繳費怎麼跑
 
@@ -132,7 +139,7 @@ packages/
     src/core/             與管道無關的核心邏輯
     src/adapters/discord/ Ed25519 驗章 · 指令 · handler · 通知
     src/routes/           interactions · upload · admin · images
-    migrations/           D1 schema（0001…0006）
+    migrations/           D1 schema（0001…0007）
     scripts/              register-commands.mjs
     test/                 Vitest（真 Miniflare D1/R2）
   web/                    公開的 token-gated 上傳頁（Vite/React）

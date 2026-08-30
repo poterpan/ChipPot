@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, type ChannelTag, type Payment } from "../api";
+import { api, nudgeSummary, type ChannelTag, type Payment } from "../api";
 import { useAsync, Card, Empty, Money, StatusBadge, IconCheck, IconWarning } from "../ui";
 import { PaymentDetail } from "./PaymentDetail";
 
@@ -17,6 +17,7 @@ export function MemberReview({ userId, period, tags, onBack }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [nudged, setNudged] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [selected, setSelected] = useState<Payment | null>(null);
@@ -92,6 +93,23 @@ export function MemberReview({ userId, period, tags, onBack }: {
                 ? `核准已繳待驗（${reviewable.length} 筆）`
                 : `一鍵全部核准（${reviewable.length} 筆）`}
             </button>
+            {outstanding.length > 0 && (
+              <button
+                className="btn"
+                disabled={busy}
+                title="在帳單頻道 @ 這位成員，列出他這一期還沒繳的項目"
+                onClick={() => run(async () => {
+                  // force: the admin is deliberately asking for another ping, which is the one
+                  // sanctioned way past the per-period nudge dedup (core/nudge.ts).
+                  const r = await api.nudgeMembers({ period, user_ids: [userId], kind: "remind", force: true });
+                  setNudged(nudgeSummary(r));
+                  return null;
+                })}
+              >
+                催繳這位成員（{outstanding.length} 筆未繳）
+              </button>
+            )}
+            {nudged && <span className="mreview__meta">{nudged}</span>}
             {!busy && !done && reviewable.length === 0 && <span className="mreview__meta">目前沒有已繳待驗的紀錄</span>}
             {done && <span className="mreview__ok"><IconCheck />{done}</span>}
           </div>

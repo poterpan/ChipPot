@@ -42,7 +42,7 @@ export default function App() {
     setPreview(f ? URL.createObjectURL(f) : null);
   }
 
-  const subs = info?.subscriptions ?? [];
+  const subs = info?.lines ?? [];
   const tags = info?.channel_tags ?? [];
   const total = subs.reduce((s, x) => s + x.amount, 0);
   const canSubmit = !!file || !!note.trim() || channelId != null;
@@ -77,8 +77,9 @@ export default function App() {
           <div className="state__mark state__mark--bad">✕</div>
           <h2>連結無效或已過期</h2>
           <p className="muted">
-            一次性連結 30 分鐘內有效、且只能使用一次。請回到 Discord 重新點「繳費」按鈕，或使用
-            <code> /繳費 </code>指令。
+            一次性連結 30 分鐘內有效、且只能使用一次。請回到 Discord 點「繳費」按鈕，
+            再選「改用網頁上傳（可附截圖）」取得新的連結；也可以直接用
+            <code> /繳費 </code>指令登記（可附截圖與備註）。
           </p>
         </div>
       </Shell>
@@ -182,7 +183,7 @@ function Stub({
 }: {
   period: string;
   name: string;
-  subs: { id: number; plan_name: string; amount: number }[];
+  subs: { payment_id: number; plan_name: string; amount: number }[];
   total: number;
 }) {
   return (
@@ -193,7 +194,7 @@ function Stub({
       </div>
       <h2 className="stub__hi">嗨，{name || "夥伴"}</h2>
       {subs.map((s) => (
-        <div key={s.id} className="stub__row stub__row--amt">
+        <div key={s.payment_id} className="stub__row stub__row--amt">
           <span className="stub__plan">{s.plan_name}</span>
           <span className="stub__amt">NT${s.amount}</span>
         </div>

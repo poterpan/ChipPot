@@ -7,12 +7,12 @@ import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
 import { ensureFirstPayment, initiateBillingOpened, previewBillingInitiate, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice } from "../core/billing";
-import type { OverduePerson } from "../core/notify";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
-import { payButtonRow, bindButtonRow, PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
+import { payButtonRow, bindButtonRow, payCommand, MY_BILLS_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
 import { discordNotifier } from "../adapters/discord/notify";
 import { announcePaymentReceipt } from "../core/receipt";
+import { sendMemberNudge } from "../core/nudge";
 import { parseRosterCsv, importRoster } from "../core/import";
 import { sendOverdueForPeriod } from "../core/scheduled";
 import { renderTemplate } from "../core/templates";
@@ -129,30 +129,21 @@ async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<R
     after: { period, added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count },
   });
 
-  let notified = 0;
+  // The nudge goes through core/nudge.ts so it is claim-deduped: re-applying a sync no longer
+  // re-@s the same people (P2-4), and the response can say how many could not be reached.
+  // The reconcile is already committed, so a Discord hiccup must not turn a successful apply into
+  // a 500 — sendMemberNudge swallows it and reports an honest `notified`.
+  let nudge = { notified: 0, unbound: 0, unbound_names: [] as string[] };
   if (b.notify_added && diff.add.length) {
-    const wsRow = await env.DB.prepare("SELECT settings FROM workspaces WHERE id = ?").bind(ws).first<{ settings: string }>();
-    const settings = parseSettings(wsRow!.settings);
-    const channelId = settings.discord_billing_channel_id;
-    if (channelId && env.DISCORD_BOT_TOKEN) {
-      const byUser = new Map<number, OverduePerson>();
-      for (const a of diff.add) {
-        if (!a.discord_id) continue; // only bound members can be pinged
-        let e = byUser.get(a.user_id);
-        if (!e) { e = { user_id: a.user_id, discord_id: a.discord_id, user_name: a.user_name, lines: [], total: 0 }; byUser.set(a.user_id, e); }
-        e.lines.push({ plan_name: a.plan_name, amount: a.amount });
-        e.total += a.amount;
-      }
-      const people = [...byUser.values()];
-      // The reconcile is already committed; a Discord hiccup must not turn a successful apply into a
-      // 500. `notified` counts confirmed pings only — the notifier reports a refused send as false.
-      if (people.length) {
-        try { if (await discordNotifier.sendPaymentNudge(env, channelId, ws, period, people)) notified = people.length; }
-        catch { notified = 0; }
-      }
-    }
+    const userIds = [...new Set(diff.add.map((a) => a.user_id))];
+    const r = await sendMemberNudge(env, { workspaceId: ws, period, userIds, kind: "added" }, discordNotifier);
+    nudge = { notified: r.notified, unbound: r.unbound, unbound_names: r.unbound_names };
   }
-  return json({ ok: true, applied: { added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count }, notified });
+  return json({
+    ok: true,
+    applied: { added: diff.add.length, removed: diff.remove.length, repriced: diff.reprice.length, frozen: diff.frozen_count },
+    notified: nudge.notified, unbound: nudge.unbound, unbound_names: nudge.unbound_names,
+  });
 }
 
 /**
@@ -256,6 +247,32 @@ async function notificationsReset(req: Request, env: Env, ctx: RouteCtx): Promis
   const deleted = res.meta.changes ?? 0;
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "notification.reset", entityType: "workspace", entityId: ws, after: { type: b.type, period, deleted } });
   return json({ ok: true, deleted });
+}
+
+/**
+ * 個別催繳: @ specific members in the billing channel with what they still owe. `force` is the
+ * admin saying "再催一次" (delete-then-claim); without it a member is pinged at most once per
+ * period, which is what makes it safe to call automatically after 匯入名單 / 新增訂閱.
+ */
+async function notificationsNudge(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
+  const ws = wsId(ctx);
+  const b = await readJson<{ period?: string; user_ids?: number[]; kind?: string; force?: boolean }>(req);
+  if (!b?.period || !PERIOD_RE.test(b.period)) return errorResponse(400, "period must be YYYY-MM");
+  if (!Array.isArray(b.user_ids) || b.user_ids.length === 0) return errorResponse(400, "user_ids must be a non-empty array");
+  for (const id of b.user_ids) {
+    if (!Number.isInteger(id) || id <= 0) return errorResponse(400, "user_ids must be positive integers");
+  }
+  if (b.kind !== undefined && b.kind !== "added" && b.kind !== "remind") return errorResponse(400, "kind must be added or remind");
+  const r = await sendMemberNudge(
+    env,
+    { workspaceId: ws, period: b.period, userIds: b.user_ids, kind: b.kind === "remind" ? "remind" : "added", force: !!b.force },
+    discordNotifier
+  );
+  await writeAudit(env.DB, {
+    workspaceId: ws, actor: actorOf(ctx), action: "notification.nudge", entityType: "workspace", entityId: ws,
+    after: { period: b.period, requested: b.user_ids.length, notified: r.notified, skipped: r.skipped, unbound: r.unbound, force: !!b.force },
+  });
+  return json({ ok: true, ...r });
 }
 
 // Fire one test notification using the values in the request body (the admin's current, possibly
@@ -638,7 +655,11 @@ async function verifyPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Prom
   try {
     const after = await verifyPayment(env.DB, id, { verifiedBy: actorOf(ctx), verifiedChannelTagId: tagId });
     await writeAudit(env.DB, { workspaceId: before.workspace_id, actor: actorOf(ctx), action: "payment.verify", entityType: "payment", entityId: id, before, after });
-    return json({ ok: true, payment: after });
+    // Opt-in per workspace (receipt_notify_verified); best-effort like the reject path.
+    const notified = await announcePaymentReceipt(
+      env, { workspaceId: before.workspace_id, kind: "verify", paymentIds: [id] }, discordNotifier
+    ).catch((e) => { console.error("verify receipt failed", e); return 0; });
+    return json({ ok: true, payment: after, notified });
   } catch (e) {
     if (e instanceof InvalidPaymentTransition) return errorResponse(409, e.message);
     throw e;
@@ -703,7 +724,12 @@ async function verifyAllHandler(req: Request, env: Env, ctx: RouteCtx): Promise<
     });
   }
   await writeSummary();
-  return json({ ok: true, verified: paymentIds.length, payment_ids: paymentIds });
+  // One member × one period → announcePaymentReceipt aggregates into a SINGLE channel message,
+  // however many bills were swept (Task 4). Opt-in per workspace; best-effort like the reject path.
+  const notified = await announcePaymentReceipt(
+    env, { workspaceId: ws, kind: "verify", paymentIds }, discordNotifier
+  ).catch((e) => { console.error("verify-all receipt failed", e); return 0; });
+  return json({ ok: true, verified: paymentIds.length, payment_ids: paymentIds, notified });
 }
 
 async function rejectPaymentHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
@@ -921,7 +947,8 @@ async function discordRegisterCommands(_req: Request, env: Env, ctx: RouteCtx): 
   if (!env.DISCORD_APPLICATION_ID) return errorResponse(400, "DISCORD_APPLICATION_ID is not set");
   if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "bot token not configured");
 
-  const commands = [PAY_COMMAND, INITIATE_COMMAND, BIND_COMMAND];
+  // The registered payload mirrors this deployment: no R2 → no 截圖 option to offer.
+  const commands = [payCommand(!!env.BUCKET), MY_BILLS_COMMAND, INITIATE_COMMAND, BIND_COMMAND];
   const res = await registerGuildCommands(env.DISCORD_BOT_TOKEN, env.DISCORD_APPLICATION_ID, guildId, commands);
   if (!res.ok) return errorResponse(502, "failed to register commands");
 
@@ -948,6 +975,7 @@ export function buildAdminRouter(): Router<Env> {
     .post("/admin/notifications/resend", notificationsResend)
     .post("/admin/notifications/reset", notificationsReset)
     .post("/admin/notifications/test", testNotification)
+    .post("/admin/notifications/nudge", notificationsNudge)
     .get("/admin/users", listUsers)
     .post("/admin/users", createUser)
     .patch("/admin/users/:id", updateUser)
