@@ -162,7 +162,7 @@ git update-index --skip-worktree packages/worker/wrangler.toml
 | `[vars] ACCESS_TEAM_DOMAIN` | `your-team-name` | 你的 team name（第 4 步） |
 | `[vars] ACCESS_AUD` | `your-access-aud` | 你的 AUD（第 4 步） |
 
-`name`（worker 名稱 `chippot`）、`database_name`（`chippot-db`）、R2 `bucket_name`（`chippot-proofs`）、`crons`（`0 1 * * *` = 台北每天 09:00）可沿用，想改也行。
+`name`（worker 名稱 `chippot`）、`database_name`（`chippot-db`）、R2 `bucket_name`（`chippot-proofs`）、`crons`（`0 1 * * *` = 台北每天 09:00）可沿用，想改也行——**改名是安全的**：deploy 腳本用 binding（`DB`）而不是資料庫名稱來套用遷移。
 
 > `wrangler.toml` 是**所有 Worker runtime 設定的單一真相來源**。Workers Builds / Pages 後台的「Environment variables」欄位是 build 期變數，**不會**成為 Worker 的 runtime `env`，不要把上表的值填在那裡（`VITE_API_BASE` 是例外，見第 6 步）。
 
@@ -182,7 +182,9 @@ git update-index --skip-worktree packages/worker/wrangler.toml
    - Deploy command：`pnpm --filter @chippot/worker run deploy`
 4. 儲存並觸發第一次 deploy。
 
-   > **deploy 腳本做兩件事**：先用 `wrangler d1 migrations apply chippot-db --remote` 自動套用所有未套用的 migration（idempotent，冪等），再執行 `wrangler deploy`。首次部署會套入 0001–0007 的初始 schema 與示範 seed。
+   > **deploy 腳本做兩件事**：先用 `wrangler d1 migrations apply DB --remote` 自動套用所有未套用的 migration（idempotent，冪等），再執行 `wrangler deploy`。首次部署會套入 0001–0007 的初始 schema 與示範 seed。
+   >
+   > 這裡的 `DB` 是 **binding 名稱**（`wrangler.toml` 的 `[[d1_databases]] binding`），不是資料庫名稱。wrangler 會自己從設定檔解析出實際的資料庫——所以你把 `database_name` 改成什麼都不影響，遷移一樣會套用。（早期版本寫死 `chippot-db`，fork 改名後遷移會**靜默不執行**，直到有人發現資料表缺欄位。）
    >
    > ⚠️ **破壞性 migration**（例如刪欄位、重命名）：建議在低流量時段先在 Cloudflare 後台 D1 console 或 CLI 手動套 migration，確認無誤再推 code 觸發 deploy——避免「新 schema 配舊 worker 程式」的短暫窗口期。
 
@@ -272,7 +274,7 @@ pnpm --filter @chippot/worker run deploy
 
 此 deploy 腳本等同於：
 ```bash
-wrangler d1 migrations apply chippot-db --remote && wrangler deploy
+wrangler d1 migrations apply DB --remote && wrangler deploy
 ```
 
 > migration 冪等，只套未套過的版本。首次會建立完整 schema 與示範 seed。破壞性 migration 請見路徑一 6-1 的注意事項。
