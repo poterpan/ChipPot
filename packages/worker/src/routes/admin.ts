@@ -156,9 +156,10 @@ async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<R
 /**
  * "收回此期開繳": undo a mis-opened period — drop its pending/rejected bills (paid/verified stay
  * frozen) and its billing_opened marker, putting the period back to "unopened" so it can be opened
- * again later. dry_run defaults to true (safe preview), matching /sync. A period that is not open
- * is a 200 no-op; the audit records only real retracts, so `billing.retract` never claims a change
- * that did not happen.
+ * again later. It also clears the unpayable bills a period can hold WITHOUT ever having been opened
+ * (新增訂閱／匯入名單 bill the start month directly — see core/billing.ts). dry_run defaults to true
+ * (safe preview), matching /sync. A period with nothing to retract is a 200 no-op; the audit records
+ * only real retracts, so `billing.retract` never claims a change that did not happen.
  */
 async function retractPeriodHandler(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const ws = wsId(ctx);
@@ -169,12 +170,15 @@ async function retractPeriodHandler(req: Request, env: Env, ctx: RouteCtx): Prom
   const r = await retractPeriodBilling(env, ws, period, { dryRun });
   if (dryRun) return json(r);
 
-  // Report the batch's real effects, not the preview snapshot. `applied` is absent when the period
-  // was already unopened, and marker_cleared is false when a concurrent retract cleared the marker
-  // first — either way this call retracted nothing, so it must neither audit nor claim success.
+  // Report the batch's real effects, not the preview snapshot. `applied` is absent when there was
+  // nothing to retract at all, so that call neither audits nor claims success.
+  // A call counts as a real retract when it cleared the marker OR deleted bills: clearing the
+  // marker is not the only work there is — a period billed by 新增訂閱／匯入名單 never had one
+  // (core/billing.ts), and a concurrent retract may have taken the marker while this call still
+  // deleted rows. Both are work that must be audited; neither may be reported as a no-op.
   const removed = r.applied?.removed ?? 0;
   const frozen = r.applied?.frozen ?? 0;
-  const retracted = r.applied?.marker_cleared ?? false;
+  const retracted = (r.applied?.marker_cleared ?? false) || removed > 0;
   if (retracted) {
     await writeAudit(env.DB, {
       workspaceId: ws, actor: actorOf(ctx), action: "billing.retract", entityType: "workspace", entityId: ws,

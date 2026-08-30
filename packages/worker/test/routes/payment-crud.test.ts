@@ -206,6 +206,58 @@ describe("POST /admin/billing/:period/retract", () => {
   });
 });
 
+// 新增訂閱 / 匯入名單 bill the start month via ensureFirstPayment WITHOUT opening it, so a
+// mis-added subscription leaves an unpayable pending bill in an unopened period. The route must let
+// the admin clear those the same previewed-then-confirmed way, and audit only when it really did.
+describe("POST /admin/billing/:period/retract on an unopened period that holds bills", () => {
+  const PER = "2029-04";       // never opened — no billing_opened row is ever inserted for it
+  const SUB_DUP = 9260, SUB_SETTLED = 9261;
+  const auditCount = async () => (await env.DB.prepare(
+    "SELECT COUNT(*) c FROM audit_logs WHERE action='billing.retract' AND entity_type='workspace' AND entity_id=?"
+  ).bind(WS).first<{ c: number }>())!.c;
+  let base = 0;
+
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(SUB_DUP,WS,U,1,`${PER}-01`,5,"active",TS,TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(SUB_SETTLED,WS,U,1,`${PER}-01`,5,"active",TS,TS),
+      env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS,SUB_DUP,PER,`${PER}-01`,`${PER}-30`,`${PER}-05`,315,"pending","cron",TS,TS),
+      env.DB.prepare(`INSERT INTO payments (workspace_id,subscription_id,period,period_start,period_end,due_date,amount,status,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(WS,SUB_SETTLED,PER,`${PER}-01`,`${PER}-30`,`${PER}-05`,315,"verified","admin_manual",TS,TS),
+    ]);
+    base = await auditCount();
+  });
+
+  it("previews the removable bills although the period was never opened", async () => {
+    const res = await call("POST", `/admin/billing/${PER}/retract`); // dry-run default
+    expect(res!.status).toBe(200);
+    const d = await res!.json() as any;
+    expect(d.opened).toBe(false);
+    expect(d.removed.map((r: any) => r.subscription_id)).toEqual([SUB_DUP]);
+    expect(d.frozen_count).toBe(1);
+    expect(await auditCount()).toBe(base); // a preview never audits
+  });
+
+  it("apply deletes them and audits once, even with no marker to clear", async () => {
+    const res = await call("POST", `/admin/billing/${PER}/retract`, { dry_run: false });
+    expect(res!.status).toBe(200);
+    const r = await res!.json() as any;
+    expect(r.opened).toBe(true);   // this call really retracted something
+    expect(r.applied).toMatchObject({ removed: 1, frozen: 1 });
+    const gone = await env.DB.prepare("SELECT id FROM payments WHERE subscription_id=? AND period=?").bind(SUB_DUP,PER).first();
+    expect(gone).toBeNull();
+    const kept = await env.DB.prepare("SELECT status FROM payments WHERE subscription_id=? AND period=?").bind(SUB_SETTLED,PER).first<{status:string}>();
+    expect(kept?.status).toBe("verified");
+    expect(await auditCount()).toBe(base + 1);
+  });
+
+  it("is a no-op afterwards, without a second audit", async () => {
+    const res = await call("POST", `/admin/billing/${PER}/retract`, { dry_run: false });
+    const r = await res!.json() as any;
+    expect(r.opened).toBe(false);
+    expect(await auditCount()).toBe(base + 1);
+  });
+});
+
 describe("PATCH /admin/users/:id keeps unspecified email/note", () => {
   it("does not null email/note when omitted", async () => {
     await env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,email,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)

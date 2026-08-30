@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ensurePeriodPayment, reconcilePeriodBills, retractPeriodBilling } from "../../src/core/billing";
+import { ensureFirstPayment, ensurePeriodPayment, reconcilePeriodBills, retractPeriodBilling } from "../../src/core/billing";
 import { claimNotification } from "../../src/core/notify";
 
 // Fresh id band for this file: workspace/plan 9700, users/subs 970xx, proof keys "proof-9700*".
@@ -231,5 +231,75 @@ describe("retractPeriodBilling apply is set-based and reports real work", () => 
     const left = await env.DB.prepare("SELECT COUNT(*) c FROM notification_logs WHERE workspace_id=? AND type='billing_opened' AND period=?")
       .bind(W, PER_RACE).first<{ c: number }>();
     expect(left!.c).toBe(0);
+  });
+});
+
+// A period can hold unpaid bills WITHOUT ever having been opened: 新增訂閱 / 匯入名單 call
+// ensureFirstPayment, which bills the start_date's month directly and never claims billing_opened.
+// Those bills are unpayable (members' pay button keys off the marker) and — before this block —
+// unclearable in bulk, because retract refused to touch an unopened period. That is the state the
+// duplicate-subscription bug left behind, so retract must be able to clean it.
+// Fresh band: workspace/plan 9720, user 97201, subs 972xx.
+describe("retractPeriodBilling clears an unopened period's accidental bills", () => {
+  const W = 9720, PL = 9720, UU = 97201;
+  const PER = "2029-03";                       // never opened: no billing_opened row anywhere below
+  const S_DUP1 = 97201, S_DUP2 = 97202, S_PAID2 = 97203, S_ACTIVE = 97204;
+
+  const countOpened = async () => (await env.DB.prepare(
+    "SELECT COUNT(*) c FROM notification_logs WHERE workspace_id=? AND type='billing_opened' AND period=?"
+  ).bind(W, PER).first<{ c: number }>())!.c;
+
+  beforeAll(async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO workspaces (id,name,owner_id,channel_type,billing_day,settings,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(W,"W3","o","discord",1,"{}",TS,TS),
+      env.DB.prepare(`INSERT INTO plans (id,workspace_id,name,provider,monthly_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(PL,W,"GPT","openai",999,TS,TS),
+      env.DB.prepare(`INSERT INTO users (id,workspace_id,display_name,discord_id,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(UU,W,"重複成員","disc-9720",TS,TS),
+      // three subscriptions of the SAME member+plan — the duplicate-click shape from the bug report
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_DUP1,W,UU,PL,`${PER}-01`,1,"active",TS,TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_DUP2,W,UU,PL,`${PER}-01`,1,"active",TS,TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_PAID2,W,UU,PL,`${PER}-01`,1,"active",TS,TS),
+      env.DB.prepare(`INSERT INTO subscriptions (id,workspace_id,user_id,plan_id,start_date,billing_day,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(S_ACTIVE,W,UU,PL,`${PER}-01`,1,"active",TS,TS),
+    ]);
+    // exactly what routes/admin.ts createSubscription does after the INSERT
+    for (const s of [S_DUP1, S_DUP2, S_PAID2]) await ensureFirstPayment(env.DB, s);
+    // one of them was already settled by hand — settled money must survive a retract (#40)
+    await env.DB.prepare("UPDATE payments SET status='paid', paid_at=? WHERE subscription_id=? AND period=?").bind(TS, S_PAID2, PER).run();
+  });
+
+  it("previews the unpayable bills instead of pretending there is nothing to do", async () => {
+    expect(await countOpened()).toBe(0); // precondition: the period was never opened
+    const r = await retractPeriodBilling(env, W, PER, { dryRun: true });
+    expect(r.opened).toBe(false); // no marker — and that is precisely the case that used to be unreachable
+    expect(new Set(r.removed.map((x) => x.subscription_id))).toEqual(new Set([S_DUP1, S_DUP2]));
+    expect(r.frozen_count).toBe(1);
+    // a preview still writes nothing
+    const c = (await env.DB.prepare("SELECT COUNT(*) c FROM payments WHERE workspace_id=? AND period=?").bind(W, PER).first<{ c: number }>())!.c;
+    expect(c).toBe(3);
+  });
+
+  it("apply deletes them, freezes the paid one, and never invents a marker it did not clear", async () => {
+    const r = await retractPeriodBilling(env, W, PER, { dryRun: false });
+    expect(r.applied).toMatchObject({ removed: 2, frozen: 1, marker_cleared: false });
+    const rows = (await env.DB.prepare("SELECT subscription_id sid, status FROM payments WHERE workspace_id=? AND period=?")
+      .bind(W, PER).all<{ sid: number; status: string }>()).results;
+    expect(rows).toEqual([{ sid: S_PAID2, status: "paid" }]);
+    expect(await countOpened()).toBe(0); // still unopened; the retract did not "close" anything
+  });
+
+  it("is an honest no-op once only settled bills remain", async () => {
+    const r = await retractPeriodBilling(env, W, PER, { dryRun: false });
+    expect(r.opened).toBe(false);
+    expect(r.removed).toEqual([]);
+    expect(r.applied).toBeUndefined(); // nothing happened → the route must not audit
+  });
+
+  // The gate loosening is retract-only. reconcile's `add` path CREATES bills; letting it run on an
+  // unopened period would pre-bill months nobody opened — the hazard billing_opened exists to stop.
+  it("does not loosen reconcile: an unopened period is still left alone", async () => {
+    const d = await reconcilePeriodBills(env, W, PER, { dryRun: false });
+    expect(d.opened).toBe(false);
+    expect(d.add).toEqual([]);
+    const c = (await env.DB.prepare("SELECT COUNT(*) c FROM payments WHERE workspace_id=? AND period=?").bind(W, PER).first<{ c: number }>())!.c;
+    expect(c).toBe(1); // still just the frozen bill — no bill was created for S_ACTIVE
   });
 });

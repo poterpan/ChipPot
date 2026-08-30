@@ -296,14 +296,27 @@ function RetractModal({ period, onClose, onDone }: { period: string; onClose: ()
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
 
+  // "Is there anything to retract" is NOT "is the period opened": 新增訂閱／匯入名單 bill the start
+  // month immediately without opening it, so a mis-added subscription leaves unpayable 待繳 bills in
+  // an unopened period. Showing "無需收回" there was the dead end the owner hit with 8 duplicate bills
+  // on screen. The worker answers the same question — it previews those bills instead of refusing.
+  const clearable = !!preview && (preview.opened || preview.removed.length > 0);
+
   return (
     <Modal title={`收回此期開繳 · ${period}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
       {busy && !preview && <Empty>計算差異中…</Empty>}
       {done && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{done}</div>}
-      {preview && !preview.opened && !done && <p style={{ color: "var(--muted)" }}>此期尚未發起繳費，無需收回。</p>}
-      {preview && preview.opened && !done && (
+      {preview && !clearable && !done && <p style={{ color: "var(--muted)" }}>此期尚未發起繳費，也沒有可清除的待繳／已退回帳單。</p>}
+      {preview && clearable && !done && (
         <>
+          {!preview.opened && (
+            <div className="warnnote">
+              此期<b>尚未發起繳費</b>，但已經有 {preview.removed.length} 筆待繳／已退回帳單——這是「新增訂閱」或「匯入名單」在建立訂閱時直接開出來的，成員目前繳不了。
+              可以在這裡一次清掉；日後正式發起繳費時會依名單重新開帳單。
+              （若這些帳單是誤按多次「新增訂閱」造成的，記得也到「成員／訂閱」刪掉重複的訂閱，否則下次開繳會再開一次。）
+            </div>
+          )}
           <div className="stats">
             <Stat label="🗑️ 將刪除" value={preview.removed.length} />
             <Stat label="🔒 保留（已繳待驗、已驗證）" value={preview.frozen_count} />
@@ -315,9 +328,9 @@ function RetractModal({ period, onClose, onDone }: { period: string; onClose: ()
           <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.7, margin: "12px 0" }}>
             {/* One source line per sentence would render an ASCII space between them (JSX joins
                 adjacent text lines), which reads as a gap in a run of CJK. */}
-            收回後此期回到「未開繳」：刪掉的帳單不會被「重新同步此期帳單」補回來，日後可以再次發起繳費（屆時會重新發送開繳通知）。此期先前用「產生上傳連結」發出去的一次性連結會<b>立即失效</b>，對方點開只會看到連結無效。
+            {preview.opened ? "收回後此期回到「未開繳」：" : "此期維持「未開繳」："}刪掉的帳單不會被「重新同步此期帳單」補回來，日後可以再次發起繳費（屆時會重新發送開繳通知）。此期先前用「產生上傳連結」發出去的一次性連結會<b>立即失效</b>，對方點開只會看到連結無效。
             {preview.frozen_count > 0 && `已繳／已驗證的 ${preview.frozen_count} 筆一律原樣保留，重開此期也不會重複產生帳單。`}
-            已經發出的 Discord 開繳通知不會撤回，必要時請自行到頻道說明。
+            {preview.opened && "已經發出的 Discord 開繳通知不會撤回，必要時請自行到頻道說明。"}
           </p>
           <button className="btn btn--danger" disabled={busy} onClick={apply}>確認收回</button>
         </>

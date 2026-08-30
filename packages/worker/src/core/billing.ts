@@ -535,11 +535,12 @@ export interface RetractEffects {
 }
 
 export interface RetractResult {
+  /** Whether the billing_opened marker was there — NOT "was there anything to retract" (see below). */
   opened: boolean;
   /** Preview of the bills to delete, as seen when the diff was computed. */
   removed: ReconcileLine[];
   frozen_count: number;
-  /** Apply only (absent on a dry run or an already-unopened period); the real, post-batch truth. */
+  /** Apply only (absent on a dry run or when there was nothing to retract); the real, post-batch truth. */
   applied?: RetractEffects;
 }
 
@@ -554,6 +555,20 @@ export interface RetractResult {
  * and re-opening the period leaves those rows alone (UNIQUE(subscription_id, period)).
  * Unlike reconcile, the subscription's roster status is irrelevant: the whole period is retracted.
  * Discord notices already sent are left as-is (owner decision: retracts happen before members read).
+ *
+ * The gate is "is there anything to retract", NOT "is the marker there". A period can hold unpaid
+ * bills it never opened: 新增訂閱 and 匯入名單 both call ensureFirstPayment, which bills the
+ * start_date's month directly without claiming billing_opened. Those bills are unpayable (the
+ * member pay button and listOpenPayablePeriods key off the marker) and used to be unclearable in
+ * bulk — the exact wreckage a mis-clicked 新增訂閱 leaves behind. Running here on such a period
+ * grants no new authority: DELETE /admin/payments/:id can already delete any one of those rows;
+ * this only makes it one previewed-and-confirmed operation instead of N. Every other guard is
+ * untouched — the payment DELETE still carries status IN ('pending','rejected') so settled money
+ * stays frozen, and the marker is still only ever deleted inside the same batch that clears the
+ * bills, so the "unopened period with bills standing" half-retract still cannot be created here
+ * (routes/admin.ts's notificationsReset still 409s the request that would).
+ * reconcile deliberately keeps the stricter marker gate: its `add` path CREATES bills, and running
+ * it on an unopened period would pre-bill months nobody opened.
  */
 export async function retractPeriodBilling(
   env: Env,
@@ -561,7 +576,7 @@ export async function retractPeriodBilling(
   period: string,
   opts: { dryRun: boolean }
 ): Promise<RetractResult> {
-  if (!(await isPeriodOpened(env, workspaceId, period))) return { opened: false, removed: [], frozen_count: 0 };
+  const opened = await isPeriodOpened(env, workspaceId, period);
 
   const existing = (await env.DB.prepare(
     `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.amount AS amount, p.status AS status,
@@ -579,7 +594,11 @@ export async function retractPeriodBilling(
     removed.push({ payment_id: e.payment_id, subscription_id: e.subscription_id, user_id: e.user_id, user_name: e.user_name, plan_name: e.plan_name, amount: e.amount, discord_id: e.discord_id, screenshot_key: e.screenshot_key });
   }
 
-  if (opts.dryRun) return { opened: true, removed, frozen_count };
+  // Neither a marker nor a clearable bill: there is genuinely nothing to retract. Reported without
+  // `applied`, so the route audits nothing and the modal can say so instead of offering a red button.
+  if (!opened && removed.length === 0) return { opened: false, removed: [], frozen_count };
+
+  if (opts.dryRun) return { opened, removed, frozen_count };
 
   // ONE batch: a half-applied retract (bills gone, period still "opened") is the worst outcome —
   // the next reconcile would refill exactly what we just deleted. Statement order is fixed so each
@@ -629,7 +648,7 @@ export async function retractPeriodBilling(
   ).bind(workspaceId, period).first<{ c: number }>())!.c;
 
   return {
-    opened: true, removed, frozen_count,
+    opened, removed, frozen_count,
     applied: {
       removed: res[1]!.meta.changes ?? 0,
       frozen,

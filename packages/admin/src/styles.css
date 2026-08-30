@@ -385,6 +385,11 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
 .tag--warn { background: #f6ead2; color: var(--amber); }
 .act-feedback { font-size: 12.5px; }
 .warnnote { background: #fbf1dd; border: 1px solid #ecc98e; color: #7a5a16; font-size: 12.5px; border-radius: 8px; padding: 8px 11px; margin-bottom: 14px; line-height: 1.5; }
+/* Outcome of a one-off action that already succeeded (新增訂閱): it must survive the modal closing,
+   so it lives on the list page and only leaves when the admin dismisses it. Same button geometry as
+   .error-banner--act so the two read as one family. */
+.donenote { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #e4efe9; border: 1px solid #a9cabf; color: var(--teal-ink); font-size: 13.5px; border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; line-height: 1.6; }
+.donenote .btn { margin-left: auto; flex: 0 0 auto; min-height: 36px; }
 
 /* sticky save bar: only the saved settings; one-off tools are independent */
 .savebar { position: fixed; left: 232px; right: 0; bottom: 0; display: flex; align-items: center; gap: 12px; padding: 12px 28px; background: rgba(255,255,255,.92); backdrop-filter: blur(6px); border-top: 1px solid var(--line); z-index: 20; }

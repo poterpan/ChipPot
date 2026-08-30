@@ -433,6 +433,10 @@ function ImportModal({ onClose }: { onClose: () => void }) {
       {diff && (
         <>
           {done && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{done}</div>}
+          {/* Outside the `!done` block below on purpose: `done` is set BEFORE the nudge runs, so
+              rendering the notify outcome in there meant nobody ever saw it after an apply — the
+              admin was told the import landed but never that N people could not be reached. */}
+          {nudged && <div style={{ color: "var(--muted-strong)", fontSize: 13, padding: "4px 0" }}>{nudged}</div>}
           <div className="stats">
             <Stat label="新成員" value={diff.users_created.length} />
             <Stat label="新增訂閱" value={diff.subs_added.length} />
@@ -476,7 +480,6 @@ function ImportModal({ onClose }: { onClose: () => void }) {
               套用後在頻道 @ 通知這批成員繳費（尚未綁定 Discord 的人通知不到，會列出來）
             </label>
           )}
-          {nudged && <div style={{ color: "var(--muted-strong)", fontSize: 13, padding: "4px 0" }}>{nudged}</div>}
               <button className="btn btn--primary" onClick={apply} disabled={busy}>{busy ? "套用中…" : "確認套用"}</button>
             </>
           )}

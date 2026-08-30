@@ -133,6 +133,8 @@ const SUB_STATUS_LABEL: Record<string, string> = Object.fromEntries(SUB_STATUSES
 export function Subscriptions() {
   const { data, loading, error, reload } = useAsync(() => api.subscriptions(), []);
   const [add, setAdd] = useState(false);
+  // 新增訂閱的結果留在清單頁，不留在彈窗裡：訂閱一旦建立成功就關窗＋刷新，通知結果只是附註。
+  const [addNote, setAddNote] = useState<string | null>(null);
   const [edit, setEdit] = useState<Subscription | null>(null);
   const [del, setDel] = useState<Subscription | null>(null);
   const [q, setQ] = useState("");
@@ -144,6 +146,12 @@ export function Subscriptions() {
   return (
     <>
       {error && <ErrorNote message={error} onRetry={reload} />}
+      {addNote && (
+        <div className="donenote" role="status">
+          <span>{addNote}</span>
+          <button className="btn" onClick={() => setAddNote(null)}>知道了</button>
+        </div>
+      )}
       <Card title="訂閱清單" action={
         <>
           <TableFilter value={q} onChange={setQ} placeholder="搜尋成員／方案" shown={shown.length} total={all.length} />
@@ -174,7 +182,7 @@ export function Subscriptions() {
           </table>
         </Tbl>
       </Card>
-      {add && <SubAddModal onClose={() => setAdd(false)} onDone={() => { setAdd(false); reload(); }} />}
+      {add && <SubAddModal onClose={() => setAdd(false)} onDone={(note) => { setAdd(false); setAddNote(note); reload(); }} />}
       {edit && <SubEditModal sub={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}
       {del && (
         <ConfirmDanger
@@ -187,25 +195,33 @@ export function Subscriptions() {
     </>
   );
 }
-function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: (note: string) => void }) {
   const users = useAsync(() => api.users(), []);
   const plans = useAsync(() => api.plans(), []);
   const [f, set] = useForm({ user_id: "", plan_id: "", start_date: "" });
   const [notify, setNotify] = useState(true);
-  const [nudged, setNudged] = useState<string | null>(null);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   async function save() {
+    if (busy) return; // belt: the button is also disabled while in flight
     if (!f.user_id || !f.plan_id || !f.start_date) { setErr("請填成員、方案、起算日"); return; }
     setBusy(true); setErr(null);
+    const period = f.start_date.slice(0, 7);
     try {
       await api.createSubscription({ user_id: Number(f.user_id), plan_id: Number(f.plan_id), start_date: f.start_date });
-      // 建立訂閱會立刻開出第一期帳單，但沒有任何人會告訴這位成員 (C1)。訂閱已經建立成功，
-      // 所以通知沒送成不算失敗——顯示原因後停在原地，讓管理員知道發生什麼事再自行關閉。
+      // 過了這一行，訂閱和第一期帳單都已經寫進 DB，所以「成功」必須無條件反映在 UI 上：關窗、刷新清單。
+      // 通知只是附註 (C1: 建立訂閱會立刻開出第一期帳單，但沒有任何人會告訴這位成員)。這裡曾經在
+      // notified === 0 時提早 return，把彈窗留在原地——管理員以為沒建成就再按一次，每按一次就多
+      // 一筆訂閱＋一筆帳單，而那些帳單落在未開繳的期別裡（收回此期開繳現在也清得掉，見 Payments.tsx）。
+      let note = `✓ 已新增訂閱，並開出 ${period} 帳單。`;
       if (notify) {
-        const r = await api.nudgeMembers({ period: f.start_date.slice(0, 7), user_ids: [Number(f.user_id)], kind: "added" });
-        if (r.notified === 0) { setNudged(nudgeSummary(r)); setBusy(false); return; }
+        try {
+          note += nudgeSummary(await api.nudgeMembers({ period, user_ids: [Number(f.user_id)], kind: "added" }));
+        } catch (e) {
+          // 通知失敗不能回頭否定已經成立的訂閱——照實說，但訂閱仍然算建立成功。
+          note += `通知發送失敗：${(e as Error).message}`;
+        }
       }
-      onDone();
+      onDone(note);
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
   return (
@@ -223,8 +239,7 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
       <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
         <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} disabled={busy} /> 建立後在頻道 @ 通知這位成員繳費
       </label>
-      {nudged && <div style={{ color: "var(--muted-strong)", fontSize: 13, marginBottom: 10 }}>{nudged}</div>}
-      <button className="btn btn--primary" onClick={save} disabled={busy}>建立</button>
+      <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? "建立中…" : "建立"}</button>
     </Modal>
   );
 }
