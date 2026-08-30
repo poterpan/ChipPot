@@ -234,14 +234,18 @@ html.modal-open .main { overflow: hidden; }
    and landscape phones (844/932). 980px is in range on purpose: an in-app WebView
    (Google Messages / Samsung) that has no viewport meta applied yet falls back to the
    legacy 980px layout viewport on first load, and must not get the desktop layout.
-   Five blocks in this file use it:
+   Six blocks in this file use it (keep this list current — it is what keeps them in sync):
      @media (max-width: 1000px)  — this one (shell), the settings/savebar block,
-                                    the .tbl-cards + bottom-sheet block
+                                    the .tbl-cards + bottom-sheet block,
+                                    the filter/card-head block
      @media (min-width: 1001px)  — the sticky pinned-column block (.tbl--pin-*),
                                     the .mrow two-column block
-   Change all of them together or the layout desynchronises. Above 1000px, wide tables
-   stay tables; their row actions are kept reachable by pinning the identity and action
-   columns rather than by moving this breakpoint up again.
+   Change all of them together or the layout desynchronises.
+   The pairs are written 1000 / 1001 rather than as a range: a fractional viewport width
+   (1000 < w < 1001, possible on a scaled display) matches neither side and falls back to
+   the base rules, which are the scrollable layout — degraded but usable, never broken.
+   Above 1000px, wide tables stay tables; their row actions are kept reachable by pinning
+   the identity and action columns rather than by moving this breakpoint up again.
    ───────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 1000px) {
   /* Block flow, not grid: a sticky grid item is confined to its own grid area, which for a
