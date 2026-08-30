@@ -216,7 +216,7 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
         options={(users.data?.users ?? []).map((u) => ({ value: String(u.id), label: u.display_name }))} />
       <FilterSelect label="方案" value={f.plan_id} disabled={busy}
         onChange={(v) => set("plan_id", v)}
-        options={(plans.data?.plans ?? []).filter((p) => p.active).map((p) => ({ value: String(p.id), label: `${p.name}（NT$${p.monthly_amount}）` }))} />
+        options={(plans.data?.plans ?? []).filter((p) => p.active).map((p) => ({ value: String(p.id), label: `${p.name}（NT$${p.monthly_amount.toLocaleString()}）` }))} />
       {/* type=date, not a bare text box with a placeholder: everywhere else in the app a date is
           picked (Settings and the payment modals all use type="month"). */}
       <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
@@ -286,7 +286,7 @@ export function Plans() {
                 <tr key={p.id}>
                   <td data-label="名稱">{p.name}</td>
                   <td data-label="供應商">{p.provider}</td>
-                  <td data-label="月費" className="right mono">NT${p.monthly_amount}</td>
+                  <td data-label="月費" className="right mono">NT${p.monthly_amount.toLocaleString()}</td>
                   <td data-label="身分組 ID" className="mono" style={{ fontSize: 12 }}>{p.discord_role_id ?? "—"}</td>
                   <td data-label="啟用">{p.active ? "✓" : "—"}</td>
                   <td className="right">
@@ -334,7 +334,7 @@ function PlanModal({ plan, providers, onClose, onDone }: { plan: Plan | null; pr
         <datalist id="plan-providers">{providers.map((pv) => <option key={pv} value={pv} />)}</datalist>
       </Field>
       <Field label="月費 (TWD)"><input type="number" value={f.monthly_amount} onChange={(e) => set("monthly_amount", e.target.value)} disabled={busy} /></Field>
-      <Field label="Discord 身分組 ID（通知 tag 用）"><input value={f.discord_role_id} onChange={(e) => set("discord_role_id", e.target.value)} disabled={busy} /></Field>
+      <Field label="Discord 身分組 ID（僅用於通知時 @ 該身分組，不會自動發放或回收身分組）"><input value={f.discord_role_id} onChange={(e) => set("discord_role_id", e.target.value)} disabled={busy} /></Field>
       <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}><input type="checkbox" checked={!!f.active} onChange={(e) => set("active", e.target.checked ? 1 : 0)} disabled={busy} /> 啟用</label>
       <button className="btn btn--primary" onClick={save} disabled={busy}>儲存</button>
     </Modal>
