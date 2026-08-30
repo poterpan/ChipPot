@@ -68,7 +68,8 @@ export async function handleUpload(req: Request, env: Env, ctx: RouteCtx): Promi
   }
 
   if (!hasFile && !note && declaredChannelTagId === null) {
-    return errorResponse(400, "請至少附上截圖、填寫備註，或選擇渠道。");
+    // §A.12 的正規句，與網頁與 Discord 三處同一句、同一欄位順序；沒有 R2 時頁面沒有截圖欄。
+    return errorResponse(400, env.BUCKET ? "渠道、截圖、備註至少填一項。" : "渠道、備註至少填一項。");
   }
 
   let proof: { body: ArrayBuffer; ext: string; contentType: string } | null = null;

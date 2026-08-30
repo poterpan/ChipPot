@@ -209,7 +209,7 @@ async function computePayResult(i: DiscordInteraction, env: Env, ctx: ExecutionC
   // At-least-one rule (slash): 渠道 / 截圖 / 備註.
   if (!declaredChannelTagId && !proof && !note) {
     if (screenshotIgnored) return "本站未開啟截圖功能，請改用「渠道」或「備註」登記繳費。";
-    return "請至少選擇「渠道」、附上「截圖」或填寫「備註」其中一項。";
+    return "渠道、截圖、備註至少填一項。";
   }
 
   const r = await settleUserPeriod(env, {

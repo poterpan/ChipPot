@@ -46,10 +46,15 @@ export default function App() {
   const tags = info?.channel_tags ?? [];
   const total = subs.reduce((s, x) => s + x.amount, 0);
   const canSubmit = !!file || !!note.trim() || channelId != null;
+  // §A.12 的正規句：欄位順序固定為 渠道 → 截圖 → 備註；沒有 R2 時截圖欄整個不存在，句子也跟著少一項。
+  const atLeastOne = info?.proof_enabled === false ? "渠道、備註至少填一項。" : "渠道、截圖、備註至少填一項。";
 
   async function submit() {
     if (!token) return;
-    if (!canSubmit) return; // the button is disabled on the same condition (:158) — belt only
+    if (!canSubmit) {
+      setError(atLeastOne); // the submit button is disabled on the same condition — belt only
+      return;
+    }
     setError(null);
     setStage("submitting");
     const blob = file ? await compressImage(file) : null;
@@ -157,7 +162,7 @@ export default function App() {
         <button className="submit" onClick={submit} disabled={busy || !canSubmit}>
           {busy ? "上傳中…" : "送出繳費"}
         </button>
-        <p className="muted small center">{info?.proof_enabled === false ? "渠道或備註至少填一項。" : "渠道、截圖或備註至少填一項。"}此連結僅限你本人、此月份使用，送出後即失效。</p>
+        <p className="muted small center">{atLeastOne}此連結僅限你本人、此月份使用，送出後即失效。</p>
       </div>
     </Shell>
   );
