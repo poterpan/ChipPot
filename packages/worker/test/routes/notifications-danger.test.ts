@@ -108,10 +108,10 @@ describe("POST /admin/notifications/resend", () => {
 });
 
 describe("POST /admin/notifications/reset", () => {
-  it("拒絕重置 billing_opened，並指向收回本期開繳", async () => {
+  it("拒絕重置 billing_opened，並指向收回此期開繳", async () => {
     const r = await call("POST", "/admin/notifications/reset", { type: "billing_opened", period: OPENED });
     expect(r!.status).toBe(409);
-    expect(((await r!.json()) as any).error).toContain("收回本期開繳");
+    expect(((await r!.json()) as any).error).toContain("收回此期開繳");
     // marker 必須還在 —— 這正是這個 409 要保護的東西
     const row = await env.DB.prepare(
       "SELECT 1 AS ok FROM notification_logs WHERE workspace_id = 1 AND type = 'billing_opened' AND period = ?"

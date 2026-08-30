@@ -111,7 +111,7 @@ async function billingInitiate(req: Request, env: Env, ctx: RouteCtx): Promise<R
 }
 
 /**
- * "重新同步本期帳單": reconcile a period's bills to the current roster. dry_run defaults to true (safe
+ * "重新同步此期帳單": reconcile a period's bills to the current roster. dry_run defaults to true (safe
  * preview) — only an explicit { dry_run: false } applies. With { notify_added: true }, after applying it
  * pings the newly-added BOUND members in the billing channel with a pay button.
  */
@@ -147,7 +147,7 @@ async function syncPeriodBills(req: Request, env: Env, ctx: RouteCtx): Promise<R
 }
 
 /**
- * "收回本期開繳": undo a mis-opened period — drop its pending/rejected bills (paid/verified stay
+ * "收回此期開繳": undo a mis-opened period — drop its pending/rejected bills (paid/verified stay
  * frozen) and its billing_opened marker, putting the period back to "unopened" so it can be opened
  * again later. dry_run defaults to true (safe preview), matching /sync. A period that is not open
  * is a 200 no-op; the audit records only real retracts, so `billing.retract` never claims a change
@@ -238,9 +238,9 @@ async function notificationsReset(req: Request, env: Env, ctx: RouteCtx): Promis
   // The billing_opened row is not a send log — it IS the definition of "this period is open"
   // (core/notify.ts isBillingOpened, core/db.ts listOpenPayablePeriods). Deleting it alone leaves
   // every pending bill standing in a period members can no longer pay: a half retract. The whole
-  // operation lives in 收回本期開繳, which also deletes the bills and the upload tokens.
+  // operation lives in 收回此期開繳, which also deletes the bills and the upload tokens.
   if (b.type === "billing_opened") {
-    return errorResponse(409, "開繳紀錄不能單獨重置（那會讓本期回到未開繳、帳單卻全留著）。請到「繳費審核」使用「收回本期開繳」。");
+    return errorResponse(409, "開繳紀錄不能單獨重置（那會讓此期回到未開繳、帳單卻全留著）。請到「繳費審核」使用「收回此期開繳」。");
   }
   const res = await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id = ? AND type = ? AND period = ?")
     .bind(ws, b.type, period).run();

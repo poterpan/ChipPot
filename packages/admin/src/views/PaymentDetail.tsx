@@ -78,7 +78,7 @@ export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Pay
           // paid/verified/rejected all carry real activity; only pending is re-creatable by a resync.
           message={payment.status !== "pending"
             ? "這筆已有繳費／審核紀錄，刪除後將從對帳與紀錄中消失且無法復原（稽核紀錄仍會保留）。"
-            : "刪除這筆待繳紀錄後，「重新同步本期」會在該訂閱仍為啟用時把它補回來（稽核紀錄仍會保留）。"}
+            : "刪除這筆待繳紀錄後，「重新同步此期帳單」會在該訂閱仍為啟用時把它補回來（稽核紀錄仍會保留）。"}
           confirmLabel="確認刪除"
           busyLabel="刪除中…"
           onClose={() => setConfirmDel(false)}

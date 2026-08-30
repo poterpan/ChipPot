@@ -157,7 +157,7 @@ export default function App() {
         <button className="submit" onClick={submit} disabled={busy || !canSubmit}>
           {busy ? "上傳中…" : "送出繳費"}
         </button>
-        <p className="muted small center">{info?.proof_enabled === false ? "渠道或備註至少填一項。" : "渠道、截圖或備註至少填一項。"}此連結僅限你本人本期使用，送出後即失效。</p>
+        <p className="muted small center">{info?.proof_enabled === false ? "渠道或備註至少填一項。" : "渠道、截圖或備註至少填一項。"}此連結僅限你本人、此月份使用，送出後即失效。</p>
       </div>
     </Shell>
   );

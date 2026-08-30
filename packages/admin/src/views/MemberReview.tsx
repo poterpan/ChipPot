@@ -71,7 +71,7 @@ export function MemberReview({ userId, period, tags, onBack }: {
               {proofKeys.length === 0 && !proofExpired && (
                 submitted
                   ? <p className="mreview__note mreview__note--warn"><IconWarning /> 無憑證，純聲明 — 請依備註與帳戶自行核對。</p>
-                  : <p className="mreview__note">本期尚未回報繳費。</p>
+                  : <p className="mreview__note">此期尚未回報繳費。</p>
               )}
               {notes.length > 0 && <p className="mreview__note">成員備註：{notes.join("；")}</p>}
             </div>

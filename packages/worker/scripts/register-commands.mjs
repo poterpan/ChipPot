@@ -53,7 +53,7 @@ const commands = [
   },
   {
     name: "發起繳費", type: 1,
-    description: "（管理員）確認本期各方案金額並發出開繳通知",
+    description: "（管理員）確認指定期別各方案金額並發出開繳通知",
     default_member_permissions: "32",
   },
   {

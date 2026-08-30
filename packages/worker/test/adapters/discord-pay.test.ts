@@ -144,7 +144,8 @@ describe("/繳費 with no R2 ignores the screenshot", () => {
     vi.unstubAllGlobals();
     (env as any).BUCKET = prevB;
     (env as any).DISCORD_APPLICATION_ID = prevApp;
-    expect(captured).toContain("已登記本期");
+    expect(captured).toContain("已登記");
+    expect(captured).toMatch(/\d{4}-\d{2}/);   // 回覆改成報實際期別（YYYY-MM）
     expect(captured).toContain("已記錄你的繳費宣告");
   });
 });

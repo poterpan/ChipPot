@@ -88,7 +88,7 @@ export interface ImportDiff {
   rows_skipped: number; // CSV rows with no email
   unmatched_plans: string[];
   /** REPORT-ONLY: this period's still-unpaid bills of the subs being paused. Import never
-   *  touches payments here — the admin clears them with 重新同步本期帳單. */
+   *  touches payments here — the admin clears them with 重新同步此期帳單. */
   affected_pending_bills: ImportBillLine[];
 }
 
@@ -129,7 +129,7 @@ interface RowPlan {
  *
  * Reactivation deliberately writes NO payment row: ensureFirstPayment bills the subscription's
  * ORIGINAL start_date month, which for a months-old paused sub would open a bill in a closed past
- * period. The current period's bill is exactly what 重新同步本期帳單 (reconcilePeriodBills) creates
+ * period. The current period's bill is exactly what 重新同步此期帳單 (reconcilePeriodBills) creates
  * for every active sub that lacks one — and only for periods that are actually open. Pausing is the
  * mirror image: the stale bills are reported in affected_pending_bills and removed by that same
  * action. So the whole period-bill story stays in one place.
@@ -274,7 +274,7 @@ export async function importRoster(
 /**
  * REPORT-ONLY: the period's still-unpaid (pending/rejected) bills of the subscriptions this import
  * is about to pause. Import never writes to payments — pausing a sub leaves its bills exactly where
- * they are, and the admin clears them with 重新同步本期帳單 (reconcilePeriodBills), which already
+ * they are, and the admin clears them with 重新同步此期帳單 (reconcilePeriodBills), which already
  * knows how to delete a non-active sub's unpaid bill plus its R2 proof and upload token. Bills from
  * OLDER periods are deliberately not listed: they are real unpaid debt, not a stale bill.
  */

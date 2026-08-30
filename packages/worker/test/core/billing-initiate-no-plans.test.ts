@@ -4,10 +4,10 @@ import { initiateBillingOpened, previewBillingInitiate } from "../../src/core/bi
 import type { Notifier } from "../../src/core/notify";
 
 /**
- * 沒有任何「會出現在公告裡」的方案時，發起繳費不能把本期標記成已開繳。
+ * 沒有任何「會出現在公告裡」的方案時，發起繳費不能把此期標記成已開繳。
  * 公告名單只收「啟用中的方案」，所以訂閱掛在停用方案上的 workspace 會落在這個洞裡：
- * 舊實作先搶下 billing_opened 名額、才發現沒東西可公告，結果本期永遠是「已開繳但從沒通知過」，
- * 只能靠收回本期開繳救回來。預覽早就把這個情況叫做 no_plans，apply 必須說同一句話。
+ * 舊實作先搶下 billing_opened 名額、才發現沒東西可公告，結果此期永遠是「已開繳但從沒通知過」，
+ * 只能靠收回此期開繳救回來。預覽早就把這個情況叫做 no_plans，apply 必須說同一句話。
  */
 const TS = "2026-05-01T00:00:00.000Z";
 const WS = 9870, PLAN_OFF = 9870, USER = 9870, SUB = 9870;
@@ -51,7 +51,7 @@ describe("發起繳費：沒有可公告的方案時", () => {
     const r = await initiateBillingOpened(env, WS, PERIOD, { amounts: [] }, "owner@x", notifier);
     expect(r).toMatchObject({ sent: false, notifyReason: "no_plans" });
     expect(sends).toBe(before);
-    // 這是這個修正的重點：沒有公告 = 沒有開繳紀錄，本期仍然是「未開繳」，可以修好方案後重來一次。
+    // 這是這個修正的重點：沒有公告 = 沒有開繳紀錄，此期仍然是「未開繳」，可以修好方案後重來一次。
     expect(await markerRows(WS, PERIOD)).toBe(0);
   });
 

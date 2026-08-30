@@ -195,8 +195,8 @@ export function Settings() {
           : <span className="chip chip--off"><IconWarning /> 截圖未啟用</span>)}>
         <div className="card__body">
           <div className="grid2">
-            <Field label="每月結帳日"><span className="field__hint">每月幾號向所有成員開帳收費（1–28）。</span><input type="number" min={1} max={28} value={form.billing_day} onChange={(e) => set("billing_day")(e.target.value)} disabled={busy} /></Field>
-            <Field label="逾期天數"><span className="field__hint">開帳後幾天仍未繳就列入催繳。</span><input type="number" min={0} value={form.overdue_days} onChange={(e) => set("overdue_days")(e.target.value)} disabled={busy} /></Field>
+            <Field label="每月結帳日"><span className="field__hint">每月幾號自動向所有成員開繳（1-28）。</span><input type="number" min={1} max={28} value={form.billing_day} onChange={(e) => set("billing_day")(e.target.value)} disabled={busy} /></Field>
+            <Field label="逾期天數"><span className="field__hint">開繳後幾天仍未繳就列入催繳。</span><input type="number" min={0} value={form.overdue_days} onChange={(e) => set("overdue_days")(e.target.value)} disabled={busy} /></Field>
             <Field label="截圖保存月數"><span className="field__hint">超過月數的繳費截圖自動清除（對帳資料保留）。</span><input type="number" min={1} value={form.proof_retention_months} onChange={(e) => set("proof_retention_months")(e.target.value)} disabled={busy} /></Field>
           </div>
         </div>
@@ -441,7 +441,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           {diff.affected_pending_bills.length > 0 && (
             <>
               <div className="warnnote">
-                被暫停的訂閱在 {diff.period} 還有 {diff.affected_pending_bills.length} 筆未繳帳單。匯入<b>不會</b>變更任何帳單；請到「繳費審核」按<b>重新同步本期帳單</b>清理。
+                被暫停的訂閱在 {diff.period} 還有 {diff.affected_pending_bills.length} 筆未繳帳單。匯入<b>不會</b>變更任何帳單；請到「繳費審核」按<b>「重新同步此期帳單」</b>清理。
               </div>
               <DiffList
                 title={`${diff.period} 未繳帳單（匯入不會變更）`}
@@ -530,7 +530,7 @@ function InitiateModal({ plans, billingDay, dirty, onClose }: { plans: { id: num
           ? "已在頻道發出開繳通知。"
           : `未發送通知：${NOTIFY_REASON_TEXT[r.notify_reason] ?? "通知未送出"}。` +
             (r.notify_reason === "send_failed"
-              ? "本期已開繳、帳單已建立，可到「儀表板 → 推播狀態 → 重發開繳通知」補送。"
+              ? "此期已開繳、帳單已建立，可到「儀表板 → 推播狀態 → 重發開繳通知」補送。"
               : ""))
       );
     } catch (e) { setErr((e as Error).message); }

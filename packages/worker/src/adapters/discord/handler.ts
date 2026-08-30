@@ -173,7 +173,7 @@ async function computePayResult(i: DiscordInteraction, env: Env, ctx: ExecutionC
   // command settles one period, so if several are owed we send them to the button (which can pick).
   const periods = await listOpenPayablePeriods(env.DB, ws, userId);
   if (periods.length === 0) {
-    return opened ? "✅ 你已登記繳費，目前沒有待繳項目。" : `本期（${current}）繳費尚未開放，待管理員發出開繳通知後即可繳費。`;
+    return opened ? "✅ 你已登記繳費，目前沒有待繳項目。" : `${current} 的繳費尚未開放，待管理員發出開繳通知後即可繳費。`;
   }
   if (periods.length > 1) return `你有多個月份待繳：${periods.join("、")}。請改用下方「繳費」按鈕選擇要繳的月份。`;
   const period = periods[0]!;
@@ -217,9 +217,9 @@ async function computePayResult(i: DiscordInteraction, env: Env, ctx: ExecutionC
     declaredChannelTagId, paymentNote: note, proof,
     waitUntil: (p) => ctx.waitUntil(p), // notify in the background (followup reply stays snappy)
   });
-  if (r.paidCount === 0) return `本期（${period}）已登記繳費，無需重複操作。`;
+  if (r.paidCount === 0) return `${period} 已登記繳費，無需重複操作。`;
   const ignoredNote = screenshotIgnored ? "（本站未開啟截圖功能，已記錄你的繳費宣告）" : "";
-  return `✅ 已登記本期（${period}）繳費 NT$${r.totalAmount.toLocaleString()}（共 ${r.paidCount} 筆）。管理員確認收款後完成。${ignoredNote}`;
+  return `✅ 已登記 ${period} 繳費 NT$${r.totalAmount.toLocaleString()}（共 ${r.paidCount} 筆）。管理員確認收款後完成。${ignoredNote}`;
 }
 
 // ── 發起繳費 (admin): modal open + modal submit ──────────────────────────────
@@ -297,8 +297,8 @@ function initiateNoticeNote(reason: string, period: string): string {
     case "already_sent": return `${period} 的開繳通知先前已發送，未重複發送。`;
     case "no_channel": return "尚未設定繳費頻道 ID，未發出開繳通知。";
     case "no_bot_token": return "尚未設定 Discord bot token，未發出開繳通知。";
-    case "no_plans": return "沒有任何「啟用中方案 × 有效訂閱」，未發出開繳通知（本期仍維持未開繳）。";
-    case "send_failed": return "開繳通知發送失敗（本期已開繳、帳單已建立），請稍後到後台「推播狀態 → 重發開繳通知」再試一次。";
+    case "no_plans": return `沒有任何「啟用中方案 × 有效訂閱」，未發出開繳通知（${period} 仍維持未開繳）。`;
+    case "send_failed": return `開繳通知發送失敗（${period} 已開繳、帳單已建立），請稍後到後台「推播狀態 → 重發開繳通知」再試一次。`;
     default: return "未發出開繳通知。";
   }
 }
@@ -575,7 +575,7 @@ async function buildPayPrompt(
   const periods = await listOpenPayablePeriods(env.DB, ws, userId);
   if (periods.length === 0) {
     return {
-      content: opened ? "✅ 你已登記繳費，目前沒有待繳項目。" : `本期（${current}）繳費尚未開放，待管理員發出開繳通知後即可繳費。`,
+      content: opened ? "✅ 你已登記繳費，目前沒有待繳項目。" : `${current} 的繳費尚未開放，待管理員發出開繳通知後即可繳費。`,
       components: [],
     };
   }
@@ -712,7 +712,7 @@ async function handlePaySelect(i: DiscordInteraction, env: Env, ctx: ExecutionCo
   }
   // Defense in depth: even with a crafted select, don't settle before billing is opened.
   if (!(await isBillingOpened(env.DB, ws, period))) {
-    return updateErr("本期繳費尚未開放，待管理員發出開繳通知後即可繳費。");
+    return updateErr(`${period} 的繳費尚未開放，待管理員發出開繳通知後即可繳費。`);
   }
 
   try {
@@ -721,7 +721,7 @@ async function handlePaySelect(i: DiscordInteraction, env: Env, ctx: ExecutionCo
       waitUntil: (p) => ctx.waitUntil(p), // notify in the background — keep the interaction < 3s
     });
     if (r.paidCount === 0) {
-      return json({ type: RT_UPDATE_MESSAGE, data: { content: "✅ 你本期已登記繳費，無需重複操作。", components: [] } });
+      return json({ type: RT_UPDATE_MESSAGE, data: { content: `✅ ${period} 已登記繳費，無需重複操作。`, components: [] } });
     }
     return json({
       type: RT_UPDATE_MESSAGE,

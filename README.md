@@ -65,7 +65,7 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   plans it couldn't match, cancelled subs that need a human) before you apply it; idempotent re-runs.
 - 🧾 **Review queue + reconciliation** — an admin dashboard with per-plan / per-channel totals, a
   one-click verify queue, manual back-fill, single-payment delete, undo-verify, and frozen period
-  amounts (price changes never rewrite history). A **重新同步本期帳單** action re-aligns an opened
+  amounts (price changes never rewrite history). A **重新同步此期帳單** action re-aligns an opened
   period's bills to the current roster/price (preview before applying), optionally pinging newly-added members.
   Tapping a member's name (or a submission alert) opens the **成員×期別合併審核**: the shared
   screenshot once, every settled row, and one 一鍵全部驗證 button. The queue, that view and the
@@ -226,7 +226,7 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
 - **Review queue** — Payments → status pills → the **已繳待驗** queue floats to the top → one-click
   ✅ verify (or open a row for screenshots, channel, reject, amount override, delete proof, **撤回驗證**
   to undo a mistaken verify, or **delete the whole bill**).
-- **重新同步本期帳單** — on Payments, re-align the selected opened period's bills to the current
+- **重新同步此期帳單** — on Payments, re-align the selected opened period's bills to the current
   roster/price (add missing · remove de-subscribed · reprice pending · freeze settled), with a preview
   before applying and an option to ping newly-added members with the pay button.
 - **發起繳費** — confirm the selected period's per-plan amounts (any change becomes the plan's new
@@ -244,7 +244,7 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
   **重置催繳發送紀錄**. The first two show the exact recipients before sending; all three take a
   confirmation step and report the real counts — a non-2xx from Discord is reported as a failed
   send, so the billing notice's `sent_at` is never moved forward and the overdue dedup slot is
-  released so the next run (cron included) can try again. Reopening/closing a period lives in 收回本期開繳 on
+  released so the next run (cron included) can try again. Reopening/closing a period lives in 收回此期開繳 on
   the payments page, not here.
 - **Submission alerts** — set a Bark device key and/or a webhook (Discord / Google Chat / Slack) under
   Settings → 繳費通知; each new submission then pushes you a notice that opens that member's whole

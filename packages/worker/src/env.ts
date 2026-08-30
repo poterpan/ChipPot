@@ -49,7 +49,7 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   overdue_days: 3,
   proof_retention_months: 24,
   admin_discord_ids: [],
-  overdue_template: "⏰ **{period} 催繳**\n以下夥伴本期尚有未繳（共 {count} 位），請儘速處理 🙏\n{list}",
+  overdue_template: "⏰ **{period} 催繳**\n以下夥伴尚有未繳（共 {count} 位），請儘速處理 🙏\n{list}",
   billing_opened_template: "📢 **{period} 開始繳費**\n{plans}\n\n請點下方「繳費」按鈕，或使用 `/繳費` 指令（可附截圖）。",
   payment_message_template: "💳 **AI 訂閱繳費**\n點下方「繳費」按鈕選擇繳費渠道送出（一次涵蓋你所有訂閱），或使用 `/繳費` 指令（可附截圖／備註）。",
   payment_bark_key: "",

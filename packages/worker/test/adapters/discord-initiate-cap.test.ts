@@ -57,7 +57,7 @@ describe("/發起繳費 的方案數上限", () => {
 
     expect(replied).toContain("6");
     expect(replied).toContain("後台");
-    // 拒絕就要是真的拒絕：定價沒被改、本期沒被開繳、也沒有半張帳單。
+    // 拒絕就要是真的拒絕：定價沒被改、此期沒被開繳、也沒有半張帳單。
     const p = await env.DB.prepare("SELECT monthly_amount FROM plans WHERE id = ?").bind(98500).first<{ monthly_amount: number }>();
     expect(p!.monthly_amount).toBe(100);
     const marker = await env.DB.prepare(

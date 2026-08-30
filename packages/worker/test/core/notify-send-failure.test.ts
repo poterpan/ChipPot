@@ -55,7 +55,7 @@ describe("發起繳費：通知送不出去時", () => {
     // 寫入的部分照樣發生，而且照實回報 —— 這通呼叫真的建了帳單、真的改了定價。
     expect(r.createdPayments).toBe(1);
     expect(r.updatedPlans).toBe(1);
-    // marker 不回收：帳單已經在那裡了，回收會讓本期變成「有帳單卻不能繳」的半套狀態
+    // marker 不回收：帳單已經在那裡了，回收會讓此期變成「有帳單卻不能繳」的半套狀態
     // （同 routes/admin.ts notificationsReset 的 409 所擋的情況）。補救路徑是「重發開繳通知」。
     expect(await isBillingOpened(env.DB, WS, P_INIT)).toBe(true);
     expect(await lastAudit("billing.initiate")).toMatchObject({ period: P_INIT, sent: false, notify_reason: "send_failed" });
@@ -109,7 +109,7 @@ describe("催繳：通知送不出去時", () => {
     expect(r.outcome).toBe("send_failed");
     expect(r.notified).toBe(0);
     // 名額若留著，這期就永遠不會再被催繳（claimNotification 之後只會回 already_sent，
-    // 而且沒有任何地方會報錯）—— 跟收回本期開繳釋放 overdue slot 是同一個理由。
+    // 而且沒有任何地方會報錯）—— 跟收回此期開繳釋放 overdue slot 是同一個理由。
     expect(await overdueSlots(P_OVERDUE)).toBe(0);
   });
 
