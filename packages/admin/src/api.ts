@@ -135,6 +135,8 @@ export interface ImportDiff {
 export interface NudgeResult {
   ok: boolean; opened: boolean; notified: number; skipped: number;
   unbound: number; unbound_names: string[];
+  /** Present only when there was no way to deliver at all — see nudgeSummary. */
+  transport?: "no_channel" | "no_bot_token";
 }
 
 export const api = {
@@ -244,6 +246,15 @@ export function nextBillingPeriod(billingDay: number, now: Date = new Date()): s
 /** One sentence for a nudge outcome — every caller (匯入 / 新增訂閱 / 個別催繳) says the same thing. */
 export function nudgeSummary(r: NudgeResult): string {
   if (!r.opened) return "此期尚未發起繳費，暫不發送通知。";
+  // A missing channel / token is a misconfiguration, not "nobody needed notifying" — say which,
+  // and still name the people who would have been reached so the admin can act on both.
+  if (r.transport) {
+    const why = r.transport === "no_channel"
+      ? "尚未設定繳費頻道 ID（設定 → Discord 串接）"
+      : "尚未設定 Discord bot token";
+    const who = r.unbound > 0 ? `（另有 ${r.unbound} 位未綁定：${r.unbound_names.join("、")}）` : "";
+    return `沒有發出通知：${why}${who}。`;
+  }
   const parts: string[] = [];
   parts.push(r.notified > 0 ? `已在頻道 @ 通知 ${r.notified} 位` : "沒有需要通知的人");
   if (r.skipped > 0) parts.push(`${r.skipped} 位本期已通知過`);

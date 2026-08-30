@@ -16,6 +16,7 @@ import {
 const IMAGE_ERROR: Record<string, string> = {
   type: "只接受 PNG／JPG／WebP 圖片，請換一張截圖。",
   size: "截圖檔案太大（上限 10 MB），請壓縮後再試。",
+  empty: "這個檔案是空的（0 KB），請重新選一張截圖。",
 };
 const imageError = (e: InvalidImage) => IMAGE_ERROR[e.reason] ?? IMAGE_ERROR.type!;
 

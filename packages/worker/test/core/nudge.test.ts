@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { sendMemberNudge } from "../../src/core/nudge";
-import type { Notifier, OverduePerson } from "../../src/core/notify";
+import { claimNotification, type Notifier, type OverduePerson } from "../../src/core/notify";
 
 // Fresh id band for this file: workspace/plan 9820, users 98201-98203, subs 98210-98212.
 // (Storage is isolated per test FILE, so the band only has to be collision-free in here.)
@@ -106,5 +106,52 @@ describe("sendMemberNudge", () => {
     expect(sent).toHaveLength(0);
     const rows = await env.DB.prepare("SELECT COUNT(*) c FROM notification_logs WHERE workspace_id=? AND type='nudge' AND period=? AND user_id=?").bind(WS, P, U_BOUND).first<{ c: number }>();
     expect(rows!.c).toBe(0);
+  });
+
+  // #45 Codex finding 2: a missing transport must not read as "nobody needed notifying".
+  it("names the reason and still reports who would have been reached", async () => {
+    await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id=? AND type='nudge' AND period=?").bind(WS, P).run();
+    const token = (env as any).DISCORD_BOT_TOKEN;
+    delete (env as any).DISCORD_BOT_TOKEN;
+    const r = await sendMemberNudge(env, { workspaceId: WS, period: P, userIds: [U_BOUND, U_UNBOUND], kind: "added" }, notifier);
+    (env as any).DISCORD_BOT_TOKEN = token;
+
+    expect(r.transport).toBe("no_bot_token");   // the real reason, not a silent zero
+    expect(r.unbound).toBe(1);                  // computed BEFORE the transport bail-out
+    expect(r.unbound_names).toEqual(["王五"]);
+    expect(r.notified).toBe(0);
+  });
+});
+
+/**
+ * #45 Codex finding 1: a failed send must release only the row THIS call won. Releasing by key
+ * instead lets a concurrent force delete a slot it does not own, which re-opens the duplicate the
+ * dedup exists to prevent. Same defect #48 fixed in core/scheduled.ts.
+ */
+describe("failed send releases only its own slot", () => {
+  it("does not delete a slot another call claimed in the meantime", async () => {
+    const key = { workspaceId: WS, type: "nudge" as const, period: P, userId: U_BOUND };
+    // Call A claims and is about to fail; simulate B replacing the row underneath it by clearing
+    // and re-claiming, so the live row is B's, not A's.
+    const failer: Notifier = {
+      ...notifier,
+      async sendPaymentNudge() {
+        await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id=? AND type='nudge' AND period=? AND user_id=?")
+          .bind(WS, P, U_BOUND).run();
+        expect(await claimNotification(env.DB, key)).toBe(true); // this row now belongs to "B"
+        return false; // ...and only now does A's send fail
+      },
+    };
+
+    await env.DB.prepare("DELETE FROM notification_logs WHERE workspace_id=? AND type='nudge' AND period=?")
+      .bind(WS, P).run();
+    const r = await sendMemberNudge(env, { workspaceId: WS, period: P, userIds: [U_BOUND], kind: "remind", force: true }, failer);
+    expect(r.notified).toBe(0);
+
+    // B's slot must survive A's release: releasing by key would have deleted it.
+    const left = await env.DB.prepare(
+      "SELECT COUNT(*) c FROM notification_logs WHERE workspace_id=? AND type='nudge' AND period=? AND user_id=?"
+    ).bind(WS, P, U_BOUND).first<{ c: number }>();
+    expect(left!.c).toBe(1);
   });
 });

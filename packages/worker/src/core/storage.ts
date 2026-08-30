@@ -20,7 +20,7 @@ export function buildScreenshotKey(
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
-export type InvalidImageReason = "type" | "size";
+export type InvalidImageReason = "type" | "size" | "empty";
 /** `message` stays technical (logs); `reason` is what callers map to member-facing copy — Discord
  *  and the web page word it differently, so neither can hardcode the other's sentence. */
 export class InvalidImage extends Error {
@@ -49,7 +49,12 @@ export function assertImageOk(
     throw new InvalidImage(`unsupported content type: ${contentType}`, "type");
   }
   const max = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
-  if (!(sizeBytes > 0) || sizeBytes > max) {
+  // Empty is its own reason: it used to share the `size` branch, so a 0-byte file was reported to
+  // the member as 「檔案太大（上限 10 MB）」 — the opposite of what happened.
+  if (!(sizeBytes > 0)) {
+    throw new InvalidImage(`empty file: ${sizeBytes}`, "empty");
+  }
+  if (sizeBytes > max) {
     throw new InvalidImage(`size out of range: ${sizeBytes}`, "size");
   }
 }

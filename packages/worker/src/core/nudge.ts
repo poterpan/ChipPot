@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import { parseSettings } from "../env";
 import {
-  claimNotification, releaseNotification, isBillingOpened,
+  claimNotificationSlot, releaseSlot, releaseNotification, isBillingOpened,
   type Notifier, type NudgeKind, type OverduePerson,
 } from "./notify";
 
@@ -27,6 +27,12 @@ export interface NudgeResult {
   skipped: number;
   unbound: number;
   unbound_names: string[];
+  /**
+   * Why nothing could be delivered, when that is the reason. Absent = there WAS a way to send.
+   * Without this, "no Discord configured" and "nobody needed notifying" both surfaced as a row of
+   * zeros, and the summary line told the admin 「沒有需要通知的人」 for a misconfiguration.
+   */
+  transport?: "no_channel" | "no_bot_token";
 }
 
 interface Row {
@@ -55,10 +61,8 @@ export async function sendMemberNudge(
     .bind(o.workspaceId).first<{ settings: string }>();
   if (!wsRow) return empty;
   const channelId = parseSettings(wsRow.settings).discord_billing_channel_id;
-  // Same rule as core/receipt.ts and the cron: with no channel or no bot token we cannot send, so
-  // we must not consume the dedup slot — otherwise configuring Discord later would arrive to
-  // members who already count as nudged.
-  if (!channelId || !env.DISCORD_BOT_TOKEN) return { ...empty, opened: true };
+  const transport: NudgeResult["transport"] | undefined =
+    !channelId ? "no_channel" : !env.DISCORD_BOT_TOKEN ? "no_bot_token" : undefined;
 
   const marks = o.userIds.map(() => "?").join(",");
   const rows = (await env.DB.prepare(
@@ -90,12 +94,23 @@ export async function sendMemberNudge(
     unbound: unboundPeople.length, unbound_names: unboundPeople.map((p) => p.user_name),
   };
 
-  const winners: OverduePerson[] = [];
+  // Same rule as core/receipt.ts and the cron: with no channel or no bot token we cannot send, so
+  // we must not consume the dedup slot — otherwise configuring Discord later would arrive to
+  // members who already count as nudged. The recipient list is computed FIRST so the answer still
+  // reports who would have been reached (and who is unbound) instead of a misleading row of zeros.
+  if (transport) return { ...result, transport };
+
+  // Each winner carries the row id its claim returned. A later release MUST go by that id, never
+  // by the key: with two concurrent force calls, B can delete-and-reclaim A's row between A's claim
+  // and A's release, and a keyed DELETE would then destroy B's live slot (#48 hit exactly this in
+  // core/scheduled.ts — same fix).
+  const winners: (OverduePerson & { slotId: number })[] = [];
   for (const p of everyone) {
     if (!p.discord_id) continue;
     const key = { workspaceId: o.workspaceId, type: "nudge" as const, period: o.period, userId: p.user_id };
     if (o.force) await releaseNotification(env.DB, key);
-    if (await claimNotification(env.DB, key)) winners.push(p); else result.skipped++;
+    const slot = await claimNotificationSlot(env.DB, key);
+    if (slot.won) winners.push({ ...p, slotId: slot.id! }); else result.skipped++;
   }
   if (winners.length === 0) return result;
 
@@ -115,9 +130,8 @@ export async function sendMemberNudge(
     return result;
   }
   for (const p of winners) {
-    await releaseNotification(env.DB, {
-      workspaceId: o.workspaceId, type: "nudge", period: o.period, userId: p.user_id,
-    }).catch(() => 0);
+    // By id: a stale id deletes nothing instead of a concurrent claim's row.
+    await releaseSlot(env.DB, p.slotId).catch(() => 0);
   }
   return result;
 }

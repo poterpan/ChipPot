@@ -109,6 +109,18 @@ describe("upload submit", () => {
     expect(body.error).toBe("只接受 PNG／JPG／WebP 圖片，請換一張截圖。");
   });
 
+  // #45 Codex finding 3: a 0-byte file used to share the oversize branch, so the member was told
+  // their empty file was too large (10 MB limit) — the opposite of what happened.
+  it("tells the truth about an empty file instead of calling it too large", async () => {
+    const empty = new File([], "e.png", { type: "image/png" });
+    const res = await handleUpload(uploadReq(RAW_OK, { screenshot: empty }), env, ctxFor(RAW_OK));
+    const body = (await res.json()) as any;
+    expect(res.status).toBe(400);
+    expect(body.code).toBe("image");
+    expect(body.error).toBe("這個檔案是空的（0 KB），請重新選一張截圖。");
+    expect(body.error).not.toContain("太大");
+  });
+
   it("answers an expired link in zh-TW", async () => {
     const res = await handleUpload(uploadReq("deadbeef", {}), env, ctxFor("deadbeef"));
     const body = (await res.json()) as any;
