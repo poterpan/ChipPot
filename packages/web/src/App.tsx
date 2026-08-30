@@ -49,10 +49,7 @@ export default function App() {
 
   async function submit() {
     if (!token) return;
-    if (!canSubmit) {
-      setError("請至少附上截圖、填寫備註，或選擇渠道。");
-      return;
-    }
+    if (!canSubmit) return; // the button is disabled on the same condition (:158) — belt only
     setError(null);
     setStage("submitting");
     const blob = file ? await compressImage(file) : null;
@@ -147,6 +144,7 @@ export default function App() {
 
         <textarea
           className="note"
+          aria-label="備註"
           placeholder="備註 — 例如付款方式、轉帳末五碼"
           value={note}
           maxLength={300}
@@ -169,7 +167,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="wrap">
       <div className="card">
-        <div className="brand">ChipPot</div>
+        <h1 className="brand">ChipPot</h1>
         {children}
       </div>
       <footer className="foot">社團 AI 訂閱 · 代收系統</footer>
@@ -194,7 +192,7 @@ function Stub({
         <span className="stub__label">期別</span>
         <span className="stub__period">{period}</span>
       </div>
-      <div className="stub__hi">嗨，{name || "夥伴"}</div>
+      <h2 className="stub__hi">嗨，{name || "夥伴"}</h2>
       {subs.map((s) => (
         <div key={s.payment_id} className="stub__row stub__row--amt">
           <span className="stub__plan">{s.plan_name}</span>

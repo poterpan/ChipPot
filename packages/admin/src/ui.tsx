@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 
 export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
   const [data, setData] = useState<T | null>(null);
@@ -31,12 +31,65 @@ export function Money({ v }: { v: number }) {
   return <span className="mono">NT${v.toLocaleString()}</span>;
 }
 
+// Focusable descendants, in DOM order. `:not([disabled])` matters — every modal in this app
+// disables its controls while a request is in flight, and a trap that cycles onto a disabled
+// button silently swallows the Tab.
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+// Nesting is possible (PaymentDetail opens from MemberReview), so the scroll lock is refcounted
+// rather than set/unset per modal.
+let openModalCount = 0;
+
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const titleId = useId();
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Move focus into the sheet on open and hand it back to whatever opened it on close. Without
+  // this, a screen reader announces nothing and 12 consecutive Tabs all land on the table behind.
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    ref.current?.focus();
+    return () => prev?.focus?.();
+  }, []);
+
+  // The bottom sheet leaves ~357px of tappable backdrop at 375px; dragging it used to scroll the
+  // page underneath. Locking on <html> covers both scrollers: body on mobile, .main on desktop.
+  useEffect(() => {
+    openModalCount += 1;
+    document.documentElement.classList.add("modal-open");
+    return () => {
+      openModalCount -= 1;
+      if (openModalCount === 0) document.documentElement.classList.remove("modal-open");
+    };
+  }, []);
+
+  function onKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
+    if (e.key !== "Tab") return;
+    const els = [...(ref.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])]
+      .filter((el) => el.offsetParent !== null); // skip anything inside a closed <details>
+    if (els.length === 0) { e.preventDefault(); ref.current?.focus(); return; }
+    const first = els[0]!, last = els[els.length - 1]!;
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === ref.current)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+  }
+
   return (
     <div className="modal__backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        ref={ref}
+        onKeyDown={onKeyDown}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal__head">
-          <h3>{title}</h3>
+          <h3 id={titleId}>{title}</h3>
           <button className="iconbtn" onClick={onClose} aria-label="關閉">✕</button>
         </div>
         <div className="modal__body">{children}</div>
@@ -128,4 +181,69 @@ export function IconWarning({ size = 14 }: { size?: number }) {
 }
 export function IconX({ size = 13 }: { size?: number }) {
   return <Svg size={size}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Svg>;
+}
+
+// useAsync has always returned `reload` and no error UI ever used it: a failed load left a red
+// line and no way forward. The 401/403 case is special — api.ts turns it into 未授權，請重新登入，
+// but Cloudflare Access only re-issues a session on a fresh page load, so that button reloads.
+export function ErrorNote({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const needsLogin = message.includes("重新登入");
+  return (
+    <div className="error-banner error-banner--act" role="alert">
+      <span>{message}</span>
+      {needsLogin
+        ? <button className="btn" onClick={() => window.location.reload()}>重新登入</button>
+        : onRetry && <button className="btn" onClick={onRetry}>重試</button>}
+    </div>
+  );
+}
+
+// ── long-list pickers ─────────────────────────────────────────────────────────
+// Below this many options a native <select> is fine on a phone; above it, scrolling a few hundred
+// names in the platform picker is the problem the Discord side solved with autocomplete + a search
+// modal (handler.ts:306-366). Same idea, simplest possible form: a filter in front of the select.
+const FILTER_THRESHOLD = 12;
+
+export function FilterSelect({ label, value, onChange, options, placeholder = "選擇…", disabled }: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[]; placeholder?: string; disabled?: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const id = useId();
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : [...options];
+  // Keep the current choice selectable even when the filter excludes it, or the select would
+  // render blank and the next submit would silently send a stale value.
+  if (value && !shown.some((o) => o.value === value)) {
+    const cur = options.find((o) => o.value === value);
+    if (cur) shown.unshift(cur);
+  }
+  return (
+    <div className="field">
+      <label className="field__label" htmlFor={`${id}-select`}>{label}</label>
+      {options.length > FILTER_THRESHOLD && (
+        <input className="fsel__q" type="search" value={q} disabled={disabled}
+          placeholder={`搜尋${label}…`} aria-label={`搜尋${label}`}
+          onChange={(e) => setQ(e.target.value)} />
+      )}
+      <select id={`${id}-select`} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{placeholder}</option>
+        {shown.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      {needle && <span className="field__hint">顯示 {shown.length} / {options.length}</span>}
+    </div>
+  );
+}
+
+// The same filter in a card head, narrowing a rendered table instead of an <option> list.
+export function TableFilter({ value, onChange, placeholder, shown, total }: {
+  value: string; onChange: (v: string) => void; placeholder: string; shown: number; total: number;
+}) {
+  return (
+    <span className="cardtools">
+      <input className="fsel__q" type="search" value={value} placeholder={placeholder}
+        aria-label={placeholder} onChange={(e) => onChange(e.target.value)} />
+      {value.trim() && <span className="field__hint">{shown} / {total}</span>}
+    </span>
+  );
 }

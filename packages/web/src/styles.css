@@ -2,8 +2,9 @@
   --paper: #f4efe4;
   --card: #fbf8f1;
   --ink: #211d18;
-  --muted: #8a8073;
+  --muted: #6a6152;      /* 5.75:1 on --card, 5.32:1 on --paper (was #8a8073: 3.66 / 3.38) */
   --line: #e4dccb;
+  --line-strong: #948871;  /* form-field boundaries only: 3.29:1 on --card, WCAG 1.4.11 */
   --accent: #0f6e63;
   --accent-ink: #0a4d45;
   --bad: #b23a2e;
@@ -63,6 +64,9 @@ body::before {
 }
 
 .brand {
+  /* margin: 0 — this is an <h1> now (document outline, B20); the UA's default heading margin
+     would otherwise push the card's header apart. .stub__hi already sets its own margin. */
+  margin: 0;
   font-family: "Fraunces", serif;
   font-weight: 600;
   font-size: 18px;
@@ -116,17 +120,24 @@ body::before {
 /* ── body ── */
 .body { padding: 22px 24px 26px; display: flex; flex-direction: column; gap: 16px; }
 
-.plans { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.plans legend { font-size: 12px; letter-spacing: 2px; color: var(--muted); margin-bottom: 8px; }
-.plan {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 12px;
-  cursor: pointer; transition: border-color 0.15s, background 0.15s;
+/* .field / .field__label are admin classes that web never had — App.tsx has always used them, so
+   the 繳費渠道 picker rendered as a ~152x19px browser default at 13.3px next to a fully styled drop
+   zone and submit button. Sized to match .note and .submit: 16px (no iOS auto-zoom), >=48px tall for
+   a thumb, --line-strong border for WCAG 1.4.11. Native appearance is kept, so iOS still draws its
+   own chevron. */
+.field { display: block; }
+.field__label {
+  display: block; font-size: 12px; letter-spacing: 2px;
+  color: var(--muted); margin-bottom: 8px;
 }
-.plan input { accent-color: var(--accent); }
-.plan--on { border-color: var(--accent); background: rgba(15, 110, 99, 0.05); }
-.plan__name { flex: 1; font-weight: 500; }
-.plan__amt { font-family: "Spline Sans Mono", monospace; color: var(--muted); }
+.field select {
+  width: 100%; min-height: 48px; padding: 12px 14px;
+  font-family: inherit; font-size: 16px; color: var(--ink);
+  background: #fffdf8;
+  border: 1.5px solid var(--line-strong); border-radius: 12px;
+  cursor: pointer;
+}
+.field select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .drop {
   display: block; position: relative;
@@ -151,11 +162,11 @@ body::before {
 
 .note {
   width: 100%; min-height: 64px; resize: vertical;
-  font-family: inherit; font-size: 15px; color: var(--ink);
-  padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 12px;
+  font-family: inherit; font-size: 16px; color: var(--ink); /* <16px triggers iOS Safari auto-zoom */
+  padding: 12px 14px; border: 1.5px solid var(--line-strong); border-radius: 12px;
   background: #fffdf8;
 }
-.note:focus, .drop:focus-within { outline: 2px solid rgba(15, 110, 99, 0.35); outline-offset: 1px; }
+.note:focus-visible, .drop:focus-within, .submit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .submit {
   appearance: none; border: 0; cursor: pointer;

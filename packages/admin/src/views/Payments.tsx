@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, currentPeriod, periodForBillingDay, type Payment, type ChannelTag, type ReconcileDiff, type RetractPreview, type RetractApplied } from "../api";
-import { useAsync, Card, Modal, Field, Empty, Money, Stat, StatusBadge, IconCheck, IconWarning, IconX } from "../ui";
+import { useAsync, Card, Modal, Field, Empty, Money, Stat, StatusBadge, IconCheck, IconWarning, IconX, ErrorNote, FilterSelect } from "../ui";
 import { DiffList } from "../components/DiffList";
 import { PaymentDetail } from "./PaymentDetail";
 import { MemberReview } from "./MemberReview";
@@ -116,24 +116,43 @@ export function Payments() {
           ))}
         </div>
         <div className="grow" style={{ flex: 1 }} />
-        <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊本期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步本期</button>
-        <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除本期未繳／已退回帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回本期開繳</button>
-        <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結</button>
-        <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
+        {/* One group so the four one-off period tools can become a single scrollable row on a
+            phone instead of four stacked bands. Below 1000px .toolbar__acts is a nowrap scroller
+            with an edge fade; above it, it is a plain flex row and looks unchanged. */}
+        <div className="toolbar__acts">
+          <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊本期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步本期</button>
+          <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除本期未繳／已退回帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回本期開繳</button>
+          <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結</button>
+          <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
+        </div>
       </div>
 
       {deepMiss && <div className="warnnote">找不到通知連結指向的那筆繳費紀錄，可能已被刪除。以下是目前的繳費列表。</div>}
-      {list.error && <div className="error-banner">{list.error}</div>}
+      {list.error && <ErrorNote message={list.error} onRetry={list.reload} />}
       <Card title="繳費紀錄">
-        <div className="tbl">
-          {/* tbl-cards: below 720px these rows stack into cards, each cell labelled by its data-label */}
+        <div className="tbl tbl--pin-first tbl--pin-last">
+          {/* tbl-cards: below 1000px these rows stack into cards, each cell labelled by its data-label */}
           <table className="tbl-cards">
-            <thead><tr><th>成員</th><th>方案</th><th>期別</th><th className="right">金額</th><th>狀態</th><th>申報渠道</th>{showProof && <th>憑證</th>}<th></th></tr></thead>
+            <caption className="sr-only">繳費紀錄</caption>
+            <thead><tr><th scope="col">成員</th><th scope="col">方案</th><th scope="col">期別</th><th scope="col" className="right">金額</th><th scope="col">狀態</th><th scope="col">申報渠道</th>{showProof && <th scope="col">憑證</th>}<th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {list.loading && <tr><td colSpan={colCount}><Empty>載入中…</Empty></td></tr>}
               {list.data?.payments.length === 0 && <tr><td colSpan={colCount}><Empty>沒有符合的紀錄</Empty></td></tr>}
               {list.data?.payments.map((p) => (
-                <tr key={p.id} className="click" onClick={() => setSelected(p)}>
+                <tr
+                  key={p.id}
+                  className="click"
+                  tabIndex={0}
+                  aria-label={`${p.user_name} · ${p.plan_name} · ${p.period} 繳費明細`}
+                  onClick={() => setSelected(p)}
+                  // PaymentDetail was reachable only by clicking the row background; the keyboard
+                  // detour (成員 → MemberReview → 完整資訊) works but nobody would find it.
+                  // No role="button": that would strip the row/cell semantics screen readers need.
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return; // a button inside the row handles its own keys
+                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(p); }
+                  }}
+                >
                   <td data-label="成員">
                     <button className="linkbtn" title="檢視這位成員本期的合併審核"
                       onClick={(e) => { e.stopPropagation(); window.location.hash = `payments?user=${p.user_id}&period=${p.period}`; }}>
@@ -345,12 +364,9 @@ function ManualModal({ tags, onClose, onDone }: { tags: ChannelTag[]; onClose: (
   return (
     <Modal title="手動補登繳費" onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      <Field label="訂閱">
-        <select value={subId} onChange={(e) => setSubId(e.target.value)} disabled={busy}>
-          <option value="">選擇…</option>
-          {subs.data?.subscriptions.filter((s) => s.status === "active").map((s) => <option key={s.id} value={s.id}>{s.user_name} · {s.plan_name}</option>)}
-        </select>
-      </Field>
+      <FilterSelect label="訂閱" value={subId} disabled={busy} onChange={setSubId}
+        options={(subs.data?.subscriptions ?? []).filter((s) => s.status === "active")
+          .map((s) => ({ value: String(s.id), label: `${s.user_name} · ${s.plan_name}` }))} />
       <Field label="期別"><input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} disabled={busy} /></Field>
       <Field label="金額（留空＝方案金額）"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={busy} /></Field>
       <Field label="狀態">
@@ -393,12 +409,8 @@ function LinkModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="產生一次性上傳連結" onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      <Field label="成員">
-        <select value={userId} onChange={(e) => setUserId(e.target.value)} disabled={busy}>
-          <option value="">選擇…</option>
-          {users.data?.users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-        </select>
-      </Field>
+      <FilterSelect label="成員" value={userId} disabled={busy} onChange={setUserId}
+        options={(users.data?.users ?? []).map((u) => ({ value: String(u.id), label: u.display_name }))} />
       <Field label="期別"><input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} disabled={busy} /></Field>
       <button className="btn btn--primary" disabled={busy} onClick={gen}>產生連結</button>
       {link && (

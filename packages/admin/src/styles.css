@@ -2,11 +2,18 @@
   --bg: #f3f1ea;
   --panel: #ffffff;
   --ink: #1f1c17;
-  --muted: #8b8173;
-  --line: #e7e0d2;
+  /* 6.00:1 on --panel, 5.31:1 on --bg. Was #8b8173 (3.83 / 3.39) — used for th, .stat__label,
+     .empty, .kv dt, the mobile card labels and ten inline styles, i.e. real body text, not
+     decoration, so the token itself moves rather than each call site. */
+  --muted: #6b6253;
+  --muted-strong: #6b6253; /* kept as an alias: the Settings redesign already references it */
+  --line: #e7e0d2;         /* card / table / topbar borders — deliberately soft, do not darken */
+  --line-strong: #948871;  /* form-field boundaries only: 3.43:1 on #fffdf8, WCAG 1.4.11 */
   --teal: #0f6e63;
   --teal-ink: #0a4d45;
-  --amber: #b3701a;
+  /* 5.94:1 on --panel, 4.98:1 on .tag--warn's #f6ead2. Was #b3701a (4.00 / 3.36) — 純聲明 is a
+     real status signal, not decoration. */
+  --amber: #8f570f;
   --red: #b23a2e;
   --sidebar: #11302c;
   --sidebar-ink: #cfe3df;
@@ -19,6 +26,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 .mono { font-family: "Spline Sans Mono", monospace; font-variant-numeric: tabular-nums; }
+/* visually hidden but announced: table captions that would be redundant on screen */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 button { font-family: inherit; }
 
 /* layout */
@@ -49,7 +61,7 @@ button { font-family: inherit; }
 /* inline icon + label, vertically centered with a small gap */
 .iconlbl { display: inline-flex; align-items: center; gap: 5px; }
 .sidebar__logout:hover { background: rgba(255,255,255,0.06); color: #fff; }
-.sidebar__foot { font-size: 11.5px; color: rgba(207,227,223,0.55); padding: 6px 10px 0; }
+.sidebar__foot { font-size: 11.5px; color: rgba(207,227,223,0.72); padding: 6px 10px 0; } /* 6.24:1 (was 4.28) */
 
 /* min-width:0 lets the 1fr grid track shrink below its content's min-content width,
    so wide tables scroll inside .tbl instead of blowing out the whole page. */
@@ -60,7 +72,10 @@ button { font-family: inherit; }
   position: sticky; top: 0; z-index: 5;
 }
 .topbar h1 { font-family: "Fraunces", serif; font-weight: 600; font-size: 22px; margin: 0; }
-.content { padding: 24px 28px 60px; max-width: 1100px; }
+/* 1180 (was 1100): minus 2×28px padding and the card's 1px borders this leaves 1122px, enough for
+   the 8-column payments table's 1058px on a 1440px display. Narrower displays still scroll the
+   table sideways — that is what the sticky columns below are for. */
+.content { padding: 24px 28px 60px; max-width: 1180px; }
 
 /* stat cards */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 22px; }
@@ -76,9 +91,49 @@ button { font-family: inherit; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-bottom: 22px; }
 .card__head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .card__head h2 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: 0.3px; }
-/* horizontal scroll container so wide tables never get clipped by the card on narrow screens */
-.tbl { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+/* horizontal scroll container so wide tables never get clipped by the card on narrow screens.
+   The four background layers are the classic scroll-shadow: the two `local` gradients scroll with
+   the content and cover the shadow when you reach an end, the two `scroll` gradients stay put.
+   Pure CSS — it appears only when the table actually overflows and disappears at both ends. */
+.tbl {
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  background-color: var(--panel);
+  background-image:
+    linear-gradient(to right, var(--panel) 40%, rgba(255,255,255,0)),
+    linear-gradient(to left, var(--panel) 40%, rgba(255,255,255,0)),
+    radial-gradient(farthest-side at 0 50%, rgba(31,28,23,.14), rgba(31,28,23,0)),
+    radial-gradient(farthest-side at 100% 50%, rgba(31,28,23,.14), rgba(31,28,23,0));
+  background-repeat: no-repeat;
+  background-position: left center, right center, left center, right center;
+  background-size: 30px 100%, 30px 100%, 12px 100%, 12px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+/* separate + zero spacing (not collapse): with collapsed borders the border belongs to the table,
+   not the cell, so a `position: sticky` cell paints without its divider in WebKit. Visually
+   identical here — only `border-bottom` is ever set, so nothing doubles up. */
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; }
+
+/* ── ≥1001px: wide tables keep their identity and their actions on screen ─────
+   The 8-column payments table is 1058px wide; .content caps at 1180px minus 56px of padding,
+   so below a ~1350px viewport it scrolls sideways no matter what. Pinning the first cell (who
+   the row is about) and the last cell (what you can do to it) makes that scroll harmless instead
+   of hiding the only two things that matter. Opt-in per table so a 3-column table isn't pinned
+   for no reason. Below 1000px these tables are cards and the rules do not apply. */
+@media (min-width: 1001px) {
+  .tbl--pin-first th:first-child,
+  .tbl--pin-first td:first-child {
+    position: sticky; left: 0; z-index: 1;
+    background: var(--panel); box-shadow: 1px 0 0 var(--line);
+  }
+  .tbl--pin-last th:last-child,
+  .tbl--pin-last td:last-child {
+    position: sticky; right: 0; z-index: 1;
+    background: var(--panel); box-shadow: -1px 0 0 var(--line);
+  }
+  /* the sticky cells are opaque, so the row-hover tint has to be repainted on them */
+  .tbl--pin-first tbody tr.click:hover td:first-child,
+  .tbl--pin-last tbody tr.click:hover td:last-child { background: #faf7f0; }
+}
 th { text-align: left; font-size: 11.5px; letter-spacing: 1px; color: var(--muted); font-weight: 600; padding: 10px 18px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 td { padding: 12px 18px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 tr:last-child td { border-bottom: 0; }
@@ -88,7 +143,7 @@ tbody tr.click:hover { background: #faf7f0; }
 
 /* badges */
 .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 500; }
-.badge--pending { background: #f3ede0; color: #8a6d2f; }
+.badge--pending { background: #f3ede0; color: #7a5f27; } /* 5.15:1 (was 4.18) */
 .badge--paid { background: #e3eef0; color: #0a4d45; }
 .badge--verified { background: #def0e6; color: #176a4a; }
 .badge--rejected { background: #f6e2df; color: #9a2f24; }
@@ -113,13 +168,29 @@ tbody tr.click:hover { background: #faf7f0; }
 .field { display: block; margin-bottom: 14px; }
 .field__label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
 .field input, .field select, .field textarea {
-  width: 100%; padding: 9px 11px; border: 1.5px solid var(--line); border-radius: 9px;
-  font: inherit; font-size: 14px; background: #fffdf8; color: var(--ink);
+  width: 100%; padding: 9px 11px; border: 1.5px solid var(--line-strong); border-radius: 9px;
+  /* 16px, not 14: iOS Safari zooms the viewport whenever a focused control is under 16px and does
+     not restore the zoom on blur, so one tap on any admin field left the whole back office
+     permanently zoomed and panned. .toolbar's controls have always been 16px (font: inherit) —
+     that is the evidence this needs no visual redesign. */
+  font: inherit; font-size: 16px; background: #fffdf8; color: var(--ink);
 }
-.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid rgba(15,110,99,.3); outline-offset: 1px; }
+/* One global focus indicator. Was the app's ONLY :focus rule and it composited to 1.58:1 against
+   --panel, far under WCAG 1.4.11's 3:1; every other interactive class fell back to the UA's thin
+   blue line, invisible on a teal button and on the #11302c sidebar. outline-offset puts the ring
+   on the surrounding surface rather than on the control, so one colour works for all of them. */
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible { outline-offset: 1px; }
+/* 13×13 glyphs inside a label that measured exactly 24px — at the threshold with no margin.
+   Type-qualified so it outranks `.field input`'s width: 100%. accent-color keeps the checked
+   state on-brand now that the box is big enough to see it. */
+input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--teal); }
+.sidebar :focus-visible { outline-color: var(--sidebar-ink); } /* 10.59:1 on the dark strip */
+/* a focused row must not push the table sideways, so the ring goes inside the cell box */
+tbody tr.click:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }
 
 /* modal */
-/* Above .savebar (z-index 20): as a ≤720px bottom sheet the modal reaches the bottom edge, where
+/* Above .savebar (z-index 20): as a ≤1000px bottom sheet the modal reaches the bottom edge, where
    Settings' fixed save bar sits. At equal z-index the later-in-DOM save bar won and covered the
    sheet's last action (e.g. 匯入 CSV's 預覽差異). */
 /* text-align: left resets inherited alignment — Modal renders inline where it is opened, so a
@@ -132,41 +203,107 @@ tbody tr.click:hover { background: #faf7f0; }
 .modal__body { padding: 18px 20px 22px; }
 .iconbtn { border: 0; background: transparent; cursor: pointer; font-size: 16px; color: var(--muted); }
 
+/* background scroll lock while a modal / bottom sheet is open (set by ui.tsx's Modal).
+   Two selectors because the scrolling element differs by breakpoint: <body> below 1000px
+   (.main is overflow: visible there), .main above it. */
+html.modal-open, html.modal-open body { overflow: hidden; }
+html.modal-open .main { overflow: hidden; }
+
 /* misc */
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
-.toolbar select, .toolbar input { padding: 8px 11px; border: 1.5px solid var(--line); border-radius: 9px; font: inherit; background: var(--panel); }
+.toolbar select, .toolbar input { padding: 8px 11px; border: 1.5px solid var(--line-strong); border-radius: 9px; font: inherit; background: var(--panel); }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill { padding: 6px 13px; border: 1.5px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); cursor: pointer; font-size: 13px; }
 .pill:hover { border-color: var(--teal); }
 .pill--on { background: var(--teal); border-color: var(--teal); color: #fff; }
 .empty { padding: 40px; text-align: center; color: var(--muted); }
 .error-banner { background: #f6e2df; color: #9a2f24; padding: 10px 14px; border-radius: 10px; margin-bottom: 16px; font-size: 14px; }
+/* The variant carrying a 重試 / 重新登入 button (ui.tsx ErrorNote): a failed load used to leave a
+   red line and no way forward, even though useAsync always returned `reload`. */
+.error-banner--act { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.error-banner--act .btn { margin-left: auto; flex: 0 0 auto; min-height: 36px; }
 .proof-img { max-width: 100%; border-radius: 10px; border: 1px solid var(--line); background: #f1ece1; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 14px; margin: 4px 0 16px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; }
 .link-box { font-family: "Spline Sans Mono", monospace; font-size: 12.5px; background: #faf7f0; border: 1px solid var(--line); border-radius: 9px; padding: 10px; word-break: break-all; }
-@media (max-width: 720px) {
-  /* rows: nav bar sizes to its content (no stretch); main absorbs the remaining height.
-     Without `auto 1fr`, grid's default align-content:stretch splits spare vertical space
-     across both rows and visibly inflates the nav bar on short pages. */
-  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
-  /* sidebar becomes a single-line scrollable tab bar; brand + tabs stay on one row */
-  .sidebar { flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; padding: 10px 12px; min-width: 0; }
+/* ── MOBILE BREAKPOINT = 1000px ───────────────────────────────────────────────
+   Raised from 720px (issue #44 / P0-10): between 721 and 932px the desktop layout
+   snapped back — 232px sidebar plus a 489–700px content column — so the row-action
+   buttons of an 8-column table started off-screen on exactly iPad portrait (768/820)
+   and landscape phones (844/932). 980px is in range on purpose: an in-app WebView
+   (Google Messages / Samsung) that has no viewport meta applied yet falls back to the
+   legacy 980px layout viewport on first load, and must not get the desktop layout.
+   Six blocks in this file use it (keep this list current — it is what keeps them in sync):
+     @media (max-width: 1000px)  — this one (shell), the settings/savebar block,
+                                    the .tbl-cards + bottom-sheet block,
+                                    the filter/card-head block
+     @media (min-width: 1001px)  — the sticky pinned-column block (.tbl--pin-*),
+                                    the .mrow two-column block
+   Change all of them together or the layout desynchronises.
+   The pairs are written 1000 / 1001 rather than as a range: a fractional viewport width
+   (1000 < w < 1001, possible on a scaled display) matches neither side and falls back to
+   the base rules, which are the scrollable layout — degraded but usable, never broken.
+   Above 1000px, wide tables stay tables; their row actions are kept reachable by pinning
+   the identity and action columns rather than by moving this breakpoint up again.
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  /* Block flow, not grid: a sticky grid item is confined to its own grid area, which for a
+     single-row track is exactly its own box — i.e. `position: sticky` on .sidebar would be a
+     no-op. Plain block flow makes the document the sticky containing block and also removes
+     the old align-content:stretch problem that `auto 1fr` grid rows were working around. */
+  .app { display: block; height: auto; min-height: 100vh; }
+  /* sidebar becomes a single-line scrollable tab bar; brand + tabs stay on one row.
+     Sticky (z above .topbar) so switching view never means scrolling back to the top of a
+     2500px Settings page. The four background layers are the same scroll-shadow trick as .tbl,
+     tinted for the dark strip — 41% of the tabs are off-screen at 375px with no other hint. */
+  .sidebar {
+    flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; padding: 10px 12px; min-width: 0;
+    position: sticky; top: 0; z-index: 6;
+    background-image:
+      linear-gradient(to right, var(--sidebar) 40%, rgba(17,48,44,0)),
+      linear-gradient(to left, var(--sidebar) 40%, rgba(17,48,44,0)),
+      radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.45), rgba(0,0,0,0)),
+      radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.45), rgba(0,0,0,0));
+    background-repeat: no-repeat;
+    background-position: left center, right center, left center, right center;
+    background-size: 26px 100%, 26px 100%, 11px 100%, 11px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
   .sidebar__brand { flex: 0 0 auto; padding: 0 6px 0 4px; font-size: 18px; white-space: nowrap; }
   .nav { flex-direction: row; gap: 4px; }
   .nav button { flex: 0 0 auto; white-space: nowrap; padding: 8px 11px; font-size: 13.5px; }
   .sidebar__logout { margin-top: 0; flex: 0 0 auto; white-space: nowrap; padding: 8px 11px; font-size: 13.5px; }
   .sidebar__foot { display: none; }
   .main { overflow: visible; }
-  .topbar { padding: 14px 16px; }
+  /* not sticky on mobile: the nav is. Two sticky bars at top:0 would overlap, and pinning the
+     page title while the navigation scrolls away is the inversion the audit called out. */
+  .topbar { padding: 14px 16px; position: static; }
   .topbar h1 { font-size: 19px; }
   .content { padding: 18px 14px 48px; }
   .toolbar .grow { display: none; }
+  /* The toolbar was 183px tall at 375px — the 期別 row, two rows of status pills and four
+     buttons each on its own line — leaving 2 payment rows above the fold. Both the pills and
+     the one-off tools become single scrollable rows with the same edge fade as .tbl. */
+  .toolbar { gap: 8px; }
+  .pills, .toolbar__acts {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    width: 100%; padding-bottom: 2px;
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(to right, var(--bg) 40%, rgba(243,241,234,0)),
+      linear-gradient(to left, var(--bg) 40%, rgba(243,241,234,0)),
+      radial-gradient(farthest-side at 0 50%, rgba(31,28,23,.13), rgba(31,28,23,0)),
+      radial-gradient(farthest-side at 100% 50%, rgba(31,28,23,.13), rgba(31,28,23,0));
+    background-repeat: no-repeat;
+    background-position: left center, right center, left center, right center;
+    background-size: 24px 100%, 24px 100%, 10px 100%, 10px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+  .pills .pill, .toolbar__acts .btn { flex: 0 0 auto; }
 }
 
 /* ── settings redesign ─────────────────────────────────────────────────────── */
-:root { --muted-strong: #6b6253; } /* darker muted for small helper text (>=4.5:1 on --bg) */
 /* fill the content area (capped by .content's max-width) so cards are wide enough that
    field hints sit on one line and same-row inputs line up — width stays uniform across cards. */
 .settings { max-width: 1040px; padding-bottom: 96px; }
@@ -186,7 +323,7 @@ tbody tr.click:hover { background: #faf7f0; }
 /* status chip in a card head */
 .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
 .chip--ok { background: #def0e6; color: var(--teal-ink); }
-.chip--off { background: #f3ede0; color: #8a6d2f; }
+.chip--off { background: #f3ede0; color: #7a5f27; } /* 5.15:1 (was 4.18) */
 
 /* notification preview + disclosures */
 .notify-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -195,10 +332,15 @@ tbody tr.click:hover { background: #faf7f0; }
 .preview-label { font-size: 12px; color: var(--muted-strong); margin: 4px 0 5px; font-weight: 600; }
 .preview { border: 1px dashed var(--line); background: #faf7f0; border-radius: 9px; padding: 11px 13px; white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
 details.custom, details.adv { margin: 4px 0 14px; }
-details.custom > summary, details.adv > summary { cursor: pointer; font-size: 13px; color: var(--teal-ink); list-style: none; user-select: none; }
+details.custom > summary, details.adv > summary {
+  cursor: pointer; font-size: 13px; color: var(--teal-ink); list-style: none; user-select: none;
+  /* was a 19px strip. The flex box also makes ::before a flex item, whose trailing spaces would be
+     trimmed away — hence `gap` carries the space between the arrow and the label now. */
+  display: flex; align-items: center; gap: 6px; min-height: 32px;
+}
 details.custom > summary::-webkit-details-marker, details.adv > summary::-webkit-details-marker { display: none; }
-details.custom > summary::before, details.adv > summary::before { content: "\25B8  "; }
-details.custom[open] > summary::before, details.adv[open] > summary::before { content: "\25BE  "; }
+details.custom > summary::before, details.adv > summary::before { content: "\25B8"; }
+details.custom[open] > summary::before, details.adv[open] > summary::before { content: "\25BE"; }
 details.custom > .field, details.adv > .field { margin-top: 10px; }
 
 /* one-off action rows */
@@ -209,7 +351,7 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
 .actionrow__desc { font-size: 12.5px; color: var(--muted-strong); margin-top: 2px; }
 .actionrow__act { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; text-align: right; }
 .actionrow--warn { padding-left: 12px; border-left: 3px solid #ecc98e; margin-left: -12px; }
-.tag { font-size: 10.5px; letter-spacing: .5px; padding: 2px 7px; border-radius: 999px; background: #eee7d8; color: #8a7d63; white-space: nowrap; }
+.tag { font-size: 10.5px; letter-spacing: .5px; padding: 2px 7px; border-radius: 999px; background: #eee7d8; color: #6b6253; white-space: nowrap; } /* 4.88:1 (was 3.28) */
 .tag--warn { background: #f6ead2; color: var(--amber); }
 .act-feedback { font-size: 12.5px; }
 .warnnote { background: #fbf1dd; border: 1px solid #ecc98e; color: #7a5a16; font-size: 12.5px; border-radius: 8px; padding: 8px 11px; margin-bottom: 14px; line-height: 1.5; }
@@ -219,13 +361,13 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
 .savebar__note { margin-right: auto; font-size: 13px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
 .savebar__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); flex: 0 0 auto; }
 
-@media (max-width: 720px) {
+@media (max-width: 1000px) {
   .settings { max-width: none; padding-bottom: 110px; }
   .savebar { left: 0; padding: 12px 16px; }
 }
 
 /* ── member × period aggregate review (payment-notification landing) ────────── */
-/* Mobile-first: single column at any width; ≥721px the per-payment rows go two-column. */
+/* Mobile-first: single column at any width; ≥1001px the per-payment rows go two-column. */
 .mreview__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 14px; }
 .mreview__title { font-family: "Fraunces", serif; font-weight: 600; font-size: 20px; margin: 0; }
 .mreview__meta { font-size: 13px; color: var(--muted); }
@@ -243,28 +385,31 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
 .mrow__top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .mrow__plan { font-weight: 600; }
 .mrow__facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; color: var(--muted); }
+/* 完整資訊 measured 52×19 — the only sub-24px control in an otherwise well-sized view. Same fix
+   the payments cards already give their .linkbtn (the ≤1000px block below), never applied here. */
+.mrow__facts .linkbtn { display: inline-flex; align-items: center; min-height: 32px; }
 .mrow__acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .mrow__acts .btn { flex: 1 1 auto; min-height: 40px; }
 .mrow__reject { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
 .mrow__reject input {
-  flex: 1 1 180px; padding: 9px 11px; border: 1.5px solid var(--line); border-radius: 9px;
-  font: inherit; font-size: 14px; background: #fffdf8; color: var(--ink);
+  flex: 1 1 180px; padding: 9px 11px; border: 1.5px solid var(--line-strong); border-radius: 9px;
+  font: inherit; font-size: 16px; background: #fffdf8; color: var(--ink);
 }
 .linkbtn {
   border: 0; background: transparent; padding: 0; font: inherit; color: var(--teal-ink);
   text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
-@media (min-width: 721px) {
+@media (min-width: 1001px) {
   .mrow { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .mrow__acts { justify-content: flex-end; }
   .mreview__bulk .btn { flex: 0 0 auto; }
 }
 
-/* ── ≤720px: payments review on a phone ─────────────────────────────────────── */
+/* ── ≤1000px: payments review on a phone ────────────────────────────────────── */
 /* Rows stack into cards (labels come from each cell's data-label) instead of scrolling
-   sideways, and modals sit as a bottom sheet. Scoped to .tbl-cards so the dashboard and
-   manage tables keep their horizontal-scroll layout. */
-@media (max-width: 720px) {
+   sideways, and modals sit as a bottom sheet. Scoped to .tbl-cards so the read-only
+   dashboard and push-status tables keep their horizontal-scroll layout. */
+@media (max-width: 1000px) {
   .tbl-cards thead { display: none; }
   .tbl-cards, .tbl-cards tbody, .tbl-cards tr, .tbl-cards td { display: block; width: 100%; }
   .tbl-cards tr { padding: 12px 16px; border-bottom: 1px solid var(--line); }
@@ -287,8 +432,9 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
   .tbl-cards td:first-child::before { display: none; }
   /* opening the member's aggregate review is the card's primary action — size it for a thumb */
   .tbl-cards td:first-child .linkbtn { display: inline-flex; align-items: center; min-height: 32px; }
-  /* the trailing action cell gets one full-width, thumb-sized button */
-  .tbl-cards td:last-child { padding-top: 9px; }
+  /* the trailing action cell: one full-width button, or 2-3 equal thumb-sized ones.
+     width:100% on every child + the cell's own flex shrink = equal shares, no per-count rules. */
+  .tbl-cards td:last-child { padding-top: 9px; gap: 8px; }
   .tbl-cards td:last-child .btn { width: 100%; min-height: 42px; justify-content: center; }
   /* the loading / empty placeholder row is one plain cell, not a labelled card slot */
   .tbl-cards td[colspan] { display: block; padding: 0; font-size: 14px; font-weight: 400; }
@@ -301,5 +447,34 @@ details.custom > .field, details.adv > .field { margin-top: 10px; }
   .kv { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .kv dt { margin-top: 9px; font-size: 12px; }
   .kv dt:first-of-type { margin-top: 0; }
+  /* the payments cards got width: 100%; the sheets never did, so UserModal's 儲存 was 58×42
+     tucked at the left edge of a 375px sheet. Direct children go full width; a .btn-row shares
+     the width between its buttons instead of stacking them. */
   .modal__body .btn { min-height: 42px; }
+  .modal__body > .btn { width: 100%; }
+  .modal__body .btn-row { gap: 8px; }
+  .modal__body .btn-row .btn { flex: 1 1 auto; }
+}
+
+/* ── long-list filters (B12) ─────────────────────────────────────────────────
+   A search box in front of a >12-option <select> (ui.tsx FilterSelect), and in a card head
+   for the 成員 / 訂閱 tables (TableFilter). Type-qualified `input.fsel__q`, not a bare class:
+   this box sits inside a .field, where `.field input` (0,1,1) would otherwise outrank it and
+   hand it that rule's padding and 16px sizing instead of its own. */
+input.fsel__q {
+  width: 100%; padding: 8px 11px; margin-bottom: 6px;
+  border: 1.5px solid var(--line-strong); border-radius: 9px;
+  font: inherit; font-size: 16px; background: #fffdf8; color: var(--ink);
+}
+.cardtools { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+/* .card__head is space-between; without this the search box floats mid-head instead of
+   sitting next to the 新增 button it belongs with. */
+.card__head .cardtools { margin-left: auto; }
+.cardtools .fsel__q { width: 180px; margin-bottom: 0; }
+.cardtools .field__hint { margin-bottom: 0; white-space: nowrap; }
+@media (max-width: 1000px) {
+  /* the card head stacks; a 180px box next to a 新增 button leaves nothing for either */
+  .card__head { flex-wrap: wrap; gap: 8px; }
+  .card__head .cardtools { flex: 1 1 100%; margin-left: 0; }
+  .cardtools .fsel__q { width: 100%; }
 }

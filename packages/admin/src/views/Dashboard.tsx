@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, periodForBillingDay } from "../api";
-import { useAsync, Card, Stat, Empty, Money } from "../ui";
+import { useAsync, Card, Stat, Empty, Money, ErrorNote } from "../ui";
 import { PushStatus } from "./PushStatus";
 
 export function Dashboard() {
@@ -9,7 +9,7 @@ export function Dashboard() {
   // null = "follow the billing-day-aware default"; a string = the admin typed a period.
   const [period, setPeriod] = useState<string | null>(null);
   const effPeriod = period ?? periodForBillingDay(billingDay);
-  const { data, loading, error } = useAsync(() => api.reconcile(effPeriod), [effPeriod]);
+  const { data, loading, error, reload } = useAsync(() => api.reconcile(effPeriod), [effPeriod]);
 
   return (
     <>
@@ -19,7 +19,7 @@ export function Dashboard() {
           <input type="month" value={effPeriod} onChange={(e) => setPeriod(e.target.value)} style={{ width: 160 }} />
         </label>
       </div>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorNote message={error} onRetry={reload} />}
       {loading && <Empty>載入中…</Empty>}
       {data && (
         <>
@@ -34,10 +34,11 @@ export function Dashboard() {
           </div>
 
           <Card title="各方案">
-            <div className="tbl">
+            <div className="tbl tbl--pin-first">
               <table>
+                <caption className="sr-only">各方案本期收款統計</caption>
                 <thead>
-                  <tr><th>方案</th><th className="right">筆數</th><th className="right">待繳</th><th className="right">已繳</th><th className="right">已驗證</th><th className="right">應收</th><th className="right">已驗證金額</th></tr>
+                  <tr><th scope="col">方案</th><th scope="col" className="right">筆數</th><th scope="col" className="right">待繳</th><th scope="col" className="right">已繳</th><th scope="col" className="right">已驗證</th><th scope="col" className="right">應收</th><th scope="col" className="right">已驗證金額</th></tr>
                 </thead>
                 <tbody>
                   {data.by_plan.length === 0 && <tr><td colSpan={7}><Empty>本期尚無資料</Empty></td></tr>}
@@ -62,7 +63,8 @@ export function Dashboard() {
           <Card title="依渠道分組（已驗證）">
             <div className="tbl">
               <table>
-                <thead><tr><th>渠道</th><th className="right">筆數</th><th className="right">金額</th></tr></thead>
+                <caption className="sr-only">依支付渠道分組的已驗證款項</caption>
+                <thead><tr><th scope="col">渠道</th><th scope="col" className="right">筆數</th><th scope="col" className="right">金額</th></tr></thead>
                 <tbody>
                   {data.by_channel_tag.length === 0 && <tr><td colSpan={3}><Empty>本期尚無已驗證款項</Empty></td></tr>}
                   {data.by_channel_tag.map((t, i) => (
