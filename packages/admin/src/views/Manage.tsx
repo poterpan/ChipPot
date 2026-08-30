@@ -122,6 +122,14 @@ function UserModal({ user, onClose, onDone }: { user: User | null; onClose: () =
 }
 
 // ── Subscriptions ─────────────────────────────────────────────────────────────
+// subscriptions.status is a DB enum — display only, the <option value> below stays English.
+const SUB_STATUSES = [
+  { v: "active", label: "啟用中" },
+  { v: "paused", label: "暫停" },
+  { v: "cancelled", label: "已取消" },
+];
+const SUB_STATUS_LABEL: Record<string, string> = Object.fromEntries(SUB_STATUSES.map((s) => [s.v, s.label]));
+
 export function Subscriptions() {
   const { data, loading, error, reload } = useAsync(() => api.subscriptions(), []);
   const [add, setAdd] = useState(false);
@@ -131,7 +139,7 @@ export function Subscriptions() {
   const all = data?.subscriptions ?? [];
   const needle = q.trim().toLowerCase();
   const shown = needle
-    ? all.filter((s) => [s.user_name, s.plan_name, s.status].some((x) => String(x).toLowerCase().includes(needle)))
+    ? all.filter((s) => [s.user_name, s.plan_name, s.status, SUB_STATUS_LABEL[s.status] ?? ""].some((x) => String(x).toLowerCase().includes(needle)))
     : all;
   return (
     <>
@@ -153,7 +161,7 @@ export function Subscriptions() {
                 <tr key={s.id}>
                   <td data-label="成員">{s.user_name}</td>
                   <td data-label="方案">{s.plan_name}</td>
-                  <td data-label="狀態">{s.status}</td>
+                  <td data-label="狀態">{SUB_STATUS_LABEL[s.status] ?? s.status}</td>
                   <td data-label="起算日" className="mono">{s.start_date}</td>
                   <td data-label="結帳日" className="right mono">{s.billing_day}</td>
                   <td className="right">
@@ -171,7 +179,7 @@ export function Subscriptions() {
       {del && (
         <ConfirmDanger
           title={`刪除訂閱 · ${del.user_name} · ${del.plan_name}`}
-          message={`將一併刪除此訂閱的 ${del.payment_count ?? 0} 筆繳費紀錄。\n此操作無法復原。（若只想停收可改用「編輯 → 狀態 cancelled」）`}
+          message={`將一併刪除此訂閱的 ${del.payment_count ?? 0} 筆繳費紀錄。\n此操作無法復原。（若只想停收，可改用「編輯 → 狀態：已取消」）`}
           onClose={() => setDel(null)}
           onConfirm={async () => { await api.deleteSubscription(del.id); setDel(null); reload(); }}
         />
@@ -231,7 +239,7 @@ function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: ()
   return (
     <Modal title={`編輯訂閱 · ${sub.user_name} · ${sub.plan_name}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      <Field label="狀態"><select value={f.status} onChange={(e) => set("status", e.target.value)} disabled={busy}><option value="active">active</option><option value="paused">paused</option><option value="cancelled">cancelled</option></select></Field>
+      <Field label="狀態"><select value={f.status} onChange={(e) => set("status", e.target.value)} disabled={busy}>{SUB_STATUSES.map((st) => <option key={st.v} value={st.v}>{st.label}</option>)}</select></Field>
       <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
       <Field label="結帳日 (1-28)">
         <span className="field__hint">每月幾號為這個訂閱結帳。29–31 在短月會落空，所以上限是 28。</span>
@@ -271,13 +279,13 @@ export function Plans() {
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <caption className="sr-only">方案清單</caption>
-            <thead><tr><th scope="col">名稱</th><th scope="col">provider</th><th scope="col" className="right">月費</th><th scope="col">身分組 ID</th><th scope="col">啟用</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
+            <thead><tr><th scope="col">名稱</th><th scope="col">供應商</th><th scope="col" className="right">月費</th><th scope="col">身分組 ID</th><th scope="col">啟用</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6}><Empty>載入中…</Empty></td></tr>}
               {shown.map((p) => (
                 <tr key={p.id}>
                   <td data-label="名稱">{p.name}</td>
-                  <td data-label="provider">{p.provider}</td>
+                  <td data-label="供應商">{p.provider}</td>
                   <td data-label="月費" className="right mono">NT${p.monthly_amount}</td>
                   <td data-label="身分組 ID" className="mono" style={{ fontSize: 12 }}>{p.discord_role_id ?? "—"}</td>
                   <td data-label="啟用">{p.active ? "✓" : "—"}</td>
@@ -309,7 +317,7 @@ function PlanModal({ plan, providers, onClose, onDone }: { plan: Plan | null; pr
   async function save() {
     const provider = f.provider.trim().toLowerCase();
     if (!f.name || !f.monthly_amount) { setErr("請填名稱與月費"); return; }
-    if (!provider) { setErr("請填 provider"); return; }
+    if (!provider) { setErr("請填供應商"); return; }
     setBusy(true); setErr(null);
     try {
       const body: any = { name: f.name, provider, monthly_amount: Number(f.monthly_amount), discord_role_id: f.discord_role_id || undefined, active: f.active ? 1 : 0 };
@@ -321,7 +329,7 @@ function PlanModal({ plan, providers, onClose, onDone }: { plan: Plan | null; pr
     <Modal title={plan ? "編輯方案" : "新增方案"} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
       <Field label="名稱"><input value={f.name} onChange={(e) => set("name", e.target.value)} disabled={busy} /></Field>
-      <Field label="provider（選現有或直接輸入新的，如 gemini、glm）">
+      <Field label="供應商（選現有或直接輸入新的，如 gemini、glm）">
         <input list="plan-providers" value={f.provider} onChange={(e) => set("provider", e.target.value)} disabled={busy} placeholder="openai / anthropic / gemini …" />
         <datalist id="plan-providers">{providers.map((pv) => <option key={pv} value={pv} />)}</datalist>
       </Field>
