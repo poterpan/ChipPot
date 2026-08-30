@@ -69,7 +69,13 @@ export default {
       return errorResponse(404, "not found");
     } catch (err) {
       console.error("unhandled error", err);
-      return errorResponse(500, "internal error");
+      // Say what broke. The admin API is Access-gated and the member routes are token-gated, so the
+      // audience here is an operator, not the open internet — and a bare "internal error" cost a
+      // fork owner an hour of trawling logs for what turned out to be `no such column: event`
+      // (an unapplied migration). The stack stays in console.error: the message alone is what
+      // makes the failure actionable, and a stack in a toast is unreadable anyway.
+      const message = err instanceof Error && err.message ? err.message : String(err ?? "unknown error");
+      return errorResponse(500, message);
     }
   },
 
