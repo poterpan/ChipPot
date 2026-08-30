@@ -16,6 +16,13 @@ export interface Env {
 }
 
 export interface WorkspaceSettings {
+  /**
+   * Dead setting (#46): parsed and round-tripped, but nothing reads it — every date in the system is
+   * computed in Asia/Taipei, hardcoded in core/time.ts. Kept (not deleted) because removing it would
+   * change the settings schema and break the stored-settings round-trip env.test.ts asserts.
+   * There is deliberately no admin UI field for it: an editable control that changes nothing is worse
+   * than no control. Making the timezone real means changing core/time.ts, not this line.
+   */
   timezone: string;
   discord_guild_id: string;
   discord_billing_channel_id: string;
