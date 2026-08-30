@@ -29,7 +29,7 @@ export function Users() {
       <Card title="成員名單" action={
         <>
           <TableFilter value={q} onChange={setQ} placeholder="搜尋名稱／Email／Discord ID" shown={shown.length} total={all.length} />
-          <button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>
+          <button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員…</button>
         </>
       }>
         {unboundCount > 0 && (
@@ -147,7 +147,7 @@ export function Subscriptions() {
       <Card title="訂閱清單" action={
         <>
           <TableFilter value={q} onChange={setQ} placeholder="搜尋成員／方案" shown={shown.length} total={all.length} />
-          <button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱</button>
+          <button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱…</button>
         </>
       }>
         <div className="tbl tbl--pin-first tbl--pin-last">
@@ -242,7 +242,7 @@ function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: ()
       <Field label="狀態"><select value={f.status} onChange={(e) => set("status", e.target.value)} disabled={busy}>{SUB_STATUSES.map((st) => <option key={st.v} value={st.v}>{st.label}</option>)}</select></Field>
       <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
       <Field label="結帳日 (1-28)">
-        <span className="field__hint">每月幾號為這個訂閱結帳。29–31 在短月會落空，所以上限是 28。</span>
+        <span className="field__hint">每月幾號為這個訂閱結帳。29-31 在短月會落空，所以上限是 28。</span>
         <input type="number" min={1} max={28} value={f.billing_day} onChange={(e) => set("billing_day", e.target.value)} disabled={busy} />
       </Field>
       <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
@@ -267,7 +267,7 @@ export function Plans() {
   return (
     <>
       {error && <ErrorNote message={error} onRetry={reload} />}
-      <Card title="方案清單" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增方案</button>}>
+      <Card title="方案清單" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增方案…</button>}>
         {providers.length > 1 && (
           <div className="pills" style={{ padding: "12px 18px 0" }}>
             <button className={`pill ${pFilter === "" ? "pill--on" : ""}`} onClick={() => setPFilter("")}>全部</button>
@@ -368,7 +368,7 @@ export function ChannelTags() {
   return (
     <>
       {(error || actErr) && <ErrorNote message={(error || actErr)!} onRetry={reload} />}
-      <Card title="繳費渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道</button>}>
+      <Card title="繳費渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道…</button>}>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <caption className="sr-only">繳費渠道清單</caption>

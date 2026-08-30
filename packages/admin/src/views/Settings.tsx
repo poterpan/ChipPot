@@ -288,7 +288,7 @@ export function Settings() {
           <ActionRow title="張貼／更新綁定按鈕訊息" tag="立即執行" desc="在繳費頻道貼一則含「綁定 Discord」按鈕的公開訊息，讓成員主動綁定（開繳／催繳才能 @ 到他）。" state={bindMsgState}><RebuildBindMessage onDone={(id) => setLive((s) => ({ ...s, bind: id }))} /></ActionRow>
           <ActionRow title="註冊 Discord 指令" tag="立即執行" desc="更新 /繳費、/發起繳費、/綁定 指令到你的伺服器。" state={cmdState}><RegisterCommands onDone={(at) => setLive((s) => ({ ...s, cmd: at }))} /></ActionRow>
           <ActionRow title="發起繳費" tag="會改價＋發通知" warn desc="確認指定期別的各方案金額，建立該期帳單並向所有成員發出開繳通知。送出前會先看影響預覽。"><InitiateBilling billingDay={savedBillingDay} dirty={dirty} /></ActionRow>
-          <ActionRow title="匯入名單 CSV" tag="會新增/暫停訂閱" warn desc="用 CSV 批次建立或更新成員與訂閱；FALSE 的方案會暫停該訂閱。套用前先看差異預覽。"><ImportRoster /></ActionRow>
+          <ActionRow title="匯入名單 CSV" tag="會新增／暫停訂閱" warn desc="用 CSV 批次建立或更新成員與訂閱；FALSE 的方案會暫停該訂閱。套用前先看差異預覽。"><ImportRoster /></ActionRow>
         </div>
       </Card>
 
@@ -384,7 +384,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
       const r = await api.importMembers(file, { startDate: start || undefined, dryRun: false });
       const d = r.diff;
       setDiff(d);
-      setDone(`✓ 已套用：新增 ${d.users_created.length} 人 / 新增 ${d.subs_added.length} 訂閱 / 恢復 ${d.subs_reactivated.length} / 暫停 ${d.subs_paused.length}`);
+      setDone(`✓ 已套用：新增 ${d.users_created.length} 人、新增 ${d.subs_added.length} 訂閱、恢復 ${d.subs_reactivated.length}、暫停 ${d.subs_paused.length}`);
       // 匯入建立的帳單來自 ensureFirstPayment，不會出現在之後的同步 diff —— 通知要在這裡發，
       // 否則新成員從頭到尾不會收到任何訊息 (C1)。
       const ids = [...new Set(

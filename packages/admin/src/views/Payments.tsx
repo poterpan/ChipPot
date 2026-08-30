@@ -120,10 +120,10 @@ export function Payments() {
             phone instead of four stacked bands. Below 1000px .toolbar__acts is a nowrap scroller
             with an edge fade; above it, it is a plain flex row and looks unchanged. */}
         <div className="toolbar__acts">
-          <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊此期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步此期帳單</button>
-          <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除此期未繳／已退回帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回此期開繳</button>
-          <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結</button>
-          <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
+          <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊此期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步此期帳單…</button>
+          <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除此期未繳／已退回帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回此期開繳…</button>
+          <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結…</button>
+          <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登…</button>
         </div>
       </div>
 
@@ -221,7 +221,7 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
     try {
       const r = await api.syncPeriodBills(period, { dry_run: false, notify_added: notify && boundAdds.length > 0 }) as any;
       setDone(
-        `已套用：新增 ${r.applied.added}、移除 ${r.applied.removed}、改價 ${r.applied.repriced}、保留 ${r.applied.frozen}`
+        `✓ 已套用：新增 ${r.applied.added}、移除 ${r.applied.removed}、改價 ${r.applied.repriced}、保留 ${r.applied.frozen}`
         + (r.notified ? `；已通知 ${r.notified} 位` : "")
         + (r.unbound ? `；${r.unbound} 位未綁定、通知不到` : "")
       );
@@ -291,7 +291,7 @@ function RetractModal({ period, onClose, onDone }: { period: string; onClose: ()
     setBusy(true); setErr(null);
     try {
       const r = await api.retractPeriodBilling(period, { dry_run: false }) as RetractApplied;
-      setDone(`已收回 ${period}：刪除 ${r.applied.removed} 筆帳單、保留 ${r.applied.frozen} 筆已繳待驗／已驗證。此期已回到未開繳狀態。`);
+      setDone(`✓ 已收回 ${period}：刪除 ${r.applied.removed} 筆帳單、保留 ${r.applied.frozen} 筆已繳待驗／已驗證。此期已回到未開繳狀態。`);
       onDone();
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
@@ -299,7 +299,7 @@ function RetractModal({ period, onClose, onDone }: { period: string; onClose: ()
   return (
     <Modal title={`收回此期開繳 · ${period}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      {busy && !preview && <Empty>計算中…</Empty>}
+      {busy && !preview && <Empty>計算差異中…</Empty>}
       {done && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{done}</div>}
       {preview && !preview.opened && !done && <p style={{ color: "var(--muted)" }}>此期尚未發起繳費，無需收回。</p>}
       {preview && preview.opened && !done && (
