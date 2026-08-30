@@ -182,7 +182,7 @@ git update-index --skip-worktree packages/worker/wrangler.toml
    - Deploy command：`pnpm --filter @chippot/worker run deploy`
 4. 儲存並觸發第一次 deploy。
 
-   > **deploy 腳本做兩件事**：先用 `wrangler d1 migrations apply chippot-db --remote` 自動套用所有未套用的 migration（idempotent，冪等），再執行 `wrangler deploy`。首次部署會套入 0001–0005 的初始 schema 與示範 seed。
+   > **deploy 腳本做兩件事**：先用 `wrangler d1 migrations apply chippot-db --remote` 自動套用所有未套用的 migration（idempotent，冪等），再執行 `wrangler deploy`。首次部署會套入 0001–0007 的初始 schema 與示範 seed。
    >
    > ⚠️ **破壞性 migration**（例如刪欄位、重命名）：建議在低流量時段先在 Cloudflare 後台 D1 console 或 CLI 手動套 migration，確認無誤再推 code 觸發 deploy——避免「新 schema 配舊 worker 程式」的短暫窗口期。
 

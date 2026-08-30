@@ -332,11 +332,11 @@ describe("admin discord slash registration", () => {
     (env as any).DISCORD_BOT_TOKEN = prevToken;
 
     expect(res!.status).toBe(200);
-    expect(((await res!.json()) as any).registered).toBe(3);
+    expect(((await res!.json()) as any).registered).toBe(4);
     expect(captured!.url).toContain("/guilds/guild-777/commands");
     const names = captured!.body.map((c: any) => c.name);
-    expect(names).toHaveLength(3);
-    expect(new Set(names)).toEqual(new Set(["繳費", "發起繳費", "綁定"])); // order-independent
+    expect(names).toHaveLength(4);
+    expect(new Set(names)).toEqual(new Set(["繳費", "我的帳單", "發起繳費", "綁定"])); // order-independent
 
     const wsRes = await call("GET", "/admin/workspace");
     const s = ((await wsRes!.json()) as any).workspace.settings;
@@ -609,6 +609,30 @@ describe("admin billing/initiate + declared channel", () => {
     expect(del!.status).toBe(200);
     expect(await env.DB.prepare("SELECT id FROM channel_tags WHERE id = ?").bind(tid).first()).toBeNull();
     expect(await auditCount("channel_tag.delete", tid)).toBe(1);
+  });
+});
+
+describe("POST /admin/notifications/nudge", () => {
+  it("400s a bad period", async () => {
+    const res = await call("POST", "/admin/notifications/nudge", { period: "2029-13", user_ids: [1] });
+    expect(res!.status).toBe(400);
+  });
+
+  it("400s an empty user list", async () => {
+    const res = await call("POST", "/admin/notifications/nudge", { period: "2029-01", user_ids: [] });
+    expect(res!.status).toBe(400);
+  });
+
+  it("400s a bad kind", async () => {
+    const res = await call("POST", "/admin/notifications/nudge", { period: "2029-01", user_ids: [1], kind: "shout" });
+    expect(res!.status).toBe(400);
+  });
+
+  it("reports opened:false for a period nobody opened, and sends nothing", async () => {
+    const res = await call("POST", "/admin/notifications/nudge", { period: "2029-01", user_ids: [1] });
+    const body = (await res!.json()) as any;
+    expect(res!.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, opened: false, notified: 0 });
   });
 });
 

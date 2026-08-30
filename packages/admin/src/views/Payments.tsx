@@ -192,6 +192,8 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
   }, [period]);
 
   const boundAdds = diff?.add?.filter((a) => a.discord_id) ?? [];
+  // 未綁定的人 @ 不到——說出來，否則管理員會以為每個新成員都收到通知了 (C9)。
+  const unboundAdds = diff?.add?.filter((a) => !a.discord_id) ?? [];
   const changes = diff ? diff.add.length + diff.remove.length + diff.reprice.length : 0;
 
   async function apply() {
@@ -199,7 +201,11 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
     setBusy(true); setErr(null);
     try {
       const r = await api.syncPeriodBills(period, { dry_run: false, notify_added: notify && boundAdds.length > 0 }) as any;
-      setDone(`已套用：新增 ${r.applied.added}、移除 ${r.applied.removed}、改價 ${r.applied.repriced}、保留 ${r.applied.frozen}` + (r.notified ? `；已通知 ${r.notified} 位新成員` : ""));
+      setDone(
+        `已套用：新增 ${r.applied.added}、移除 ${r.applied.removed}、改價 ${r.applied.repriced}、保留 ${r.applied.frozen}`
+        + (r.notified ? `；已通知 ${r.notified} 位` : "")
+        + (r.unbound ? `；${r.unbound} 位未綁定、通知不到` : "")
+      );
       onDone();
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
@@ -226,6 +232,12 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
               <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
               在頻道 @ 通知這 {boundAdds.length} 位新成員並附繳費按鈕
             </label>
+          )}
+          {unboundAdds.length > 0 && (
+            <div className="warnnote">
+              另 {unboundAdds.length} 位尚未綁定 Discord，@ 不到：{unboundAdds.map((a) => a.user_name).join("、")}。
+              請到「成員」頁用「未綁定」篩選確認，或請他們點頻道裡的「綁定 Discord」按鈕。
+            </div>
           )}
           {changes === 0
             ? <p style={{ color: "var(--muted)" }}>本期已是最新，無需變更。</p>

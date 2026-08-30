@@ -132,6 +132,13 @@ export interface ImportDiff {
   affected_pending_bills: ImportBillLine[];
 }
 
+export interface NudgeResult {
+  ok: boolean; opened: boolean; notified: number; skipped: number;
+  unbound: number; unbound_names: string[];
+  /** Present only when there was no way to deliver at all — see nudgeSummary. */
+  transport?: "no_channel" | "no_bot_token";
+}
+
 export const api = {
   workspace: () => req<{ workspace: any; r2_configured: boolean }>("GET", "/workspace"),
   updateWorkspace: (b: unknown) => req("PATCH", "/workspace", b),
@@ -143,6 +150,8 @@ export const api = {
   resendNotification: (type: string, period: string, opts: { dry_run: boolean }) =>
     req<ResendBillingPreview | OverduePreview>("POST", "/notifications/resend", { type, period, ...opts }),
   resetNotification: (type: string, period: string) => req<{ ok: boolean; deleted: number }>("POST", "/notifications/reset", { type, period }),
+  nudgeMembers: (b: { period: string; user_ids: number[]; kind?: "added" | "remind"; force?: boolean }) =>
+    req<NudgeResult>("POST", "/notifications/nudge", b),
   testNotification: (b: { kind: "bark" | "webhook"; bark_key?: string; bark_server?: string; webhook_url?: string; template?: string }) =>
     req<{ ok: boolean; status?: number; error?: string }>("POST", "/notifications/test", b),
   initiateBilling: (b: { period: string; amounts: { plan_id: number; amount: number }[]; dry_run: boolean }) =>
@@ -232,4 +241,23 @@ export function nextBillingPeriod(billingDay: number, now: Date = new Date()): s
   const nm = m === 12 ? 1 : m + 1;
   const ny = m === 12 ? y + 1 : y;
   return `${ny}-${String(nm).padStart(2, "0")}`;
+}
+
+/** One sentence for a nudge outcome — every caller (匯入 / 新增訂閱 / 個別催繳) says the same thing. */
+export function nudgeSummary(r: NudgeResult): string {
+  if (!r.opened) return "此期尚未發起繳費，暫不發送通知。";
+  // A missing channel / token is a misconfiguration, not "nobody needed notifying" — say which,
+  // and still name the people who would have been reached so the admin can act on both.
+  if (r.transport) {
+    const why = r.transport === "no_channel"
+      ? "尚未設定繳費頻道 ID（設定 → Discord 串接）"
+      : "尚未設定 Discord bot token";
+    const who = r.unbound > 0 ? `（另有 ${r.unbound} 位未綁定：${r.unbound_names.join("、")}）` : "";
+    return `沒有發出通知：${why}${who}。`;
+  }
+  const parts: string[] = [];
+  parts.push(r.notified > 0 ? `已在頻道 @ 通知 ${r.notified} 位` : "沒有需要通知的人");
+  if (r.skipped > 0) parts.push(`${r.skipped} 位本期已通知過`);
+  if (r.unbound > 0) parts.push(`另 ${r.unbound} 位尚未綁定 Discord、通知不到（${r.unbound_names.join("、")}）`);
+  return parts.join("；") + "。";
 }

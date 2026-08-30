@@ -15,6 +15,9 @@ export interface OverduePerson {
   total: number;
 }
 
+/** 'added' = 你被加進名單了; 'remind' = 你還沒繳。Same message shape, different opening line. */
+export type NudgeKind = "added" | "remind";
+
 export type ReceiptKind = "reject" | "verify";
 export interface ReceiptLine {
   plan_name: string;
@@ -42,8 +45,12 @@ export interface ReceiptTarget {
 export interface Notifier {
   sendBillingOpened(env: Env, channelId: string, period: string, lines: PlanOpenLine[], template: string): Promise<boolean>;
   sendOverdue(env: Env, channelId: string, period: string, people: OverduePerson[], template: string): Promise<boolean>;
-  /** Targeted nudge for members newly added to a period (e.g. after reconcile): @-mention them + pay button. */
-  sendPaymentNudge(env: Env, channelId: string, workspaceId: number, period: string, people: OverduePerson[]): Promise<boolean>;
+  /** Targeted nudge for specific members in a period: @-mention them + pay button. `kind` only
+   *  changes the opening line — 'added' 是剛被加進名單, 'remind' 是管理員再催一次。 */
+  sendPaymentNudge(
+    env: Env, channelId: string, workspaceId: number, period: string,
+    people: OverduePerson[], kind: NudgeKind
+  ): Promise<boolean>;
   /**
    * 審核結果回條: tell the member their submission was 退回 (with the reason) or 確認. Delivered in
    * the billing channel with an @-mention — the Discord adapter has no DM capability, and every

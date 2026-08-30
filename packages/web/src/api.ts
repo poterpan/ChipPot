@@ -8,8 +8,9 @@ if (!API) {
   );
 }
 
-export interface SubscriptionChoice {
-  id: number;
+/** One outstanding bill for the period — the amount is the BILL's, not the plan's price (C6). */
+export interface PayableLine {
+  payment_id: number;
   plan_name: string;
   amount: number;
 }
@@ -21,7 +22,7 @@ export interface TokenInfo {
   valid: boolean;
   period?: string;
   user?: { display_name: string };
-  subscriptions?: SubscriptionChoice[];
+  lines?: PayableLine[];
   channel_tags?: ChannelTag[];
   proof_enabled?: boolean;
 }
