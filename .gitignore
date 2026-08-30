@@ -9,3 +9,6 @@ coverage/
 # internal ops / one-time setup notes — not for the public repo (hold owner-specific values)
 docs/deploy-state.md
 docs/setup-checklist.md
+
+# Playwright MCP 的頁面快照暫存（UI 驗證時產生）
+.playwright-mcp/
