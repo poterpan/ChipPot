@@ -97,7 +97,7 @@ export function MemberReview({ userId, period, tags, onBack }: {
               <button
                 className="btn"
                 disabled={busy}
-                title="在帳單頻道 @ 這位成員，列出他這一期還沒繳的項目"
+                title="在繳費頻道 @ 這位成員，列出他這一期還沒繳的項目"
                 onClick={() => run(async () => {
                   // force: the admin is deliberately asking for another ping, which is the one
                   // sanctioned way past the per-period nudge dedup (core/nudge.ts).

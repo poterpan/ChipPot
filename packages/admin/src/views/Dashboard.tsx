@@ -63,7 +63,7 @@ export function Dashboard() {
           <Card title="依渠道分組（已驗證）">
             <div className="tbl">
               <table>
-                <caption className="sr-only">依支付渠道分組的已驗證款項</caption>
+                <caption className="sr-only">依繳費渠道分組的已驗證款項</caption>
                 <thead><tr><th scope="col">渠道</th><th scope="col" className="right">筆數</th><th scope="col" className="right">金額</th></tr></thead>
                 <tbody>
                   {data.by_channel_tag.length === 0 && <tr><td colSpan={3}><Empty>本期尚無已驗證款項</Empty></td></tr>}

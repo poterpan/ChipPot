@@ -360,10 +360,10 @@ export function ChannelTags() {
   return (
     <>
       {(error || actErr) && <ErrorNote message={(error || actErr)!} onRetry={reload} />}
-      <Card title="支付渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道</button>}>
+      <Card title="繳費渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道</button>}>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
-            <caption className="sr-only">支付渠道清單</caption>
+            <caption className="sr-only">繳費渠道清單</caption>
             <thead><tr><th scope="col">名稱</th><th scope="col">類型</th><th scope="col" className="right">排序</th><th scope="col">狀態</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={5}><Empty>載入中…</Empty></td></tr>}
@@ -393,7 +393,7 @@ export function ChannelTags() {
       {del && (
         <ConfirmDanger
           title={`刪除渠道 · ${del.name}`}
-          message={`確定刪除此支付渠道？此操作無法復原。`}
+          message={`確定刪除此繳費渠道？此操作無法復原。`}
           onClose={() => setDel(null)}
           onConfirm={async () => { await api.deleteChannelTag(del.id); setDel(null); reload(); }}
         />
