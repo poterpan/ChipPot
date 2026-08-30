@@ -141,6 +141,15 @@ export function Settings() {
 
   function flash(msg: string) { setToast(msg); window.setTimeout(() => setToast(null), 2400); }
   async function save() {
+    // min/max on <input type="number"> are only hints — nothing stops a typed 29 from being
+    // submitted, and the worker's guard answers in English (routes/admin.ts, §A.14 allowlist:
+    // that string is only allowed to stay English because the UI is supposed to block it first).
+    const bd = Number(form.billing_day);
+    if (!Number.isInteger(bd) || bd < 1 || bd > 28) { setErr("每月結帳日請填 1-28 的整數。"); return; }
+    const od = Number(form.overdue_days);
+    if (!Number.isInteger(od) || od < 0) { setErr("逾期天數請填 0 或正整數。"); return; }
+    const rm = Number(form.proof_retention_months);
+    if (!Number.isInteger(rm) || rm < 1) { setErr("截圖保存月數請填 1 以上的整數。"); return; }
     setBusy(true); setErr(null);
     try {
       await api.updateWorkspace({
@@ -413,7 +422,10 @@ function ImportModal({ onClose }: { onClose: () => void }) {
             欄位需為「姓名, 帳號, 方案名…」；方案名須與系統方案一致。方案格 <b>TRUE</b>＝訂閱、<b>FALSE</b>＝暫停該訂閱、<b>留空</b>＝不變動。起算月份留空＝當月。
           </p>
           <Field label="CSV 檔"><input type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={busy} /></Field>
-          <Field label="起算月份第一天（選填，YYYY-MM-DD）"><input value={start} onChange={(e) => setStart(e.target.value)} placeholder="2026-06-01" disabled={busy} /></Field>
+          {/* type=date, like every other date in the app (#44 B14): a free-text box here let a typo reach
+              the worker, whose guard answers in English — a string the §A.14 allowlist only permits to
+              stay English because the UI is supposed to make it unreachable. */}
+          <Field label="起算月份第一天（選填）"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} disabled={busy} /></Field>
           <button className="btn btn--primary" onClick={preview} disabled={busy}>{busy ? "計算差異中…" : "預覽差異"}</button>
         </>
       )}
@@ -507,7 +519,10 @@ function InitiateModal({ plans, billingDay, dirty, onClose }: { plans: { id: num
   const [err, setErr] = useState<string | null>(null);
 
   const payload = () => ({ period, amounts: plans.map((p) => ({ plan_id: p.id, amount: Number(amounts[p.id]) })) });
-  const invalid = plans.some((p) => !/^\d+$/.test((amounts[p.id] ?? "").trim()));
+  // <input type="month"> can be CLEARED, and an empty period reaches the worker's English guard
+  // (§A.14 only lets that string stay English because the UI is supposed to prevent it).
+  const invalid = !/^\d{4}-(0[1-9]|1[0-2])$/.test(period)
+    || plans.some((p) => !/^\d+$/.test((amounts[p.id] ?? "").trim()));
 
   async function runPreview() {
     setBusy(true); setErr(null);

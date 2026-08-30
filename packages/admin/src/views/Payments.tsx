@@ -354,6 +354,9 @@ function ManualModal({ tags, onClose, onDone }: { tags: ChannelTag[]; onClose: (
 
   async function submit() {
     if (!subId) { setErr("請選擇訂閱"); return; }
+    // <input type="month"> can be cleared; an empty period reaches the worker's English guard
+    // (§A.14 only lets that string stay English because the UI is supposed to prevent it).
+    if (!PERIOD_RE.test(period)) { setErr("請選擇期別。"); return; }
     setBusy(true); setErr(null);
     try {
       await api.manualPayment({ subscription_id: Number(subId), period, amount: amount ? Number(amount) : undefined, status: statusV, verified_channel_tag_id: tagId ? Number(tagId) : undefined, payment_note: note || undefined });
@@ -398,6 +401,7 @@ function LinkModal({ onClose }: { onClose: () => void }) {
 
   async function gen() {
     if (!userId) { setErr("請選擇成員"); return; }
+    if (!PERIOD_RE.test(period)) { setErr("請選擇期別。"); return; }
     setBusy(true); setErr(null);
     try {
       const r = await api.uploadLink({ user_id: Number(userId), period });

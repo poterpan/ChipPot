@@ -144,8 +144,9 @@ describe("/繳費 with no R2 ignores the screenshot", () => {
     vi.unstubAllGlobals();
     (env as any).BUCKET = prevB;
     (env as any).DISCORD_APPLICATION_ID = prevApp;
-    expect(captured).toContain("已登記");
-    expect(captured).toMatch(/\d{4}-\d{2}/);   // 回覆改成報實際期別（YYYY-MM）
+    // 報的必須是「這一期」，不是任何一個看起來像 YYYY-MM 的字串——
+    // 只斷言格式的話，回報錯月份的 bug 也會通過。
+    expect(captured).toContain(`已登記 ${PERIOD}`);
     expect(captured).toContain("已記錄你的繳費宣告");
   });
 });
