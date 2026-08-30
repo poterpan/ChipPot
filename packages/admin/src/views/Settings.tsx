@@ -575,7 +575,7 @@ function InitiateModal({ plans, billingDay, dirty, onClose }: { plans: { id: num
             <Stat label="➕ 新增帳單" value={preview.create.length} />
             <Stat label="🔄 改價" value={preview.reprice.length} />
             <Stat label="🏷️ 方案改價" value={preview.plan_changes.length} />
-            <Stat label="🔒 保留(已繳)" value={preview.frozen_count} />
+            <Stat label="🔒 保留（已繳待驗、已驗證）" value={preview.frozen_count} />
           </div>
           {preview.plan_changes.length > 0 && (
             <DiffList title="方案定價（永久生效）" rows={preview.plan_changes.map((c) => `${c.plan_name} NT$${c.from.toLocaleString()} → NT$${c.to.toLocaleString()}`)} />

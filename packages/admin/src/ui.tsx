@@ -21,7 +21,7 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  pending: "待繳", paid: "已繳", verified: "已驗證", rejected: "已退回",
+  pending: "待繳", paid: "已繳待驗", verified: "已驗證", rejected: "已退回",
 };
 export function StatusBadge({ status }: { status: string }) {
   return <span className={`badge badge--${status}`}>{STATUS_LABEL[status] ?? status}</span>;

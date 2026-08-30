@@ -84,7 +84,7 @@ ChipPot 解決的是一個很具體的痛點：社團大量採購 OpenAI / Anthr
   ephemeral：列出本期各方案 + 總額 + 渠道下拉
         │  （/繳費 或網頁可另附截圖／備註）
         ▼
-  settleUserPeriod() — 把每筆 pending/rejected 標記為「已繳」，共用同一張截圖 key
+  settleUserPeriod() — 把每筆 pending/rejected 標記為「已繳待驗」，共用同一張截圖 key
         │
         ▼
   後台看板 → 審核佇列 → ✅ 驗證（自動帶入申報渠道）

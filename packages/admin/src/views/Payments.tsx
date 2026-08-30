@@ -241,7 +241,7 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
             <Stat label="➕ 新增" value={diff.add.length} />
             <Stat label="➖ 移除" value={diff.remove.length} />
             <Stat label="🔄 改價" value={diff.reprice.length} />
-            <Stat label="🔒 保留(已繳)" value={diff.frozen_count} />
+            <Stat label="🔒 保留（已繳待驗、已驗證）" value={diff.frozen_count} />
           </div>
           {diff.add.length > 0 && <DiffList title="新增" rows={diff.add.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
           {diff.remove.length > 0 && <DiffList title="移除（訂閱已暫停／已取消）" rows={diff.remove.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
@@ -291,7 +291,7 @@ function RetractModal({ period, onClose, onDone }: { period: string; onClose: ()
     setBusy(true); setErr(null);
     try {
       const r = await api.retractPeriodBilling(period, { dry_run: false }) as RetractApplied;
-      setDone(`已收回 ${period}：刪除 ${r.applied.removed} 筆帳單、保留 ${r.applied.frozen} 筆已繳。此期已回到未開繳狀態。`);
+      setDone(`已收回 ${period}：刪除 ${r.applied.removed} 筆帳單、保留 ${r.applied.frozen} 筆已繳待驗／已驗證。此期已回到未開繳狀態。`);
       onDone();
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
@@ -306,7 +306,7 @@ function RetractModal({ period, onClose, onDone }: { period: string; onClose: ()
         <>
           <div className="stats">
             <Stat label="🗑️ 將刪除" value={preview.removed.length} />
-            <Stat label="🔒 保留(已繳)" value={preview.frozen_count} />
+            <Stat label="🔒 保留（已繳待驗、已驗證）" value={preview.frozen_count} />
           </div>
           {preview.removed.length > 0
             ? <DiffList title="將刪除的帳單（未繳／已退回）" rows={preview.removed.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />

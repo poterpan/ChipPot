@@ -69,7 +69,7 @@ describe("previewBillingInitiate", () => {
     expect(p.plan_changes).toEqual([]); // 價格已在上一步寫入，現在沒有差異
   });
 
-  it("已繳的帳單算進 frozen_count，不出現在 reprice", async () => {
+  it("已繳待驗的帳單算進 frozen_count，不出現在 reprice", async () => {
     await env.DB.prepare("UPDATE payments SET status='paid' WHERE workspace_id=? AND period=? AND subscription_id=?")
       .bind(WS, PERIOD, SUB_B).run();
     const p = await previewBillingInitiate(env, WS, PERIOD, { amounts: [{ plan_id: PLAN_B, amount: 999 }] });
