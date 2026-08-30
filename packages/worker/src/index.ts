@@ -69,12 +69,19 @@ export default {
       return errorResponse(404, "not found");
     } catch (err) {
       console.error("unhandled error", err);
-      // Say what broke. The admin API is Access-gated and the member routes are token-gated, so the
-      // audience here is an operator, not the open internet — and a bare "internal error" cost a
-      // fork owner an hour of trawling logs for what turned out to be `no such column: event`
-      // (an unapplied migration). The stack stays in console.error: the message alone is what
-      // makes the failure actionable, and a stack in a toast is unreadable anyway.
-      const message = err instanceof Error && err.message ? err.message : String(err ?? "unknown error");
+      // Detail goes ONLY to the Access-gated admin surface. A bare "internal error" there cost a
+      // fork owner an hour of trawling logs for what turned out to be `no such column: event` (an
+      // unapplied migration), and /admin/* sits behind Cloudflare Access, so the reader is the
+      // operator. Everywhere else keeps the opaque message: /upload/:token renders body.error
+      // straight onto the member's phone (web/src/api.ts), and leaking a SQL string there would
+      // undo the whole point of P0-6 — members must never meet a technical error. /interactions is
+      // Discord's, and the raw text would be equally useless to it.
+      // The stack stays in console.error either way: the message is the actionable part, and a
+      // stack in a toast is unreadable anyway.
+      const isAdmin = url.pathname.startsWith("/admin/");
+      const message = isAdmin
+        ? (err instanceof Error && err.message ? err.message : String(err ?? "unknown error"))
+        : "internal error";
       return errorResponse(500, message);
     }
   },
