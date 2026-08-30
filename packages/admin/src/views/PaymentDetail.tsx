@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type ChannelTag, type Payment } from "../api";
-import { Modal, Field, Money, StatusBadge, IconWarning, ConfirmDanger } from "../ui";
+import { Modal, Field, Money, StatusBadge, IconWarning, ConfirmDanger, SOURCE_LABEL } from "../ui";
 
 export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Payment; tags: ChannelTag[]; onClose: () => void; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -26,7 +26,7 @@ export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Pay
         <dt>狀態</dt><dd><StatusBadge status={payment.status} /></dd>
         <dt>金額</dt><dd><Money v={payment.amount} /></dd>
         <dt>應繳日</dt><dd className="mono">{payment.due_date}</dd>
-        <dt>來源</dt><dd>{payment.source}</dd>
+        <dt>來源</dt><dd>{SOURCE_LABEL[payment.source] ?? payment.source}</dd>
         {payment.payment_note && (<><dt>成員備註</dt><dd>{payment.payment_note}</dd></>)}
         {payment.declared_channel_tag_name && (<><dt>申報渠道</dt><dd>{payment.declared_channel_tag_name}</dd></>)}
         {payment.channel_tag_name && (<><dt>認定渠道</dt><dd>{payment.channel_tag_name}</dd></>)}
