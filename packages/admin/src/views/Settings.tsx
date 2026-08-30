@@ -274,7 +274,7 @@ export function Settings() {
         </div>
       </Card>
 
-      <Card title="Discord 訊息文字" desc="機器人在頻道發出的訊息（支援 Discord markdown，即時預覽）">
+      <Card title="Discord 訊息文字" desc="只有這三則可自訂（支援 Discord markdown，即時預覽）。回條、個別催繳、綁定提示等訊息目前寫死在程式裡。">
         <div className="card__body">
           <TemplateField label="開繳通知（{period} {plans} {total}）" value={form.billing_opened_template} onChange={set("billing_opened_template")} allowed={BILLING_KEYS} sample={samples.billing} disabled={busy} rows={4} />
           <TemplateField label="逾期催繳（{period} {count} {list}）" value={form.overdue_template} onChange={set("overdue_template")} allowed={OVERDUE_KEYS} sample={samples.overdue} disabled={busy} rows={4} />

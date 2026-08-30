@@ -53,6 +53,9 @@ export const discordNotifier: Notifier = {
         return `・${mention} ${plans}（合計 NT$${p.total.toLocaleString()}）`;
       })
       .join("\n");
+    // Hardcoded on purpose for now (#46): unlike 開繳／催繳／常駐繳費訊息, this message has no
+    // workspace-settings template. 設定 → Discord 訊息文字 says so. Making it editable is a settings
+    // schema change (deferred with the rest of the 期別 lifecycle work).
     const head = kind === "remind" ? `🔔 ${period} 繳費提醒：` : `📋 已將你加入 ${period} 繳費名單：`;
     const content = `${head}\n${list}\n請點下方按鈕繳費。`;
     // Pin mentions to exactly the added members' ids — template/display-name text can't ping.

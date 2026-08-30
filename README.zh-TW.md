@@ -199,6 +199,7 @@ pnpm --filter @chippot/worker register
   Discord guild／頻道 id、可發起繳費的管理員白名單（`admin_discord_ids`）、三種可自訂的通知模板，
   以及選填的**繳費推播**（Bark 裝置金鑰和／或 incoming webhook；推播裡的審核深連結由 `ADMIN_ORIGIN`
   組出，不必另外設定）。
+  `timezone` 目前是死設定——時區固定為 Asia/Taipei（`core/time.ts`），改這個欄位沒有任何效果。
 - **Discord** — 把 app 的 Interactions Endpoint 設成 Worker 的 `/interactions`，再用上面的腳本註冊 guild 指令。
 
 ## 後台與營運

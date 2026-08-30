@@ -925,6 +925,9 @@ async function discordBindMessage(_req: Request, env: Env, ctx: RouteCtx): Promi
   if (!env.DISCORD_BOT_TOKEN) return errorResponse(400, "尚未設定 Discord Bot Token，請在 Worker 環境變數設定後重新部署。");
 
   const body = {
+    // Hardcoded on purpose for now (#46): unlike 開繳／催繳／常駐繳費訊息, this message has no
+    // workspace-settings template. 設定 → Discord 訊息文字 says so. Making it editable is a settings
+    // schema change (deferred with the rest of the 期別 lifecycle work).
     content: "👋 還沒綁定的成員，點下方按鈕綁定你的 Discord 帳號；綁定後開繳／催繳才能 @ 到你。",
     components: [bindButtonRow(ws)],
   };
