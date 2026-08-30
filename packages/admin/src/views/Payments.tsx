@@ -244,7 +244,7 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
             <Stat label="🔒 保留(已繳)" value={diff.frozen_count} />
           </div>
           {diff.add.length > 0 && <DiffList title="新增" rows={diff.add.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
-          {diff.remove.length > 0 && <DiffList title="移除（已退訂）" rows={diff.remove.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
+          {diff.remove.length > 0 && <DiffList title="移除（訂閱已暫停／已取消）" rows={diff.remove.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
           {diff.reprice.length > 0 && <DiffList title="改價" rows={diff.reprice.map((a) => `${a.user_name}·${a.plan_name} ${a.from}→${a.to}`)} />}
           {boundAdds.length > 0 && (
             <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
