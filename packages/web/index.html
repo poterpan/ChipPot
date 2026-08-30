@@ -3,6 +3,40 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <script>
+      /* Android 內嵌 WebView（Google Chat 等）首次載入偶爾不套用上面的 viewport meta，
+         退回 980px 舊版視窗：1000px 斷點仍命中所以版面是手機版，但整頁被鎖在約 0.38 倍
+         縮放，下拉重整才恢復（iOS 無此問題）。這裡在載入後偵測「layout viewport 比裝置
+         寬」或「縮放被鎖在 <1」，改寫 meta content 讓引擎重新計算 viewport；minimum-scale=1
+         同時把縮放夾回 1。正常載入偵測不會成立，meta 維持原樣、不影響使用者縮放。 */
+      (function () {
+        var done = false;
+        var painted = false; /* 首繪前 scale 會短暫讀到 fit-980 的過渡值（load 可能比首繪
+             早），不代表真的被鎖住；所以 scale 條件要等雙重 rAF 確認畫過第一幀才可信。
+             寬度條件（layout viewport 比裝置寬）則隨時可信。 */
+        function check() {
+          if (done) return;
+          var vv = window.visualViewport;
+          var broken =
+            document.documentElement.clientWidth > screen.width + 1 ||
+            (painted && vv && vv.scale < 0.99);
+          if (!broken) return;
+          var meta = document.querySelector('meta[name="viewport"]');
+          if (!meta) return;
+          done = true;
+          meta.setAttribute("content", "width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover");
+        }
+        document.addEventListener("DOMContentLoaded", check);
+        window.addEventListener("load", function () {
+          check();
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () { painted = true; check(); });
+          });
+          setTimeout(check, 300);
+          setTimeout(check, 1000);
+        });
+      })();
+    </script>
     <meta name="theme-color" content="#f4efe4" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
