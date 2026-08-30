@@ -58,6 +58,6 @@ export async function submitPayment(
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     return res.ok ? { ok: true } : { ok: false, error: body.error ?? `錯誤 ${res.status}` };
   } catch {
-    return { ok: false, error: "連線失敗，請稍後再試" };
+    return { ok: false, error: "連線失敗，請稍後再試。" };
   }
 }

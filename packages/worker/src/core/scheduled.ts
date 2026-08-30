@@ -194,7 +194,7 @@ export async function sendOverdueForPeriod(
     // says only "these people have already been reminded", and after a refused send nobody was.
     // Keeping it would mute this period's reminders permanently: every later claim (cron included)
     // would just lose and report already_sent, with no error surfacing anywhere. That is the exact
-    // trap 收回本期開繳 avoids by deleting this row, so a failed send releases it for the same reason.
+    // trap 收回此期開繳 avoids by deleting this row, so a failed send releases it for the same reason.
     // The release goes by the row id we won, so it can never delete a concurrent claim's row.
     await releaseSlot(env.DB, slot.id!);
     return { notified: 0, outcome: "send_failed", overdue_days: settings.overdue_days, people };

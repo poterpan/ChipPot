@@ -199,7 +199,7 @@ export async function initiateBillingOpened(
 
   // The notice lines are computed BEFORE anything is claimed. The billing_opened row is not a send
   // log — it IS "this period is open" — so a call with nothing to announce must never leave one
-  // behind: that state ("opened, but nobody was ever told") is only undoable via 收回本期開繳.
+  // behind: that state ("opened, but nobody was ever told") is only undoable via 收回此期開繳.
   // previewBillingInitiate already calls this case no_plans, and the two must say the same thing.
   const lines: PlanOpenLine[] = subs.results
     .map((s) => planById.get(s.plan_id))
@@ -407,7 +407,7 @@ export async function previewBillingInitiate(
   return { period, opened, will_notify: notify_reason === "ok", notify_reason, plan_changes, create, reprice, frozen_count };
 }
 
-// ── "重新同步本期帳單" (reconcile a period's bills to the current roster) ──────────
+// ── "重新同步此期帳單" (reconcile a period's bills to the current roster) ──────────
 
 export interface ReconcileLine {
   payment_id?: number;
@@ -445,7 +445,7 @@ async function sweepOrphanProofs(env: Env, removed: ReconcileLine[]): Promise<vo
 }
 
 /**
- * Reconcile a period's bills against the current active roster (manual "重新同步本期帳單").
+ * Reconcile a period's bills against the current active roster (manual "重新同步此期帳單").
  * add: an active sub with no bill → pending @ current plan price. remove: a pending/rejected bill of
  * a non-active sub → delete (+ R2 proof + matching upload_token cleanup). reprice: an active sub's
  * PENDING bill → current plan price. paid/verified are frozen. Only "opened" periods (those with a
@@ -524,7 +524,7 @@ export async function reconcilePeriodBills(
   return { opened: true, add, remove, reprice, frozen_count };
 }
 
-// ── "收回本期開繳" (retract a period that should never have been opened) ────────
+// ── "收回此期開繳" (retract a period that should never have been opened) ────────
 
 /** What the apply batch actually did, read back from each statement's meta.changes. */
 export interface RetractEffects {
@@ -544,7 +544,7 @@ export interface RetractResult {
 }
 
 /**
- * Retract a period's billing (manual "收回本期開繳") — the way back from a mis-opened month (a
+ * Retract a period's billing (manual "收回此期開繳") — the way back from a mis-opened month (a
  * slipped 發起繳費, or the cron running on a month nobody meant to bill). Deletes every
  * pending/rejected bill of the period (+ its upload_tokens and orphaned R2 proofs, same as
  * reconcile's remove path) and drops the period's billing_opened AND overdue notification slots, so

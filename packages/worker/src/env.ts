@@ -16,6 +16,13 @@ export interface Env {
 }
 
 export interface WorkspaceSettings {
+  /**
+   * Dead setting (#46): parsed and round-tripped, but nothing reads it — every date in the system is
+   * computed in Asia/Taipei, hardcoded in core/time.ts. Kept (not deleted) because removing it would
+   * change the settings schema and break the stored-settings round-trip env.test.ts asserts.
+   * There is deliberately no admin UI field for it: an editable control that changes nothing is worse
+   * than no control. Making the timezone real means changing core/time.ts, not this line.
+   */
   timezone: string;
   discord_guild_id: string;
   discord_billing_channel_id: string;
@@ -49,8 +56,8 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   overdue_days: 3,
   proof_retention_months: 24,
   admin_discord_ids: [],
-  overdue_template: "⏰ **{period} 催繳**\n以下夥伴本期尚有未繳（共 {count} 位），請儘速處理 🙏\n{list}",
-  billing_opened_template: "📢 **{period} 開始繳費**\n{plans}\n\n請點下方「繳費」按鈕，或使用 `/繳費` 指令（可附截圖）。",
+  overdue_template: "⏰ **{period} 催繳**\n以下夥伴尚有未繳（共 {count} 位），請儘速處理 🙏\n{list}",
+  billing_opened_template: "📢 **{period} 開繳**\n{plans}\n\n請點下方「繳費」按鈕，或使用 `/繳費` 指令（可附截圖）。",
   payment_message_template: "💳 **AI 訂閱繳費**\n點下方「繳費」按鈕選擇繳費渠道送出（一次涵蓋你所有訂閱），或使用 `/繳費` 指令（可附截圖／備註）。",
   payment_bark_key: "",
   payment_bark_server: "https://api.day.app",

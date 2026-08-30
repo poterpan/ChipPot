@@ -56,7 +56,7 @@ export interface Subscription { id: number; user_name: string; plan_name: string
 export interface ReconcileLine { payment_id?: number; subscription_id: number; user_id: number; user_name: string; plan_name: string; amount: number; from?: number; to?: number; discord_id: string | null }
 export interface ReconcileDiff { opened: boolean; add: ReconcileLine[]; remove: ReconcileLine[]; reprice: ReconcileLine[]; frozen_count: number }
 export interface ReconcileApplied { ok: boolean; applied: { added: number; removed: number; repriced: number; frozen: number }; notified: number }
-/** 收回本期開繳 — preview and apply share `opened`/counts; `removed` only comes back on the preview. */
+/** 收回此期開繳 — preview and apply share `opened`/counts; `removed` only comes back on the preview. */
 export interface RetractPreview { opened: boolean; removed: ReconcileLine[]; frozen_count: number }
 export interface RetractApplied { ok: boolean; opened: boolean; applied: { removed: number; frozen: number } }
 /**
@@ -105,10 +105,10 @@ export interface InitiateApplied {
 export const NOTIFY_REASON_TEXT: Record<string, string> = {
   no_channel: "尚未設定繳費頻道 ID（設定 → Discord 串接）",
   no_bot_token: "尚未設定 Discord bot token",
-  no_plans: "本期沒有任何有啟用訂閱的方案",
-  already_sent: "本期開繳通知先前已發送，不會重複發送",
+  no_plans: "此期沒有任何有啟用訂閱的方案",
+  already_sent: "此期開繳通知先前已發送，不會重複發送",
   not_opened: "此期尚未開繳",
-  none_due: "本期沒有未繳的成員",
+  none_due: "此期沒有未繳的成員",
   // Discord did not answer 2xx. Deliberately says nothing about what was written: the three callers
   // (發起繳費 / 重發開繳通知 / 催繳) leave very different states behind, so each adds its own clause.
   send_failed: "Discord 沒有回應成功（發送失敗），可稍後再試一次",
@@ -257,7 +257,7 @@ export function nudgeSummary(r: NudgeResult): string {
   }
   const parts: string[] = [];
   parts.push(r.notified > 0 ? `已在頻道 @ 通知 ${r.notified} 位` : "沒有需要通知的人");
-  if (r.skipped > 0) parts.push(`${r.skipped} 位本期已通知過`);
+  if (r.skipped > 0) parts.push(`${r.skipped} 位此期已通知過`);
   if (r.unbound > 0) parts.push(`另 ${r.unbound} 位尚未綁定 Discord、通知不到（${r.unbound_names.join("、")}）`);
   return parts.join("；") + "。";
 }

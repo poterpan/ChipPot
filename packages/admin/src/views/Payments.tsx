@@ -120,10 +120,10 @@ export function Payments() {
             phone instead of four stacked bands. Below 1000px .toolbar__acts is a nowrap scroller
             with an edge fade; above it, it is a plain flex row and looks unchanged. */}
         <div className="toolbar__acts">
-          <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊本期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步本期</button>
-          <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除本期未繳／已退回帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回本期開繳</button>
-          <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結</button>
-          <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登</button>
+          <button className="btn" disabled={!effPeriod} title={effPeriod ? "對齊此期帳單到目前名單／現價" : "請先選擇單一期別"} onClick={() => setSync(true)}>重新同步此期帳單…</button>
+          <button className="btn btn--danger" disabled={!effPeriod} title={effPeriod ? "刪除此期未繳／已退回帳單，期別回到未開繳" : "請先選擇單一期別"} onClick={() => setRetract(true)}>收回此期開繳…</button>
+          <button className="btn" onClick={() => setShowLink(true)}>產生上傳連結…</button>
+          <button className="btn btn--primary" onClick={() => setShowManual(true)}>手動補登…</button>
         </div>
       </div>
 
@@ -154,7 +154,7 @@ export function Payments() {
                   }}
                 >
                   <td data-label="成員">
-                    <button className="linkbtn" title="檢視這位成員本期的合併審核"
+                    <button className="linkbtn" title="檢視這位成員此期的合併審核"
                       onClick={(e) => { e.stopPropagation(); window.location.hash = `payments?user=${p.user_id}&period=${p.period}`; }}>
                       {p.user_name}
                     </button>
@@ -221,7 +221,7 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
     try {
       const r = await api.syncPeriodBills(period, { dry_run: false, notify_added: notify && boundAdds.length > 0 }) as any;
       setDone(
-        `已套用：新增 ${r.applied.added}、移除 ${r.applied.removed}、改價 ${r.applied.repriced}、保留 ${r.applied.frozen}`
+        `✓ 已套用：新增 ${r.applied.added}、移除 ${r.applied.removed}、改價 ${r.applied.repriced}、保留 ${r.applied.frozen}`
         + (r.notified ? `；已通知 ${r.notified} 位` : "")
         + (r.unbound ? `；${r.unbound} 位未綁定、通知不到` : "")
       );
@@ -230,7 +230,7 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
   }
 
   return (
-    <Modal title={`重新同步本期帳單 · ${period}`} onClose={onClose}>
+    <Modal title={`重新同步此期帳單 · ${period}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
       {busy && !diff && <Empty>計算差異中…</Empty>}
       {done && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{done}</div>}
@@ -241,10 +241,10 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
             <Stat label="➕ 新增" value={diff.add.length} />
             <Stat label="➖ 移除" value={diff.remove.length} />
             <Stat label="🔄 改價" value={diff.reprice.length} />
-            <Stat label="🔒 保留(已繳)" value={diff.frozen_count} />
+            <Stat label="🔒 保留（已繳待驗、已驗證）" value={diff.frozen_count} />
           </div>
           {diff.add.length > 0 && <DiffList title="新增" rows={diff.add.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
-          {diff.remove.length > 0 && <DiffList title="移除（已退訂）" rows={diff.remove.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
+          {diff.remove.length > 0 && <DiffList title="移除（訂閱已暫停／已取消）" rows={diff.remove.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />}
           {diff.reprice.length > 0 && <DiffList title="改價" rows={diff.reprice.map((a) => `${a.user_name}·${a.plan_name} ${a.from}→${a.to}`)} />}
           {boundAdds.length > 0 && (
             <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
@@ -259,7 +259,7 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
             </div>
           )}
           {changes === 0
-            ? <p style={{ color: "var(--muted)" }}>本期已是最新，無需變更。</p>
+            ? <p style={{ color: "var(--muted)" }}>此期已是最新，無需變更。</p>
             : <button className="btn btn--primary" disabled={busy} onClick={apply}>確認套用</button>}
         </>
       )}
@@ -268,7 +268,7 @@ function SyncModal({ period, onClose, onDone }: { period: string; onClose: () =>
 }
 
 /**
- * 收回本期開繳 — the way back from a mis-opened month. Two steps like SyncModal: a preview of what
+ * 收回此期開繳 — the way back from a mis-opened month. Two steps like SyncModal: a preview of what
  * the retract would delete, then a red confirm. The frozen (paid/verified) count is spelled out
  * because "收回" easily reads as "wipe the month", which is exactly what it does NOT do.
  */
@@ -291,32 +291,32 @@ function RetractModal({ period, onClose, onDone }: { period: string; onClose: ()
     setBusy(true); setErr(null);
     try {
       const r = await api.retractPeriodBilling(period, { dry_run: false }) as RetractApplied;
-      setDone(`已收回 ${period}：刪除 ${r.applied.removed} 筆帳單、保留 ${r.applied.frozen} 筆已繳。此期已回到未開繳狀態。`);
+      setDone(`✓ 已收回 ${period}：刪除 ${r.applied.removed} 筆帳單、保留 ${r.applied.frozen} 筆已繳待驗／已驗證。此期已回到未開繳狀態。`);
       onDone();
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
 
   return (
-    <Modal title={`收回本期開繳 · ${period}`} onClose={onClose}>
+    <Modal title={`收回此期開繳 · ${period}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      {busy && !preview && <Empty>計算中…</Empty>}
+      {busy && !preview && <Empty>計算差異中…</Empty>}
       {done && <div style={{ color: "var(--teal)", padding: "8px 0" }}>{done}</div>}
       {preview && !preview.opened && !done && <p style={{ color: "var(--muted)" }}>此期尚未發起繳費，無需收回。</p>}
       {preview && preview.opened && !done && (
         <>
           <div className="stats">
             <Stat label="🗑️ 將刪除" value={preview.removed.length} />
-            <Stat label="🔒 保留(已繳)" value={preview.frozen_count} />
+            <Stat label="🔒 保留（已繳待驗、已驗證）" value={preview.frozen_count} />
           </div>
           {preview.removed.length > 0
             ? <DiffList title="將刪除的帳單（未繳／已退回）" rows={preview.removed.map((a) => `${a.user_name}·${a.plan_name} NT$${a.amount.toLocaleString()}`)} />
             /* Still worth doing: the marker alone is what keeps the period "opened". */
-            : <p style={{ color: "var(--muted)" }}>本期沒有可刪除的未繳／已退回帳單，收回只會把期別改回「未開繳」。</p>}
+            : <p style={{ color: "var(--muted)" }}>此期沒有可刪除的未繳／已退回帳單，收回只會把期別改回「未開繳」。</p>}
           <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.7, margin: "12px 0" }}>
             {/* One source line per sentence would render an ASCII space between them (JSX joins
                 adjacent text lines), which reads as a gap in a run of CJK. */}
-            收回後本期回到「未開繳」：刪掉的帳單不會被「重新同步本期」補回來，日後可以再次發起繳費（屆時會重新發送開繳通知）。此期先前用「產生上傳連結」發出去的一次性連結會<b>立即失效</b>，對方點開只會看到連結無效。
-            {preview.frozen_count > 0 && `已繳／已驗證的 ${preview.frozen_count} 筆一律原樣保留，重開本期也不會重複開帳單。`}
+            收回後此期回到「未開繳」：刪掉的帳單不會被「重新同步此期帳單」補回來，日後可以再次發起繳費（屆時會重新發送開繳通知）。此期先前用「產生上傳連結」發出去的一次性連結會<b>立即失效</b>，對方點開只會看到連結無效。
+            {preview.frozen_count > 0 && `已繳／已驗證的 ${preview.frozen_count} 筆一律原樣保留，重開此期也不會重複產生帳單。`}
             已經發出的 Discord 開繳通知不會撤回，必要時請自行到頻道說明。
           </p>
           <button className="btn btn--danger" disabled={busy} onClick={apply}>確認收回</button>
@@ -335,7 +335,7 @@ function QuickVerify({ id, onDone }: { id: number; onDone: () => void }) {
     catch { setErr(true); setBusy(false); }
   }
   return (
-    <button className="btn iconlbl" disabled={busy} onClick={run} title="標記已驗證（帶入申報渠道）">
+    <button className="btn iconlbl" disabled={busy} onClick={run} title="標記為「已驗證」（帶入申報渠道）">
       {busy ? "…" : err ? <><IconX />重試</> : <><IconCheck />驗證</>}
     </button>
   );
@@ -354,6 +354,9 @@ function ManualModal({ tags, onClose, onDone }: { tags: ChannelTag[]; onClose: (
 
   async function submit() {
     if (!subId) { setErr("請選擇訂閱"); return; }
+    // <input type="month"> can be cleared; an empty period reaches the worker's English guard
+    // (§A.14 only lets that string stay English because the UI is supposed to prevent it).
+    if (!PERIOD_RE.test(period)) { setErr("請選擇期別。"); return; }
     setBusy(true); setErr(null);
     try {
       await api.manualPayment({ subscription_id: Number(subId), period, amount: amount ? Number(amount) : undefined, status: statusV, verified_channel_tag_id: tagId ? Number(tagId) : undefined, payment_note: note || undefined });
@@ -398,6 +401,7 @@ function LinkModal({ onClose }: { onClose: () => void }) {
 
   async function gen() {
     if (!userId) { setErr("請選擇成員"); return; }
+    if (!PERIOD_RE.test(period)) { setErr("請選擇期別。"); return; }
     setBusy(true); setErr(null);
     try {
       const r = await api.uploadLink({ user_id: Number(userId), period });

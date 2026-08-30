@@ -12,7 +12,7 @@ const VIEWS = [
   { id: "users", label: "成員", el: <Users /> },
   { id: "subscriptions", label: "訂閱", el: <Subscriptions /> },
   { id: "plans", label: "方案", el: <Plans /> },
-  { id: "tags", label: "支付渠道", el: <ChannelTags /> },
+  { id: "tags", label: "繳費渠道", el: <ChannelTags /> },
   { id: "settings", label: "設定", el: <Settings /> },
 ];
 
@@ -53,7 +53,7 @@ export default function App() {
   }, []);
 
   // The mobile tab strip hides 41% of its tabs at 375px; without this the highlighted tab for
-  // 方案 / 支付渠道 / 設定 sits past the right edge, so the strip never shows where you are.
+  // 方案 / 繳費渠道 / 設定 sits past the right edge, so the strip never shows where you are.
   // scrollLeft rather than scrollIntoView: the latter can also scroll the document vertically.
   const navRef = useRef<HTMLElement>(null);
   useEffect(() => {

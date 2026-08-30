@@ -30,18 +30,18 @@ export function Dashboard() {
             <Stat label="已退回" value={data.status_counts.rejected} />
             <Stat label="應收總額" value={`NT$${data.total_amount_due.toLocaleString()}`} />
             <Stat label="已驗證金額" value={`NT$${data.verified_amount.toLocaleString()}`} accent />
-            <Stat label="無憑證(已繳)" value={data.no_proof_count} />
+            <Stat label="純聲明（已繳待驗、已驗證）" value={data.no_proof_count} />
           </div>
 
           <Card title="各方案">
             <div className="tbl tbl--pin-first">
               <table>
-                <caption className="sr-only">各方案本期收款統計</caption>
+                <caption className="sr-only">{effPeriod} 各方案收款統計</caption>
                 <thead>
-                  <tr><th scope="col">方案</th><th scope="col" className="right">筆數</th><th scope="col" className="right">待繳</th><th scope="col" className="right">已繳</th><th scope="col" className="right">已驗證</th><th scope="col" className="right">應收</th><th scope="col" className="right">已驗證金額</th></tr>
+                  <tr><th scope="col">方案</th><th scope="col" className="right">筆數</th><th scope="col" className="right">待繳</th><th scope="col" className="right">待驗</th><th scope="col" className="right">已驗證</th><th scope="col" className="right">應收</th><th scope="col" className="right">已驗證金額</th></tr>
                 </thead>
                 <tbody>
-                  {data.by_plan.length === 0 && <tr><td colSpan={7}><Empty>本期尚無資料</Empty></td></tr>}
+                  {data.by_plan.length === 0 && <tr><td colSpan={7}><Empty>此期尚無資料</Empty></td></tr>}
                   {data.by_plan.map((p) => (
                     <tr key={p.plan_id}>
                       <td>{p.plan_name}</td>
@@ -63,10 +63,10 @@ export function Dashboard() {
           <Card title="依渠道分組（已驗證）">
             <div className="tbl">
               <table>
-                <caption className="sr-only">依支付渠道分組的已驗證款項</caption>
+                <caption className="sr-only">依繳費渠道分組的已驗證款項</caption>
                 <thead><tr><th scope="col">渠道</th><th scope="col" className="right">筆數</th><th scope="col" className="right">金額</th></tr></thead>
                 <tbody>
-                  {data.by_channel_tag.length === 0 && <tr><td colSpan={3}><Empty>本期尚無已驗證款項</Empty></td></tr>}
+                  {data.by_channel_tag.length === 0 && <tr><td colSpan={3}><Empty>此期尚無已驗證款項</Empty></td></tr>}
                   {data.by_channel_tag.map((t, i) => (
                     <tr key={i}>
                       <td>{t.channel_tag_name ?? "（未指定）"}</td>

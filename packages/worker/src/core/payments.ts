@@ -52,7 +52,9 @@ export class InvalidPaymentTransition extends Error {
     public readonly paymentId: number,
     public readonly to: PaymentStatus
   ) {
-    super(`payment ${paymentId} cannot transition to '${to}'`);
+    // Surfaced verbatim in the admin error banner (routes/admin.ts returns e.message on 409), so it
+    // is copy, not a log line. paymentId/to stay on the instance for logs and tests.
+    super("這筆的狀態已被變動（可能已由其他人處理），請重新載入後再試。");
     this.name = "InvalidPaymentTransition";
   }
 }
@@ -163,7 +165,7 @@ export interface VerifyUserPeriodResult {
 }
 
 /**
- * 一鍵全部核准: verify every payment this member has in the period that is waiting for review
+ * 一鍵全部驗證: verify every payment this member has in the period that is waiting for review
  * (status 'paid' — the 已繳待驗 queue). One member submit settles one row per active subscription
  * sharing one screenshot, so the owner should be able to approve them together.
  *

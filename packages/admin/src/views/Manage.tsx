@@ -29,7 +29,7 @@ export function Users() {
       <Card title="成員名單" action={
         <>
           <TableFilter value={q} onChange={setQ} placeholder="搜尋名稱／Email／Discord ID" shown={shown.length} total={all.length} />
-          <button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員</button>
+          <button className="btn btn--primary" onClick={() => setEdit(null)}>新增成員…</button>
         </>
       }>
         {unboundCount > 0 && (
@@ -122,6 +122,14 @@ function UserModal({ user, onClose, onDone }: { user: User | null; onClose: () =
 }
 
 // ── Subscriptions ─────────────────────────────────────────────────────────────
+// subscriptions.status is a DB enum — display only, the <option value> below stays English.
+const SUB_STATUSES = [
+  { v: "active", label: "啟用中" },
+  { v: "paused", label: "暫停" },
+  { v: "cancelled", label: "已取消" },
+];
+const SUB_STATUS_LABEL: Record<string, string> = Object.fromEntries(SUB_STATUSES.map((s) => [s.v, s.label]));
+
 export function Subscriptions() {
   const { data, loading, error, reload } = useAsync(() => api.subscriptions(), []);
   const [add, setAdd] = useState(false);
@@ -131,7 +139,7 @@ export function Subscriptions() {
   const all = data?.subscriptions ?? [];
   const needle = q.trim().toLowerCase();
   const shown = needle
-    ? all.filter((s) => [s.user_name, s.plan_name, s.status].some((x) => String(x).toLowerCase().includes(needle)))
+    ? all.filter((s) => [s.user_name, s.plan_name, s.status, SUB_STATUS_LABEL[s.status] ?? ""].some((x) => String(x).toLowerCase().includes(needle)))
     : all;
   return (
     <>
@@ -139,7 +147,7 @@ export function Subscriptions() {
       <Card title="訂閱清單" action={
         <>
           <TableFilter value={q} onChange={setQ} placeholder="搜尋成員／方案" shown={shown.length} total={all.length} />
-          <button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱</button>
+          <button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱…</button>
         </>
       }>
         <div className="tbl tbl--pin-first tbl--pin-last">
@@ -153,7 +161,7 @@ export function Subscriptions() {
                 <tr key={s.id}>
                   <td data-label="成員">{s.user_name}</td>
                   <td data-label="方案">{s.plan_name}</td>
-                  <td data-label="狀態">{s.status}</td>
+                  <td data-label="狀態">{SUB_STATUS_LABEL[s.status] ?? s.status}</td>
                   <td data-label="起算日" className="mono">{s.start_date}</td>
                   <td data-label="結帳日" className="right mono">{s.billing_day}</td>
                   <td className="right">
@@ -171,7 +179,7 @@ export function Subscriptions() {
       {del && (
         <ConfirmDanger
           title={`刪除訂閱 · ${del.user_name} · ${del.plan_name}`}
-          message={`將一併刪除此訂閱的 ${del.payment_count ?? 0} 筆繳費紀錄。\n此操作無法復原。（若只想停收可改用「編輯 → 狀態 cancelled」）`}
+          message={`將一併刪除此訂閱的 ${del.payment_count ?? 0} 筆繳費紀錄。\n此操作無法復原。（若只想停收，可改用「編輯 → 狀態：已取消」）`}
           onClose={() => setDel(null)}
           onConfirm={async () => { await api.deleteSubscription(del.id); setDel(null); reload(); }}
         />
@@ -208,7 +216,7 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
         options={(users.data?.users ?? []).map((u) => ({ value: String(u.id), label: u.display_name }))} />
       <FilterSelect label="方案" value={f.plan_id} disabled={busy}
         onChange={(v) => set("plan_id", v)}
-        options={(plans.data?.plans ?? []).filter((p) => p.active).map((p) => ({ value: String(p.id), label: `${p.name}（NT$${p.monthly_amount}）` }))} />
+        options={(plans.data?.plans ?? []).filter((p) => p.active).map((p) => ({ value: String(p.id), label: `${p.name}（NT$${p.monthly_amount.toLocaleString()}）` }))} />
       {/* type=date, not a bare text box with a placeholder: everywhere else in the app a date is
           picked (Settings and the payment modals all use type="month"). */}
       <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
@@ -231,10 +239,10 @@ function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: ()
   return (
     <Modal title={`編輯訂閱 · ${sub.user_name} · ${sub.plan_name}`} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
-      <Field label="狀態"><select value={f.status} onChange={(e) => set("status", e.target.value)} disabled={busy}><option value="active">active</option><option value="paused">paused</option><option value="cancelled">cancelled</option></select></Field>
+      <Field label="狀態"><select value={f.status} onChange={(e) => set("status", e.target.value)} disabled={busy}>{SUB_STATUSES.map((st) => <option key={st.v} value={st.v}>{st.label}</option>)}</select></Field>
       <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
       <Field label="結帳日 (1-28)">
-        <span className="field__hint">每月幾號為這個訂閱結帳。29–31 在短月會落空，所以上限是 28。</span>
+        <span className="field__hint">每月幾號為這個訂閱結帳。29-31 在短月會落空，所以上限是 28。</span>
         <input type="number" min={1} max={28} value={f.billing_day} onChange={(e) => set("billing_day", e.target.value)} disabled={busy} />
       </Field>
       <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
@@ -259,7 +267,7 @@ export function Plans() {
   return (
     <>
       {error && <ErrorNote message={error} onRetry={reload} />}
-      <Card title="方案清單" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增方案</button>}>
+      <Card title="方案清單" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增方案…</button>}>
         {providers.length > 1 && (
           <div className="pills" style={{ padding: "12px 18px 0" }}>
             <button className={`pill ${pFilter === "" ? "pill--on" : ""}`} onClick={() => setPFilter("")}>全部</button>
@@ -271,14 +279,14 @@ export function Plans() {
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
             <caption className="sr-only">方案清單</caption>
-            <thead><tr><th scope="col">名稱</th><th scope="col">provider</th><th scope="col" className="right">月費</th><th scope="col">身分組 ID</th><th scope="col">啟用</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
+            <thead><tr><th scope="col">名稱</th><th scope="col">供應商</th><th scope="col" className="right">月費</th><th scope="col">身分組 ID</th><th scope="col">啟用</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6}><Empty>載入中…</Empty></td></tr>}
               {shown.map((p) => (
                 <tr key={p.id}>
                   <td data-label="名稱">{p.name}</td>
-                  <td data-label="provider">{p.provider}</td>
-                  <td data-label="月費" className="right mono">NT${p.monthly_amount}</td>
+                  <td data-label="供應商">{p.provider}</td>
+                  <td data-label="月費" className="right mono">NT${p.monthly_amount.toLocaleString()}</td>
                   <td data-label="身分組 ID" className="mono" style={{ fontSize: 12 }}>{p.discord_role_id ?? "—"}</td>
                   <td data-label="啟用">{p.active ? "✓" : "—"}</td>
                   <td className="right">
@@ -309,7 +317,7 @@ function PlanModal({ plan, providers, onClose, onDone }: { plan: Plan | null; pr
   async function save() {
     const provider = f.provider.trim().toLowerCase();
     if (!f.name || !f.monthly_amount) { setErr("請填名稱與月費"); return; }
-    if (!provider) { setErr("請填 provider"); return; }
+    if (!provider) { setErr("請填供應商"); return; }
     setBusy(true); setErr(null);
     try {
       const body: any = { name: f.name, provider, monthly_amount: Number(f.monthly_amount), discord_role_id: f.discord_role_id || undefined, active: f.active ? 1 : 0 };
@@ -321,12 +329,12 @@ function PlanModal({ plan, providers, onClose, onDone }: { plan: Plan | null; pr
     <Modal title={plan ? "編輯方案" : "新增方案"} onClose={onClose}>
       {err && <div className="error-banner">{err}</div>}
       <Field label="名稱"><input value={f.name} onChange={(e) => set("name", e.target.value)} disabled={busy} /></Field>
-      <Field label="provider（選現有或直接輸入新的，如 gemini、glm）">
+      <Field label="供應商（選現有或直接輸入新的，如 gemini、glm）">
         <input list="plan-providers" value={f.provider} onChange={(e) => set("provider", e.target.value)} disabled={busy} placeholder="openai / anthropic / gemini …" />
         <datalist id="plan-providers">{providers.map((pv) => <option key={pv} value={pv} />)}</datalist>
       </Field>
       <Field label="月費 (TWD)"><input type="number" value={f.monthly_amount} onChange={(e) => set("monthly_amount", e.target.value)} disabled={busy} /></Field>
-      <Field label="Discord 身分組 ID（通知 tag 用）"><input value={f.discord_role_id} onChange={(e) => set("discord_role_id", e.target.value)} disabled={busy} /></Field>
+      <Field label="Discord 身分組 ID（僅用於通知時 @ 該身分組，不會自動發放或回收身分組）"><input value={f.discord_role_id} onChange={(e) => set("discord_role_id", e.target.value)} disabled={busy} /></Field>
       <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}><input type="checkbox" checked={!!f.active} onChange={(e) => set("active", e.target.checked ? 1 : 0)} disabled={busy} /> 啟用</label>
       <button className="btn btn--primary" onClick={save} disabled={busy}>儲存</button>
     </Modal>
@@ -360,10 +368,10 @@ export function ChannelTags() {
   return (
     <>
       {(error || actErr) && <ErrorNote message={(error || actErr)!} onRetry={reload} />}
-      <Card title="支付渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道</button>}>
+      <Card title="繳費渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道…</button>}>
         <div className="tbl tbl--pin-first tbl--pin-last">
           <table className="tbl-cards">
-            <caption className="sr-only">支付渠道清單</caption>
+            <caption className="sr-only">繳費渠道清單</caption>
             <thead><tr><th scope="col">名稱</th><th scope="col">類型</th><th scope="col" className="right">排序</th><th scope="col">狀態</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={5}><Empty>載入中…</Empty></td></tr>}
@@ -393,7 +401,7 @@ export function ChannelTags() {
       {del && (
         <ConfirmDanger
           title={`刪除渠道 · ${del.name}`}
-          message={`確定刪除此支付渠道？此操作無法復原。`}
+          message={`確定刪除此繳費渠道？此操作無法復原。`}
           onClose={() => setDel(null)}
           onConfirm={async () => { await api.deleteChannelTag(del.id); setDel(null); reload(); }}
         />

@@ -316,7 +316,7 @@ describe("POST /admin/payments/:id/reject 會發回條", () => {
 });
 
 /**
- * Task 4: 一鍵全部核准 verifies N bills but must post ONE receipt, not N — and only when the
+ * Task 4: 一鍵全部驗證 verifies N bills but must post ONE receipt, not N — and only when the
  * workspace opted into verify receipts.
  */
 describe("POST /admin/payments/verify-all 的回條只發一則", () => {
@@ -336,7 +336,7 @@ describe("POST /admin/payments/verify-all 的回條只發一則", () => {
     ]);
   });
 
-  it("兩筆一起核准，只送出一則回條，但兩筆的 slot 都佔用", async () => {
+  it("兩筆一起驗證，只送出一則回條，但兩筆的 slot 都佔用", async () => {
     const posts = vi.fn(async () => new Response(JSON.stringify({ id: "m-9405" }), { status: 200 }));
     vi.stubGlobal("fetch", posts);
     const res = await call("POST", "/admin/payments/verify-all", { user_id: U_V, period: PERIOD_V });

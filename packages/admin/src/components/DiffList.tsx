@@ -1,6 +1,6 @@
 /**
  * Collapsible "N changed rows" list for a diff preview — shared by the CSV import preview
- * (views/Settings.tsx) and the 重新同步本期帳單 modal (views/Payments.tsx).
+ * (views/Settings.tsx) and the 重新同步此期帳單 modal (views/Payments.tsx).
  */
 export function DiffList({ title, rows }: { title: string; rows: string[] }) {
   return (

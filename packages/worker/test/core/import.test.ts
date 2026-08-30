@@ -247,7 +247,7 @@ describe("importRoster TRUE on paused / cancelled subscriptions", () => {
     const st = await env.DB.prepare("SELECT status FROM subscriptions WHERE id=?").bind(S_PAUSED).first<{ status: string }>();
     expect(st?.status).toBe("active");
     // No bill anywhere: not for the sub's old start month, not for the import period. The current
-    // period's bill is 重新同步本期帳單's job (reconcilePeriodBills).
+    // period's bill is 重新同步此期帳單's job (reconcilePeriodBills).
     const pays = await env.DB.prepare("SELECT COUNT(*) c FROM payments WHERE subscription_id=?").bind(S_PAUSED).first<{ c: number }>();
     expect(pays?.c).toBe(0);
   });

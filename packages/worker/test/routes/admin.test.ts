@@ -657,3 +657,49 @@ describe("POST /admin/discord/bind-message", () => {
     expect(s?.m).toBe("msg-bind-1");
   });
 });
+
+// #46: the admin SPA renders `data.error` straight into .error-banner, so anything reachable by
+// clicking must be zh-TW. Format validators behind type="month"/type="number" stay English on purpose.
+describe("admin error messages are zh-TW (#46)", () => {
+  it("404s in Chinese for an unknown member", async () => {
+    const res = await call("PATCH", "/admin/users/999999", { display_name: "x" });
+    expect(res!.status).toBe(404);
+    expect(((await res!.json()) as any).error).toContain("找不到這位成員");
+  });
+
+  it("404s in Chinese for an unknown subscription, plan, channel and payment", async () => {
+    const cases: [string, string, string][] = [
+      ["PATCH", "/admin/subscriptions/999999", "找不到這筆訂閱"],
+      ["PATCH", "/admin/plans/999999", "找不到這個方案"],
+      ["PATCH", "/admin/channel-tags/999999", "找不到這個渠道"],
+      ["POST", "/admin/payments/999999/unverify", "找不到這筆繳費紀錄"],
+    ];
+    for (const [method, path, expected] of cases) {
+      const res = await call(method, path, {});
+      expect(res!.status, path).toBe(404);
+      expect(((await res!.json()) as any).error, path).toContain(expected);
+    }
+  });
+
+  it("names the missing Discord channel setting in Chinese", async () => {
+    // The handler checks the channel first, then the token — so the token must be present for the
+    // channel branch to be the one that answers. Same save/restore pattern the file uses elsewhere.
+    const prevToken = (env as any).DISCORD_BOT_TOKEN;
+    (env as any).DISCORD_BOT_TOKEN = "test-bot-token";
+    const prev = await env.DB.prepare(
+      "SELECT json_extract(settings,'$.discord_billing_channel_id') AS c FROM workspaces WHERE id = 1"
+    ).first<{ c: string | null }>();
+    await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_billing_channel_id', '') WHERE id = 1").run();
+    const res = await call("POST", "/admin/discord/bind-message");
+    await env.DB.prepare("UPDATE workspaces SET settings = json_set(settings, '$.discord_billing_channel_id', ?) WHERE id = 1").bind(prev?.c ?? "").run();
+    if (prevToken === undefined) delete (env as any).DISCORD_BOT_TOKEN; else (env as any).DISCORD_BOT_TOKEN = prevToken;
+    expect(res!.status).toBe(400);
+    expect(((await res!.json()) as any).error).toContain("繳費頻道 ID");
+  });
+
+  it("keeps format validators in English (unreachable from the UI)", async () => {
+    const res = await call("POST", "/admin/billing/initiate", { period: "not-a-period", amounts: [] });
+    expect(res!.status).toBe(400);
+    expect(((await res!.json()) as any).error).toBe("period must be YYYY-MM");
+  });
+});

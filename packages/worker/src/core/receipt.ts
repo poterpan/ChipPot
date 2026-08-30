@@ -8,7 +8,7 @@ import {
 export interface ReceiptRequest {
   workspaceId: number;
   kind: ReceiptKind;
-  /** Bills to announce. Callers pass one member's rows: a 退回 is one bill, 一鍵全部核准 is one
+  /** Bills to announce. Callers pass one member's rows: a 退回 is one bill, 一鍵全部驗證 is one
    *  member × one period. Anything outside the first row's (user, period) is dropped. */
   paymentIds: number[];
   reason?: string | null;
@@ -60,7 +60,7 @@ export async function announcePaymentReceipt(
   const head = rows[0]!;
   const mine = rows.filter((r) => r.user_id === head.user_id && r.period === head.period);
 
-  // Claim per bill, send once: 一鍵全部核准 verifies N rows and must produce ONE message, not N.
+  // Claim per bill, send once: 一鍵全部驗證 verifies N rows and must produce ONE message, not N.
   const claimed: ReceiptRow[] = [];
   for (const r of mine) {
     const won = await claimNotification(env.DB, {

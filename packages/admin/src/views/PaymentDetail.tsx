@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type ChannelTag, type Payment } from "../api";
-import { Modal, Field, Money, StatusBadge, IconWarning, ConfirmDanger } from "../ui";
+import { Modal, Field, Money, StatusBadge, IconWarning, ConfirmDanger, SOURCE_LABEL } from "../ui";
 
 export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Payment; tags: ChannelTag[]; onClose: () => void; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -26,8 +26,8 @@ export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Pay
         <dt>狀態</dt><dd><StatusBadge status={payment.status} /></dd>
         <dt>金額</dt><dd><Money v={payment.amount} /></dd>
         <dt>應繳日</dt><dd className="mono">{payment.due_date}</dd>
-        <dt>來源</dt><dd>{payment.source}</dd>
-        {payment.payment_note && (<><dt>使用者備註</dt><dd>{payment.payment_note}</dd></>)}
+        <dt>來源</dt><dd>{SOURCE_LABEL[payment.source] ?? payment.source}</dd>
+        {payment.payment_note && (<><dt>成員備註</dt><dd>{payment.payment_note}</dd></>)}
         {payment.declared_channel_tag_name && (<><dt>申報渠道</dt><dd>{payment.declared_channel_tag_name}</dd></>)}
         {payment.channel_tag_name && (<><dt>認定渠道</dt><dd>{payment.channel_tag_name}</dd></>)}
         {payment.rejected_reason && (<><dt>退回原因</dt><dd>{payment.rejected_reason}</dd></>)}
@@ -53,7 +53,7 @@ export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Pay
       )}
 
       <div className="btn-row">
-        {canVerify && <button className="btn btn--primary" disabled={busy} onClick={() => run(() => api.verify(payment.id, tagId === "" ? null : Number(tagId)))}>標記已驗證</button>}
+        {canVerify && <button className="btn btn--primary" disabled={busy} onClick={() => run(() => api.verify(payment.id, tagId === "" ? null : Number(tagId)))}>驗證</button>}
         {payment.status === "verified" && <button className="btn" disabled={busy} onClick={() => run(() => api.unverify(payment.id))}>撤回驗證</button>}
         {payment.screenshot_key && <button className="btn btn--danger" disabled={busy} onClick={() => run(() => api.deleteProof(payment.id))}>刪除截圖</button>}
       </div>
@@ -78,7 +78,7 @@ export function PaymentDetail({ payment, tags, onClose, onDone }: { payment: Pay
           // paid/verified/rejected all carry real activity; only pending is re-creatable by a resync.
           message={payment.status !== "pending"
             ? "這筆已有繳費／審核紀錄，刪除後將從對帳與紀錄中消失且無法復原（稽核紀錄仍會保留）。"
-            : "刪除這筆待繳紀錄後，「重新同步本期」會在該訂閱仍為啟用時把它補回來（稽核紀錄仍會保留）。"}
+            : "刪除這筆待繳紀錄後，「重新同步此期帳單」會在該訂閱仍為啟用時把它補回來（稽核紀錄仍會保留）。"}
           confirmLabel="確認刪除"
           busyLabel="刪除中…"
           onClose={() => setConfirmDel(false)}

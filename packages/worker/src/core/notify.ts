@@ -125,7 +125,7 @@ export async function releaseSlot(db: D1Database, id: number): Promise<number> {
  * log, it IS the definition of "this period is open" (isBillingOpened, core/db.ts
  * listOpenPayablePeriods), so deleting it alone leaves pending bills standing in a period members
  * can no longer pay — a half retract. routes/admin.ts:250 409s the same request for the same
- * reason; releasing it is only ever correct as part of 收回本期開繳 (core/billing.ts).
+ * reason; releasing it is only ever correct as part of 收回此期開繳 (core/billing.ts).
  */
 export type ReleasableKey = NotificationKey & { type: Exclude<NotificationKey["type"], "billing_opened"> };
 

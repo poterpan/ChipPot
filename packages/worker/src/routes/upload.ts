@@ -68,7 +68,8 @@ export async function handleUpload(req: Request, env: Env, ctx: RouteCtx): Promi
   }
 
   if (!hasFile && !note && declaredChannelTagId === null) {
-    return errorResponse(400, "請至少附上截圖、填寫備註，或選擇渠道。");
+    // §A.12 的正規句，與網頁與 Discord 三處同一句、同一欄位順序；沒有 R2 時頁面沒有截圖欄。
+    return errorResponse(400, env.BUCKET ? "渠道、截圖、備註至少填一項。" : "渠道、備註至少填一項。");
   }
 
   let proof: { body: ArrayBuffer; ext: string; contentType: string } | null = null;
@@ -83,9 +84,9 @@ export async function handleUpload(req: Request, env: Env, ctx: RouteCtx): Promi
   // Same gate the Discord path enforces (adapters/discord/handler.ts): a one-time link must not
   // settle a period members cannot otherwise pay. createUploadLink mints a token for any period,
   // opened or not, so without this an admin-issued link would settle the cron-created bills of a
-  // period that was never opened — or one that 收回本期開繳 has since closed.
+  // period that was never opened — or one that 收回此期開繳 has since closed.
   if (!(await isBillingOpened(env.DB, tok.workspace_id, tok.period))) {
-    return errorResponse(409, "本期繳費尚未開放，待管理員發出開繳通知後即可繳費。", { code: "payment" });
+    return errorResponse(409, `${tok.period} 的繳費尚未開放，待管理員發出開繳通知後即可繳費。`, { code: "payment" });
   }
 
   try {

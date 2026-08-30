@@ -10,7 +10,7 @@ import { DiffList } from "../components/DiffList";
  *
  * There is deliberately NO "重置" for 開繳通知: that row IS the definition of "this period is open"
  * (worker core/notify.ts isBillingOpened), so deleting it alone leaves every bill standing in a
- * period nobody can pay. The whole operation is 收回本期開繳 on the payments page; the note below
+ * period nobody can pay. The whole operation is 收回此期開繳 on the payments page; the note below
  * the table points there, and the API returns 409 if anything tries anyway.
  */
 export function PushStatus({ period }: { period: string }) {
@@ -42,7 +42,7 @@ export function PushStatus({ period }: { period: string }) {
       )}
       <div className="tbl tbl--pin-last">
         <table className="tbl-cards">
-          <caption className="sr-only">本期推播通知狀態</caption>
+          <caption className="sr-only">{period} 推播通知狀態</caption>
           <thead><tr><th scope="col">通知</th><th scope="col">狀態</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             <tr>
@@ -64,7 +64,7 @@ export function PushStatus({ period }: { period: string }) {
         </table>
       </div>
       <p style={{ color: "var(--muted-strong)", fontSize: 12.5, lineHeight: 1.7, padding: "10px 20px 16px", margin: 0 }}>
-        要把 {period} 改回「未開繳」（成員暫時無法繳費）？請到「繳費審核」使用<b>收回本期開繳</b> ——
+        要把 {period} 改回「未開繳」（成員暫時無法繳費）？請到「繳費審核」使用<b>收回此期開繳</b> ——
         它會一併刪掉未繳／已退回的帳單，不會只留下對不起來的半套狀態。
       </p>
 
@@ -220,7 +220,7 @@ function OverdueModal({ period, onClose, onDone }: { period: string; onClose: ()
           <DiffList title="會被 @ 的成員" rows={view.p.people.map((p) => `${p.user_name} NT$${p.total.toLocaleString()}${p.discord_id ? "" : "（未綁定，@ 不到）"}`)} />
           <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.7, margin: "12px 0" }}>
             這會在繳費頻道公開 @ {period} <b>所有</b>未繳成員（含已退回的），<b>不受</b>「逾期天數（{view.p.overdue_days} 天）」限制；
-            每日自動催繳只會 @ 已超過逾期天數的人，所以這份名單通常比較長。送出後本期的催繳發送紀錄會更新為現在。
+            每日自動催繳只會 @ 已超過逾期天數的人，所以這份名單通常比較長。送出後此期的催繳發送紀錄會更新為現在。
           </p>
           <button className="btn btn--danger" disabled={busy} onClick={apply}>確認催繳這 {view.p.people.length} 位</button>
         </>
@@ -245,7 +245,7 @@ function ResetOverdueModal({ period, onClose, onDone }: { period: string; onClos
   return (
     <ConfirmDanger
       title={`重置催繳發送紀錄 · ${period}`}
-      message={`刪除 ${period} 的「逾期催繳」發送紀錄後，每日自動催繳會在下次符合逾期條件時再送一次（同一批人可能被重複 @）。\n\n這只影響催繳的去重紀錄：不會變更任何帳單，也不會影響本期的開繳狀態。`}
+      message={`刪除 ${period} 的「逾期催繳」發送紀錄後，每日自動催繳會在下次符合逾期條件時再送一次（同一批人可能被重複 @）。\n\n這只影響催繳的去重紀錄：不會變更任何帳單，也不會影響此期的開繳狀態。`}
       confirmLabel="確認重置"
       busyLabel="重置中…"
       onClose={onClose}

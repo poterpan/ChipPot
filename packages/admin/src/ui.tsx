@@ -21,11 +21,23 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  pending: "待繳", paid: "已繳", verified: "已驗證", rejected: "已退回",
+  pending: "待繳", paid: "已繳待驗", verified: "已驗證", rejected: "已退回",
 };
 export function StatusBadge({ status }: { status: string }) {
   return <span className={`badge badge--${status}`}>{STATUS_LABEL[status] ?? status}</span>;
 }
+
+/**
+ * payments.source → what a human calls it. DISPLAY ONLY — the stored values stay English
+ * (schema CHECK: user / user_slash / user_web / admin_manual / cron). `?? raw` fallback matches
+ * the CHANNEL_TYPE_LABEL precedent in Manage.tsx, so an unknown value degrades to itself.
+ * `user` is written by nobody today — it is the schema default, so only legacy rows carry it.
+ * `cron` covers the daily job AND 發起繳費／同步 (they pass no source), hence 系統建立 not 排程.
+ */
+export const SOURCE_LABEL: Record<string, string> = {
+  user: "Discord（舊版）", user_slash: "Discord", user_web: "網頁上傳",
+  admin_manual: "後台補登", cron: "系統建立",
+};
 
 export function Money({ v }: { v: number }) {
   return <span className="mono">NT${v.toLocaleString()}</span>;

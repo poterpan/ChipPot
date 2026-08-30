@@ -141,6 +141,15 @@ export function Settings() {
 
   function flash(msg: string) { setToast(msg); window.setTimeout(() => setToast(null), 2400); }
   async function save() {
+    // min/max on <input type="number"> are only hints — nothing stops a typed 29 from being
+    // submitted, and the worker's guard answers in English (routes/admin.ts, §A.14 allowlist:
+    // that string is only allowed to stay English because the UI is supposed to block it first).
+    const bd = Number(form.billing_day);
+    if (!Number.isInteger(bd) || bd < 1 || bd > 28) { setErr("每月結帳日請填 1-28 的整數。"); return; }
+    const od = Number(form.overdue_days);
+    if (!Number.isInteger(od) || od < 0) { setErr("逾期天數請填 0 或正整數。"); return; }
+    const rm = Number(form.proof_retention_months);
+    if (!Number.isInteger(rm) || rm < 1) { setErr("截圖保存月數請填 1 以上的整數。"); return; }
     setBusy(true); setErr(null);
     try {
       await api.updateWorkspace({
@@ -195,8 +204,8 @@ export function Settings() {
           : <span className="chip chip--off"><IconWarning /> 截圖未啟用</span>)}>
         <div className="card__body">
           <div className="grid2">
-            <Field label="每月結帳日"><span className="field__hint">每月幾號向所有成員開帳收費（1–28）。</span><input type="number" min={1} max={28} value={form.billing_day} onChange={(e) => set("billing_day")(e.target.value)} disabled={busy} /></Field>
-            <Field label="逾期天數"><span className="field__hint">開帳後幾天仍未繳就列入催繳。</span><input type="number" min={0} value={form.overdue_days} onChange={(e) => set("overdue_days")(e.target.value)} disabled={busy} /></Field>
+            <Field label="每月結帳日"><span className="field__hint">每月幾號自動向所有成員開繳（1-28）。</span><input type="number" min={1} max={28} value={form.billing_day} onChange={(e) => set("billing_day")(e.target.value)} disabled={busy} /></Field>
+            <Field label="逾期天數"><span className="field__hint">開繳後幾天仍未繳就列入催繳。</span><input type="number" min={0} value={form.overdue_days} onChange={(e) => set("overdue_days")(e.target.value)} disabled={busy} /></Field>
             <Field label="截圖保存月數"><span className="field__hint">超過月數的繳費截圖自動清除（對帳資料保留）。</span><input type="number" min={1} value={form.proof_retention_months} onChange={(e) => set("proof_retention_months")(e.target.value)} disabled={busy} /></Field>
           </div>
         </div>
@@ -274,7 +283,7 @@ export function Settings() {
         </div>
       </Card>
 
-      <Card title="Discord 訊息文字" desc="機器人在頻道發出的訊息（支援 Discord markdown，即時預覽）">
+      <Card title="Discord 訊息文字" desc="只有這三則可自訂（支援 Discord markdown，即時預覽）。回條、個別催繳、綁定提示等訊息目前寫死在程式裡。">
         <div className="card__body">
           <TemplateField label="開繳通知（{period} {plans} {total}）" value={form.billing_opened_template} onChange={set("billing_opened_template")} allowed={BILLING_KEYS} sample={samples.billing} disabled={busy} rows={4} />
           <TemplateField label="逾期催繳（{period} {count} {list}）" value={form.overdue_template} onChange={set("overdue_template")} allowed={OVERDUE_KEYS} sample={samples.overdue} disabled={busy} rows={4} />
@@ -285,10 +294,10 @@ export function Settings() {
       <Card title="工具" desc="點下去立即執行，不受上面的「儲存」控制">
         <div className="card__body">
           <ActionRow title="重建常駐繳費訊息" tag="立即執行" desc="在繳費頻道重新貼一則含「繳費」按鈕的常駐訊息。" state={payMsgState}><RebuildMessage onDone={(id) => setLive((s) => ({ ...s, pay: id }))} /></ActionRow>
-          <ActionRow title="張貼／更新綁定按鈕訊息" tag="立即執行" desc="在帳單頻道貼一則含「綁定 Discord」按鈕的公開訊息，讓成員主動綁定（開繳／催繳才能 @ 到他）。" state={bindMsgState}><RebuildBindMessage onDone={(id) => setLive((s) => ({ ...s, bind: id }))} /></ActionRow>
+          <ActionRow title="張貼／更新綁定按鈕訊息" tag="立即執行" desc="在繳費頻道貼一則含「綁定 Discord」按鈕的公開訊息，讓成員主動綁定（開繳／催繳才能 @ 到他）。" state={bindMsgState}><RebuildBindMessage onDone={(id) => setLive((s) => ({ ...s, bind: id }))} /></ActionRow>
           <ActionRow title="註冊 Discord 指令" tag="立即執行" desc="更新 /繳費、/發起繳費、/綁定 指令到你的伺服器。" state={cmdState}><RegisterCommands onDone={(at) => setLive((s) => ({ ...s, cmd: at }))} /></ActionRow>
           <ActionRow title="發起繳費" tag="會改價＋發通知" warn desc="確認指定期別的各方案金額，建立該期帳單並向所有成員發出開繳通知。送出前會先看影響預覽。"><InitiateBilling billingDay={savedBillingDay} dirty={dirty} /></ActionRow>
-          <ActionRow title="匯入名單 CSV" tag="會新增/暫停訂閱" warn desc="用 CSV 批次建立或更新成員與訂閱；FALSE 的方案會暫停該訂閱。套用前先看差異預覽。"><ImportRoster /></ActionRow>
+          <ActionRow title="匯入名單 CSV" tag="會新增／暫停訂閱" warn desc="用 CSV 批次建立或更新成員與訂閱；FALSE 的方案會暫停該訂閱。套用前先看差異預覽。"><ImportRoster /></ActionRow>
         </div>
       </Card>
 
@@ -384,7 +393,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
       const r = await api.importMembers(file, { startDate: start || undefined, dryRun: false });
       const d = r.diff;
       setDiff(d);
-      setDone(`✓ 已套用：新增 ${d.users_created.length} 人 / 新增 ${d.subs_added.length} 訂閱 / 恢復 ${d.subs_reactivated.length} / 暫停 ${d.subs_paused.length}`);
+      setDone(`✓ 已套用：新增 ${d.users_created.length} 人、新增 ${d.subs_added.length} 訂閱、恢復 ${d.subs_reactivated.length}、暫停 ${d.subs_paused.length}`);
       // 匯入建立的帳單來自 ensureFirstPayment，不會出現在之後的同步 diff —— 通知要在這裡發，
       // 否則新成員從頭到尾不會收到任何訊息 (C1)。
       const ids = [...new Set(
@@ -413,7 +422,10 @@ function ImportModal({ onClose }: { onClose: () => void }) {
             欄位需為「姓名, 帳號, 方案名…」；方案名須與系統方案一致。方案格 <b>TRUE</b>＝訂閱、<b>FALSE</b>＝暫停該訂閱、<b>留空</b>＝不變動。起算月份留空＝當月。
           </p>
           <Field label="CSV 檔"><input type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={busy} /></Field>
-          <Field label="起算月份第一天（選填，YYYY-MM-DD）"><input value={start} onChange={(e) => setStart(e.target.value)} placeholder="2026-06-01" disabled={busy} /></Field>
+          {/* type=date, like every other date in the app (#44 B14): a free-text box here let a typo reach
+              the worker, whose guard answers in English — a string the §A.14 allowlist only permits to
+              stay English because the UI is supposed to make it unreachable. */}
+          <Field label="起算月份第一天（選填）"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} disabled={busy} /></Field>
           <button className="btn btn--primary" onClick={preview} disabled={busy}>{busy ? "計算差異中…" : "預覽差異"}</button>
         </>
       )}
@@ -441,7 +453,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           {diff.affected_pending_bills.length > 0 && (
             <>
               <div className="warnnote">
-                被暫停的訂閱在 {diff.period} 還有 {diff.affected_pending_bills.length} 筆未繳帳單。匯入<b>不會</b>變更任何帳單；請到「繳費審核」按<b>重新同步本期帳單</b>清理。
+                被暫停的訂閱在 {diff.period} 還有 {diff.affected_pending_bills.length} 筆未繳帳單。匯入<b>不會</b>變更任何帳單；請到「繳費審核」按<b>「重新同步此期帳單」</b>清理。
               </div>
               <DiffList
                 title={`${diff.period} 未繳帳單（匯入不會變更）`}
@@ -507,7 +519,10 @@ function InitiateModal({ plans, billingDay, dirty, onClose }: { plans: { id: num
   const [err, setErr] = useState<string | null>(null);
 
   const payload = () => ({ period, amounts: plans.map((p) => ({ plan_id: p.id, amount: Number(amounts[p.id]) })) });
-  const invalid = plans.some((p) => !/^\d+$/.test((amounts[p.id] ?? "").trim()));
+  // <input type="month"> can be CLEARED, and an empty period reaches the worker's English guard
+  // (§A.14 only lets that string stay English because the UI is supposed to prevent it).
+  const invalid = !/^\d{4}-(0[1-9]|1[0-2])$/.test(period)
+    || plans.some((p) => !/^\d+$/.test((amounts[p.id] ?? "").trim()));
 
   async function runPreview() {
     setBusy(true); setErr(null);
@@ -530,7 +545,7 @@ function InitiateModal({ plans, billingDay, dirty, onClose }: { plans: { id: num
           ? "已在頻道發出開繳通知。"
           : `未發送通知：${NOTIFY_REASON_TEXT[r.notify_reason] ?? "通知未送出"}。` +
             (r.notify_reason === "send_failed"
-              ? "本期已開繳、帳單已建立，可到「儀表板 → 推播狀態 → 重發開繳通知」補送。"
+              ? "此期已開繳、帳單已建立，可到「儀表板 → 推播狀態 → 重發開繳通知」補送。"
               : ""))
       );
     } catch (e) { setErr((e as Error).message); }
@@ -575,7 +590,7 @@ function InitiateModal({ plans, billingDay, dirty, onClose }: { plans: { id: num
             <Stat label="➕ 新增帳單" value={preview.create.length} />
             <Stat label="🔄 改價" value={preview.reprice.length} />
             <Stat label="🏷️ 方案改價" value={preview.plan_changes.length} />
-            <Stat label="🔒 保留(已繳)" value={preview.frozen_count} />
+            <Stat label="🔒 保留（已繳待驗、已驗證）" value={preview.frozen_count} />
           </div>
           {preview.plan_changes.length > 0 && (
             <DiffList title="方案定價（永久生效）" rows={preview.plan_changes.map((c) => `${c.plan_name} NT$${c.from.toLocaleString()} → NT$${c.to.toLocaleString()}`)} />

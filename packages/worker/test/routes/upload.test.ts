@@ -130,7 +130,8 @@ describe("upload submit", () => {
 
   it("answers an empty submission in zh-TW", async () => {
     const res = await handleUpload(uploadReq(RAW_OK, {}), env, ctxFor(RAW_OK));
-    expect(((await res.json()) as any).error).toBe("請至少附上截圖、填寫備註，或選擇渠道。");
+    // §A.12 的正規句；沒有 R2 的部署少一項（測試環境依 BUCKET 是否綁定而定）。
+    expect(((await res.json()) as any).error).toBe(env.BUCKET ? "渠道、截圖、備註至少填一項。" : "渠道、備註至少填一項。");
   });
 
   it("rejects an empty submission (no screenshot, note, or channel)", async () => {
