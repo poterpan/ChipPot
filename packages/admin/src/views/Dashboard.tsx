@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, periodForBillingDay } from "../api";
-import { useAsync, Card, Stat, Empty, Money, ErrorNote } from "../ui";
+import { useAsync, Card, Stat, Empty, Money, ErrorNote, Tbl } from "../ui";
 import { PushStatus } from "./PushStatus";
 
 export function Dashboard() {
@@ -34,7 +34,7 @@ export function Dashboard() {
           </div>
 
           <Card title="各方案">
-            <div className="tbl tbl--pin-first">
+            <Tbl pinFirst>
               <table>
                 <caption className="sr-only">{effPeriod} 各方案收款統計</caption>
                 <thead>
@@ -55,13 +55,13 @@ export function Dashboard() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </Tbl>
           </Card>
 
           <PushStatus period={effPeriod} />
 
           <Card title="依渠道分組（已驗證）">
-            <div className="tbl">
+            <Tbl>
               <table>
                 <caption className="sr-only">依繳費渠道分組的已驗證款項</caption>
                 <thead><tr><th scope="col">渠道</th><th scope="col" className="right">筆數</th><th scope="col" className="right">金額</th></tr></thead>
@@ -76,7 +76,7 @@ export function Dashboard() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </Tbl>
           </Card>
         </>
       )}

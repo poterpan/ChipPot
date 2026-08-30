@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, currentPeriod, periodForBillingDay, type Payment, type ChannelTag, type ReconcileDiff, type RetractPreview, type RetractApplied } from "../api";
-import { useAsync, Card, Modal, Field, Empty, Money, Stat, StatusBadge, IconCheck, IconWarning, IconX, ErrorNote, FilterSelect } from "../ui";
+import { useAsync, Card, Modal, Field, Empty, Money, Stat, StatusBadge, IconCheck, IconWarning, IconX, ErrorNote, FilterSelect, Tbl } from "../ui";
 import { DiffList } from "../components/DiffList";
 import { PaymentDetail } from "./PaymentDetail";
 import { MemberReview } from "./MemberReview";
@@ -130,7 +130,7 @@ export function Payments() {
       {deepMiss && <div className="warnnote">找不到通知連結指向的那筆繳費紀錄，可能已被刪除。以下是目前的繳費列表。</div>}
       {list.error && <ErrorNote message={list.error} onRetry={list.reload} />}
       <Card title="繳費紀錄">
-        <div className="tbl tbl--pin-first tbl--pin-last">
+        <Tbl pinFirst pinLast>
           {/* tbl-cards: below 1000px these rows stack into cards, each cell labelled by its data-label */}
           <table className="tbl-cards">
             <caption className="sr-only">繳費紀錄</caption>
@@ -176,7 +176,7 @@ export function Payments() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Tbl>
       </Card>
 
       {selected && (

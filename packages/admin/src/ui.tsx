@@ -151,6 +151,42 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
 }
 
+/**
+ * Horizontal-scroll wrapper for tables (the .tbl div), owning the pinned-column boundary shadows.
+ * styles.css draws a shadow on a pinned column ONLY while other columns are actually sliding
+ * beneath it — before this, an unconditional 1px divider painted even on tables that never
+ * overflow. CSS cannot observe overflow, so this measures it and mirrors the state into classes:
+ *   tbl--overflowing  — content wider than the box (any shadow at all is allowed)
+ *   tbl--at-start     — scrolled fully left  (nothing hidden under the pinned first column)
+ *   tbl--at-end       — scrolled fully right (nothing hidden under the pinned action column)
+ * Visual-only: with no JS (or no ResizeObserver) the classes are absent and the pinned cells are
+ * plain opaque sticky cells. The table is observed too — rows arrive after the async load.
+ */
+export function Tbl({ pinFirst, pinLast, children }: { pinFirst?: boolean; pinLast?: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const update = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      el.classList.toggle("tbl--overflowing", max > 1);
+      el.classList.toggle("tbl--at-start", el.scrollLeft <= 1);
+      el.classList.toggle("tbl--at-end", el.scrollLeft >= max - 1);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    el.addEventListener("scroll", update, { passive: true });
+    return () => { ro.disconnect(); el.removeEventListener("scroll", update); };
+  }, []);
+  return (
+    <div ref={ref} className={`tbl${pinFirst ? " tbl--pin-first" : ""}${pinLast ? " tbl--pin-last" : ""}`}>
+      {children}
+    </div>
+  );
+}
+
 export function Card({ title, action, desc, children }: { title: string; action?: ReactNode; desc?: ReactNode; children: ReactNode }) {
   return (
     <div className="card">

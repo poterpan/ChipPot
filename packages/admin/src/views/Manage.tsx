@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, nudgeSummary, type User, type Plan, type ChannelTag, type Subscription } from "../api";
-import { useAsync, Card, Modal, Field, Empty, ConfirmDanger, ErrorNote, FilterSelect, TableFilter } from "../ui";
+import { useAsync, Card, Modal, Field, Empty, ConfirmDanger, ErrorNote, FilterSelect, TableFilter, Tbl } from "../ui";
 
 function useForm<T extends Record<string, any>>(initial: T) {
   const [v, setV] = useState<T>(initial);
@@ -33,13 +33,13 @@ export function Users() {
         </>
       }>
         {unboundCount > 0 && (
-          <div className="pills" style={{ padding: "12px 18px 0", alignItems: "center" }}>
+          <div className="pills card__filters">
             <button className={`pill ${onlyUnbound ? "" : "pill--on"}`} onClick={() => setOnlyUnbound(false)}>全部 {all.length} 人</button>
             <button className={`pill ${onlyUnbound ? "pill--on" : ""}`} onClick={() => setOnlyUnbound(true)}>未綁定 {unboundCount} 人</button>
             <span style={{ fontSize: 12.5, color: "var(--muted-strong)" }}>未綁定者收不到開繳／催繳的 @</span>
           </div>
         )}
-        <div className="tbl tbl--pin-first tbl--pin-last">
+        <Tbl pinFirst pinLast>
           <table className="tbl-cards">
             <caption className="sr-only">成員名單</caption>
             <thead><tr><th scope="col">名稱</th><th scope="col">Discord ID</th><th scope="col">Email</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
@@ -59,7 +59,7 @@ export function Users() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Tbl>
       </Card>
       {edit !== undefined && <UserModal user={edit} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
       {del && (
@@ -150,7 +150,7 @@ export function Subscriptions() {
           <button className="btn btn--primary" onClick={() => setAdd(true)}>新增訂閱…</button>
         </>
       }>
-        <div className="tbl tbl--pin-first tbl--pin-last">
+        <Tbl pinFirst pinLast>
           <table className="tbl-cards">
             <caption className="sr-only">訂閱清單</caption>
             <thead><tr><th scope="col">成員</th><th scope="col">方案</th><th scope="col">狀態</th><th scope="col">起算日</th><th scope="col" className="right">結帳日</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
@@ -172,7 +172,7 @@ export function Subscriptions() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Tbl>
       </Card>
       {add && <SubAddModal onClose={() => setAdd(false)} onDone={() => { setAdd(false); reload(); }} />}
       {edit && <SubEditModal sub={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}
@@ -269,14 +269,14 @@ export function Plans() {
       {error && <ErrorNote message={error} onRetry={reload} />}
       <Card title="方案清單" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增方案…</button>}>
         {providers.length > 1 && (
-          <div className="pills" style={{ padding: "12px 18px 0" }}>
+          <div className="pills card__filters">
             <button className={`pill ${pFilter === "" ? "pill--on" : ""}`} onClick={() => setPFilter("")}>全部</button>
             {providers.map((pv) => (
               <button key={pv} className={`pill ${pFilter === pv ? "pill--on" : ""}`} onClick={() => setPFilter(pv)}>{pv}</button>
             ))}
           </div>
         )}
-        <div className="tbl tbl--pin-first tbl--pin-last">
+        <Tbl pinFirst pinLast>
           <table className="tbl-cards">
             <caption className="sr-only">方案清單</caption>
             <thead><tr><th scope="col">名稱</th><th scope="col">供應商</th><th scope="col" className="right">月費</th><th scope="col">身分組 ID</th><th scope="col">啟用</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
@@ -297,7 +297,7 @@ export function Plans() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Tbl>
       </Card>
       {edit !== undefined && <PlanModal plan={edit} providers={providers} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
       {del && (
@@ -369,7 +369,7 @@ export function ChannelTags() {
     <>
       {(error || actErr) && <ErrorNote message={(error || actErr)!} onRetry={reload} />}
       <Card title="繳費渠道（對帳分組）" action={<button className="btn btn--primary" onClick={() => setEdit(null)}>新增渠道…</button>}>
-        <div className="tbl tbl--pin-first tbl--pin-last">
+        <Tbl pinFirst pinLast>
           <table className="tbl-cards">
             <caption className="sr-only">繳費渠道清單</caption>
             <thead><tr><th scope="col">名稱</th><th scope="col">類型</th><th scope="col" className="right">排序</th><th scope="col">狀態</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
@@ -395,7 +395,7 @@ export function ChannelTags() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Tbl>
       </Card>
       {edit !== undefined && <TagModal tag={edit} onClose={() => setEdit(undefined)} onDone={() => { setEdit(undefined); reload(); }} />}
       {del && (

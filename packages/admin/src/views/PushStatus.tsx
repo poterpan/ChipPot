@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, NOTIFY_REASON_TEXT, type ResendBillingPreview, type OverduePreview } from "../api";
-import { useAsync, Card, Modal, Stat, Empty, ConfirmDanger } from "../ui";
+import { useAsync, Card, Modal, Stat, Empty, ConfirmDanger, Tbl } from "../ui";
 import { DiffList } from "../components/DiffList";
 
 /**
@@ -40,7 +40,7 @@ export function PushStatus({ period }: { period: string }) {
           </div>
         </div>
       )}
-      <div className="tbl tbl--pin-last">
+      <Tbl pinLast>
         <table className="tbl-cards">
           <caption className="sr-only">{period} 推播通知狀態</caption>
           <thead><tr><th scope="col">通知</th><th scope="col">狀態</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
@@ -62,7 +62,7 @@ export function PushStatus({ period }: { period: string }) {
             </tr>
           </tbody>
         </table>
-      </div>
+      </Tbl>
       <p style={{ color: "var(--muted-strong)", fontSize: 12.5, lineHeight: 1.7, padding: "10px 20px 16px", margin: 0 }}>
         要把 {period} 改回「未開繳」（成員暫時無法繳費）？請到「繳費審核」使用<b>收回此期開繳</b> ——
         它會一併刪掉未繳／已退回的帳單，不會只留下對不起來的半套狀態。
