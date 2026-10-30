@@ -3,6 +3,7 @@ import { parseSettings } from "../env";
 import { nowUtcIso, periodStart, periodEnd, dueDate } from "./time";
 import { writeAudit } from "./audit";
 import { claimNotification, isBillingOpened, type Notifier, type PlanOpenLine } from "./notify";
+import { SUB_PLAN_NAME_SQL } from "./db";
 
 export interface PeriodDates {
   period_start: string;
@@ -365,7 +366,7 @@ export async function previewBillingInitiate(
 
   const activeSubs = (await env.DB.prepare(
     `SELECT s.id AS subscription_id, s.plan_id AS plan_id, s.user_id AS user_id,
-            u.display_name AS user_name, u.discord_id AS discord_id, pl.name AS plan_name
+            u.display_name AS user_name, u.discord_id AS discord_id, ${SUB_PLAN_NAME_SQL} AS plan_name
      FROM subscriptions s JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
      WHERE s.workspace_id = ? AND s.status = 'active'`
   ).bind(workspaceId).all<{ subscription_id: number; plan_id: number; user_id: number; user_name: string; discord_id: string | null; plan_name: string }>()).results;
@@ -462,7 +463,7 @@ export async function reconcilePeriodBills(
   const activeSubs = (await env.DB.prepare(
     `SELECT s.id AS subscription_id, s.user_id AS user_id, s.billing_day AS billing_day,
             u.display_name AS user_name, u.discord_id AS discord_id,
-            pl.name AS plan_name, pl.monthly_amount AS price
+            ${SUB_PLAN_NAME_SQL} AS plan_name, pl.monthly_amount AS price
      FROM subscriptions s JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
      WHERE s.workspace_id = ? AND s.status = 'active'`
   ).bind(workspaceId).all<{ subscription_id: number; user_id: number; billing_day: number; user_name: string; discord_id: string | null; plan_name: string; price: number }>()).results;
@@ -471,7 +472,7 @@ export async function reconcilePeriodBills(
   const existing = (await env.DB.prepare(
     `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.amount AS amount, p.status AS status,
             p.screenshot_key AS screenshot_key, s.status AS sub_status, s.user_id AS user_id,
-            u.display_name AS user_name, u.discord_id AS discord_id, pl.name AS plan_name
+            u.display_name AS user_name, u.discord_id AS discord_id, ${SUB_PLAN_NAME_SQL} AS plan_name
      FROM payments p JOIN subscriptions s ON s.id = p.subscription_id
      JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
      WHERE p.workspace_id = ? AND p.period = ?`
@@ -581,7 +582,7 @@ export async function retractPeriodBilling(
   const existing = (await env.DB.prepare(
     `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.amount AS amount, p.status AS status,
             p.screenshot_key AS screenshot_key, s.user_id AS user_id,
-            u.display_name AS user_name, u.discord_id AS discord_id, pl.name AS plan_name
+            u.display_name AS user_name, u.discord_id AS discord_id, ${SUB_PLAN_NAME_SQL} AS plan_name
      FROM payments p JOIN subscriptions s ON s.id = p.subscription_id
      JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
      WHERE p.workspace_id = ? AND p.period = ?`

@@ -182,7 +182,7 @@ git update-index --skip-worktree packages/worker/wrangler.toml
    - Deploy command：`pnpm --filter @chippot/worker run deploy`
 4. 儲存並觸發第一次 deploy。
 
-   > **deploy 腳本做兩件事**：先用 `wrangler d1 migrations apply DB --remote` 自動套用所有未套用的 migration（idempotent，冪等），再執行 `wrangler deploy`。首次部署會套入 0001–0007 的初始 schema 與示範 seed。
+   > **deploy 腳本做兩件事**：先用 `wrangler d1 migrations apply DB --remote` 自動套用所有未套用的 migration（idempotent，冪等），再執行 `wrangler deploy`。首次部署會套入 0001–0008 的初始 schema 與示範 seed。
    >
    > 這裡的 `DB` 是 **binding 名稱**（`wrangler.toml` 的 `[[d1_databases]] binding`），不是資料庫名稱。wrangler 會自己從設定檔解析出實際的資料庫——所以你把 `database_name` 改成什麼都不影響，遷移一樣會套用。（早期版本寫死 `chippot-db`，fork 改名後遷移會**靜默不執行**，直到有人發現資料表缺欄位。）
    >
