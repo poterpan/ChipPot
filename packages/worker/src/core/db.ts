@@ -1,6 +1,13 @@
 import type { Env } from "../env";
 import { nowUtcIso } from "./time";
 
+/**
+ * Plan name for a member-facing line about ONE subscription: "方案 A（帳號 2）" when the sub carries
+ * an account_label (附卡, #58), the bare plan name otherwise. Expects the query to alias
+ * subscriptions as `s` and plans as `pl`. account_email is deliberately absent — it never leaves 後台.
+ */
+export const SUB_PLAN_NAME_SQL = "(pl.name || COALESCE('（' || NULLIF(TRIM(s.account_label), '') || '）', ''))";
+
 export interface WorkspaceRow {
   id: number;
   name: string;
@@ -96,7 +103,7 @@ export async function listActiveSubscriptions(
 ): Promise<SubscriptionChoice[]> {
   const { results } = await db
     .prepare(
-      `SELECT s.id AS id, s.plan_id AS plan_id, pl.name AS plan_name, pl.monthly_amount AS amount
+      `SELECT s.id AS id, s.plan_id AS plan_id, ${SUB_PLAN_NAME_SQL} AS plan_name, pl.monthly_amount AS amount
        FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id
        WHERE s.workspace_id = ? AND s.user_id = ? AND s.status = 'active'
        ORDER BY s.id`
@@ -143,7 +150,7 @@ export async function listSettleablePayments(
 ): Promise<SettleablePayment[]> {
   const { results } = await db
     .prepare(
-      `SELECT p.id AS id, p.amount AS amount, pl.name AS plan_name
+      `SELECT p.id AS id, p.amount AS amount, ${SUB_PLAN_NAME_SQL} AS plan_name
        FROM payments p
        JOIN subscriptions s ON s.id = p.subscription_id
        JOIN plans pl ON pl.id = s.plan_id
@@ -311,7 +318,7 @@ export async function listRecentPayments(
 ): Promise<RecentPayment[]> {
   const { results } = await db
     .prepare(
-      `SELECT p.period AS period, pl.name AS plan_name, p.amount AS amount, p.status AS status
+      `SELECT p.period AS period, ${SUB_PLAN_NAME_SQL} AS plan_name, p.amount AS amount, p.status AS status
        FROM payments p
        JOIN subscriptions s ON s.id = p.subscription_id
        JOIN plans pl ON pl.id = s.plan_id
