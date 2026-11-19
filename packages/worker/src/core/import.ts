@@ -1,6 +1,6 @@
 import type { Env } from "../env";
 import { nowUtcIso } from "./time";
-import { ensureFirstPayment } from "./billing";
+import { ensureFirstPayment, ensureReactivatedPeriodPayment } from "./billing";
 
 export interface RosterRow {
   name: string;
@@ -127,12 +127,12 @@ interface RowPlan {
  *  2. apply (skipped entirely when opts.dryRun): insert/update users, then insert/reactivate/pause
  *     subscriptions.
  *
- * Reactivation deliberately writes NO payment row: ensureFirstPayment bills the subscription's
- * ORIGINAL start_date month, which for a months-old paused sub would open a bill in a closed past
- * period. The current period's bill is exactly what 重新同步此期帳單 (reconcilePeriodBills) creates
- * for every active sub that lacks one — and only for periods that are actually open. Pausing is the
- * mirror image: the stale bills are reported in affected_pending_bills and removed by that same
- * action. So the whole period-bill story stays in one place.
+ * Reactivation never uses ensureFirstPayment: that bills the subscription's ORIGINAL start_date
+ * month, which for a months-old paused sub would open a bill in a closed past period. Instead it
+ * bills the current collection period, and only if that period is already open
+ * (ensureReactivatedPeriodPayment) — leaving it to 重新同步此期帳單 meant the bill silently did not
+ * exist until the member pressed 繳費, so 催繳 never saw it. Pausing still only reports the stale
+ * bills (affected_pending_bills); 重新同步此期帳單 removes them.
  *
  * Concurrency: the user/sub dedup is SELECT-then-INSERT, so two simultaneous imports of the same
  * roster could double-insert. This is a single-admin, occasional tool and the admin UI disables the
@@ -241,8 +241,9 @@ export async function importRoster(
       }
       // Re-assert the expected status in the WHERE so a concurrent admin edit isn't clobbered.
       for (const r of rp.reactivate) {
-        await env.DB.prepare("UPDATE subscriptions SET status = 'active', updated_at = ? WHERE id = ? AND status = 'paused'")
+        const res = await env.DB.prepare("UPDATE subscriptions SET status = 'active', updated_at = ? WHERE id = ? AND status = 'paused'")
           .bind(now, r.subId).run();
+        if ((res.meta.changes ?? 0) > 0) await ensureReactivatedPeriodPayment(env.DB, workspaceId, r.subId);
       }
       for (const p of rp.pause) {
         await env.DB.prepare("UPDATE subscriptions SET status = 'paused', updated_at = ? WHERE id = ? AND status = 'active'")
