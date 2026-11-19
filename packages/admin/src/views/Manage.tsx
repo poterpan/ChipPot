@@ -187,7 +187,7 @@ export function Subscriptions() {
         </Tbl>
       </Card>
       {add && <SubAddModal onClose={() => setAdd(false)} onDone={(note) => { setAdd(false); setAddNote(note); reload(); }} />}
-      {edit && <SubEditModal sub={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}
+      {edit && <SubEditModal sub={edit} onClose={() => setEdit(null)} onDone={(note) => { setEdit(null); setAddNote(note); reload(); }} />}
       {del && (
         <ConfirmDanger
           title={`刪除訂閱 · ${del.user_name} · ${del.plan_name}`}
@@ -248,12 +248,15 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: (note: 
     </Modal>
   );
 }
-function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: () => void; onDone: () => void }) {
+function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: () => void; onDone: (note: string | null) => void }) {
   const [f, set] = useForm({ status: sub.status, start_date: sub.start_date, billing_day: String(sub.billing_day), custom_cycle: sub.custom_cycle, account_label: sub.account_label ?? "", account_email: sub.account_email ?? "" });
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   async function save() {
     setBusy(true); setErr(null);
-    try { await api.updateSubscription(sub.id, { status: f.status, start_date: f.start_date, billing_day: Number(f.billing_day), custom_cycle: f.custom_cycle ? 1 : 0, account_label: f.account_label, account_email: f.account_email }); onDone(); }
+    try { const r = await api.updateSubscription(sub.id, { status: f.status, start_date: f.start_date, billing_day: Number(f.billing_day), custom_cycle: f.custom_cycle ? 1 : 0, account_label: f.account_label, account_email: f.account_email }) as { reactivated_bill?: { period: string; created: boolean } | null };
+      // 改回啟用中時，若當期已開繳，worker 會立刻補開當期帳單——照實告訴管理員，免得以為還要手動補。
+      const rb = r.reactivated_bill;
+      onDone(rb?.created ? `✓ 已恢復訂閱，並補開 ${rb.period} 帳單（此期已開繳，會出現在催繳名單）。` : null); }
     catch (e) { setErr((e as Error).message); setBusy(false); }
   }
   return (
