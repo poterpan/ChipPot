@@ -6,7 +6,7 @@ import { nowUtcIso, taipeiDate, taipeiPeriod } from "../core/time";
 import { issueUploadToken } from "../core/tokens";
 import { writeAudit } from "../core/audit";
 import { getPayment, verifyPayment, rejectPayment, overrideAmount, unverifyPayment, verifyUserPeriod, InvalidPaymentTransition } from "../core/payments";
-import { ensureFirstPayment, initiateBillingOpened, previewBillingInitiate, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice } from "../core/billing";
+import { ensureFirstPayment, ensureReactivatedPeriodPayment, initiateBillingOpened, previewBillingInitiate, reconcilePeriodBills, retractPeriodBilling, resendBillingOpenedNotice } from "../core/billing";
 import { reconcilePeriod } from "../core/reconcile";
 import { createChannelMessage, editChannelMessage, registerGuildCommands } from "../adapters/discord/api";
 import { payButtonRow, bindButtonRow, payCommand, MY_BILLS_COMMAND, INITIATE_COMMAND, BIND_COMMAND } from "../adapters/discord/commands";
@@ -559,7 +559,7 @@ async function createSubscription(req: Request, env: Env, ctx: RouteCtx): Promis
 
 async function updateSubscription(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
-  const before = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ?").bind(id).first<{ account_label: string | null; account_email: string | null }>();
+  const before = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ?").bind(id).first<{ status: string; workspace_id: number; account_label: string | null; account_email: string | null }>();
   if (!before) return errorResponse(404, "找不到這筆訂閱");
   const raw = await readJson<{ status?: string; start_date?: string; billing_day?: number; custom_cycle?: number; account_label?: string | null; account_email?: string | null }>(req);
   const b = raw && typeof raw === "object" ? raw : {};
@@ -577,9 +577,12 @@ async function updateSubscription(req: Request, env: Env, ctx: RouteCtx): Promis
   ).bind(b.status ?? null, b.start_date ?? null, b.billing_day ?? null, b.custom_cycle ?? null,
     "account_label" in b ? 1 : 0, blankToNull(b.account_label), "account_email" in b ? 1 : 0, blankToNull(b.account_email),
     nowUtcIso(), id).run();
-  const after = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ?").bind(id).first();
-  await writeAudit(env.DB, { workspaceId: wsId(ctx), actor: actorOf(ctx), action: "subscription.update", entityType: "subscription", entityId: id, before, after });
-  return json({ ok: true });
+  const after = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ?").bind(id).first<{ status: string }>();
+  // Back to active from cancelled/paused → bill the open collection period now, so 催繳 can see it.
+  const reactivated = before.status !== "active" && after?.status === "active"
+    ? await ensureReactivatedPeriodPayment(env.DB, before.workspace_id, id) : null;
+  await writeAudit(env.DB, { workspaceId: wsId(ctx), actor: actorOf(ctx), action: "subscription.update", entityType: "subscription", entityId: id, before, after: { ...after, reactivated_payment_id: reactivated?.paymentId ?? null } });
+  return json({ ok: true, reactivated_bill: reactivated && { period: reactivated.period, payment_id: reactivated.paymentId, created: reactivated.created } });
 }
 
 // ── Channel tags ───────────────────────────────────────────────────────────

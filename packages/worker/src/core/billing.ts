@@ -1,6 +1,6 @@
 import type { Env } from "../env";
 import { parseSettings } from "../env";
-import { nowUtcIso, periodStart, periodEnd, dueDate } from "./time";
+import { nowUtcIso, periodStart, periodEnd, dueDate, periodForBillingDay } from "./time";
 import { writeAudit } from "./audit";
 import { claimNotification, isBillingOpened, type Notifier, type PlanOpenLine } from "./notify";
 import { SUB_PLAN_NAME_SQL } from "./db";
@@ -99,6 +99,26 @@ export async function ensureFirstPayment(
   if (!sub) throw new Error(`subscription ${subscriptionId} not found`);
   const period = sub.start_date.slice(0, 7);
   return ensurePeriodPayment(db, subscriptionId, period);
+}
+
+/**
+ * A subscription that just became active again (後台 edit cancelled/paused → active, or a roster
+ * import reactivating a paused sub) owes the period currently being collected. Bill it now if that
+ * period is already open — otherwise the bill only appeared when the member happened to press 繳費
+ * (ensureCurrentPeriodRows), so for weeks nothing existed for 催繳 to find. An unopened period is
+ * left alone: 發起繳費 creates its bills. "Current" is the same collection period the Discord pay
+ * flow uses. Returns null when nothing was due.
+ */
+export async function ensureReactivatedPeriodPayment(
+  db: D1Database,
+  workspaceId: number,
+  subscriptionId: number,
+  now: Date = new Date()
+): Promise<(EnsureResult & { period: string }) | null> {
+  const ws = await db.prepare("SELECT billing_day FROM workspaces WHERE id = ?").bind(workspaceId).first<{ billing_day: number }>();
+  const period = periodForBillingDay(ws?.billing_day ?? 1, now);
+  if (!(await isBillingOpened(db, workspaceId, period))) return null;
+  return { ...(await ensurePeriodPayment(db, subscriptionId, period, { source: "admin_manual" })), period };
 }
 
 // ── Manual "發起繳費" (confirm amounts + open billing) ─────────────────────────

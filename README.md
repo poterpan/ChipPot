@@ -9,7 +9,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
-![Vitest](https://img.shields.io/badge/tests-431%20passing-0f6e63?logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/tests-454%20passing-0f6e63?logo=vitest&logoColor=white)
 ![Serverless](https://img.shields.io/badge/100%25-serverless-074340)
 
 <br/>
@@ -63,6 +63,10 @@ pre-wired) and a multi-workspace-ready data model, so it generalizes well beyond
   upload: a plan cell of `TRUE` subscribes (or un-pauses), `FALSE` pauses that subscription, blank
   leaves it alone. Every run previews a full diff (new members, added / paused / reactivated subs,
   plans it couldn't match, cancelled subs that need a human) before you apply it; idempotent re-runs.
+- 🪪 **Extra accounts (附卡)** — one member can pay for several accounts of the same plan (e.g. a second
+  mailbox, or a friend's seat they cover). Each is its own subscription with a short label shown
+  next to the plan everywhere a bill line appears (`ChatGPT（帳號 2）`); the account email stays in the
+  admin only, never in Discord. Roster import never touches 附卡 subscriptions — they're managed by hand.
 - 🧾 **Review queue + reconciliation** — an admin dashboard with per-plan / per-channel totals, a
   one-click verify queue, manual back-fill, single-payment delete, undo-verify, and frozen period
   amounts (price changes never rewrite history). A **重新同步此期帳單** action re-aligns an opened
@@ -222,7 +226,10 @@ payment screenshots) and fill in `wrangler.toml` accordingly — `database_id`, 
 ## Admin & operations
 
 - **Members & subscriptions** — add manually or bulk-import a CSV; creating a subscription opens
-  its first period bill.
+  its first period bill. Setting a cancelled/paused subscription back to active (by hand or by
+  import) bills the period being collected right away if it's already opened, so reminders can find
+  it. A subscription can carry a **附卡** label + email for a member's extra accounts (an email needs
+  a label).
 - **Review queue** — Payments → status pills → the **已繳待驗** queue floats to the top → one-click
   ✅ verify (or open a row for screenshots, channel, reject, amount override, delete proof, **撤回驗證**
   to undo a mistaken verify, or **delete the whole bill**).
