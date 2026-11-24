@@ -4,6 +4,7 @@ import { taipeiPeriod, taipeiDate, taipeiDayOfMonth, daysBetween } from "./time"
 import { ensurePeriodPayment } from "./billing";
 import { runRetention } from "./retention";
 import { claimNotification, claimNotificationSlot, releaseSlot, type Notifier, type PlanOpenLine, type OverduePerson } from "./notify";
+import { SUB_PLAN_NAME_SQL } from "./db";
 
 export interface DailySummary {
   paymentsEnsured: number;
@@ -146,13 +147,13 @@ export async function sendOverdueForPeriod(
   const rows = await env.DB
     .prepare(
       `SELECT u.id AS user_id, u.discord_id AS discord_id, u.display_name AS user_name,
-              p.amount AS amount, p.due_date AS due_date, pl.name AS plan_name
+              p.amount AS amount, p.due_date AS due_date, ${SUB_PLAN_NAME_SQL} AS plan_name
        FROM payments p
        JOIN subscriptions s ON s.id = p.subscription_id
        JOIN users u ON u.id = s.user_id
        JOIN plans pl ON pl.id = s.plan_id
        WHERE p.workspace_id = ? AND p.period = ? AND p.status IN ('pending','rejected')
-       ORDER BY u.id, pl.id`
+       ORDER BY u.id, pl.id, s.id`
     )
     .bind(workspaceId, period)
     .all<{ user_id: number; discord_id: string | null; user_name: string; amount: number; due_date: string; plan_name: string }>();

@@ -152,7 +152,7 @@ packages/
     src/core/             channel-agnostic domain logic
     src/adapters/discord/ Ed25519 verify · commands · handler · notify
     src/routes/           interactions · upload · admin · images
-    migrations/           D1 schema (0001…0007)
+    migrations/           D1 schema (0001…0008)
     scripts/              register-commands.mjs
     test/                 Vitest (real Miniflare D1/R2)
   web/                    public token-gated upload page (Vite/React)

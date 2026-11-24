@@ -129,6 +129,7 @@ const SUB_STATUSES = [
   { v: "cancelled", label: "已取消" },
 ];
 const SUB_STATUS_LABEL: Record<string, string> = Object.fromEntries(SUB_STATUSES.map((s) => [s.v, s.label]));
+const ACCOUNT_HINT = "同一位成員多買的帳號（附卡）才填，填信箱就要填標籤。標籤會接在方案名稱後面，出現在 Discord 的開繳／催繳明細；信箱只在後台看得到。附卡訂閱不受匯入名單影響，請在這裡手動管理。";
 
 export function Subscriptions() {
   const { data, loading, error, reload } = useAsync(() => api.subscriptions(), []);
@@ -141,7 +142,7 @@ export function Subscriptions() {
   const all = data?.subscriptions ?? [];
   const needle = q.trim().toLowerCase();
   const shown = needle
-    ? all.filter((s) => [s.user_name, s.plan_name, s.status, SUB_STATUS_LABEL[s.status] ?? ""].some((x) => String(x).toLowerCase().includes(needle)))
+    ? all.filter((s) => [s.user_name, s.plan_name, s.account_email ?? "", s.status, SUB_STATUS_LABEL[s.status] ?? ""].some((x) => String(x).toLowerCase().includes(needle)))
     : all;
   return (
     <>
@@ -168,7 +169,10 @@ export function Subscriptions() {
               {shown.map((s) => (
                 <tr key={s.id}>
                   <td data-label="成員">{s.user_name}</td>
-                  <td data-label="方案">{s.plan_name}</td>
+                  <td data-label="方案">
+                    {s.plan_name}
+                    {s.account_email && <div className="mono" style={{ fontSize: 12.5, color: "var(--muted)" }}>{s.account_email}</div>}
+                  </td>
                   <td data-label="狀態">{SUB_STATUS_LABEL[s.status] ?? s.status}</td>
                   <td data-label="起算日" className="mono">{s.start_date}</td>
                   <td data-label="結帳日" className="right mono">{s.billing_day}</td>
@@ -198,7 +202,7 @@ export function Subscriptions() {
 function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: (note: string) => void }) {
   const users = useAsync(() => api.users(), []);
   const plans = useAsync(() => api.plans(), []);
-  const [f, set] = useForm({ user_id: "", plan_id: "", start_date: "" });
+  const [f, set] = useForm({ user_id: "", plan_id: "", start_date: "", account_label: "", account_email: "" });
   const [notify, setNotify] = useState(true);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   async function save() {
@@ -207,7 +211,7 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: (note: 
     setBusy(true); setErr(null);
     const period = f.start_date.slice(0, 7);
     try {
-      await api.createSubscription({ user_id: Number(f.user_id), plan_id: Number(f.plan_id), start_date: f.start_date });
+      await api.createSubscription({ user_id: Number(f.user_id), plan_id: Number(f.plan_id), start_date: f.start_date, account_label: f.account_label, account_email: f.account_email });
       // 過了這一行，訂閱和第一期帳單都已經寫進 DB，所以「成功」必須無條件反映在 UI 上：關窗、刷新清單。
       // 通知只是附註 (C1: 建立訂閱會立刻開出第一期帳單，但沒有任何人會告訴這位成員)。這裡曾經在
       // notified === 0 時提早 return，把彈窗留在原地——管理員以為沒建成就再按一次，每按一次就多
@@ -236,6 +240,7 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: (note: 
       {/* type=date, not a bare text box with a placeholder: everywhere else in the app a date is
           picked (Settings and the payment modals all use type="month"). */}
       <Field label="起算日"><input type="date" value={f.start_date} onChange={(e) => set("start_date", e.target.value)} disabled={busy} /></Field>
+      <AccountFields label={f.account_label} email={f.account_email} set={set} disabled={busy} />
       <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
         <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} disabled={busy} /> 建立後在頻道 @ 通知這位成員繳費
       </label>
@@ -244,11 +249,11 @@ function SubAddModal({ onClose, onDone }: { onClose: () => void; onDone: (note: 
   );
 }
 function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: () => void; onDone: () => void }) {
-  const [f, set] = useForm({ status: sub.status, start_date: sub.start_date, billing_day: String(sub.billing_day), custom_cycle: sub.custom_cycle });
+  const [f, set] = useForm({ status: sub.status, start_date: sub.start_date, billing_day: String(sub.billing_day), custom_cycle: sub.custom_cycle, account_label: sub.account_label ?? "", account_email: sub.account_email ?? "" });
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   async function save() {
     setBusy(true); setErr(null);
-    try { await api.updateSubscription(sub.id, { status: f.status, start_date: f.start_date, billing_day: Number(f.billing_day), custom_cycle: f.custom_cycle ? 1 : 0 }); onDone(); }
+    try { await api.updateSubscription(sub.id, { status: f.status, start_date: f.start_date, billing_day: Number(f.billing_day), custom_cycle: f.custom_cycle ? 1 : 0, account_label: f.account_label, account_email: f.account_email }); onDone(); }
     catch (e) { setErr((e as Error).message); setBusy(false); }
   }
   return (
@@ -266,8 +271,22 @@ function SubEditModal({ sub, onClose, onDone }: { sub: Subscription; onClose: ()
       <span className="field__hint" style={{ marginBottom: 14 }}>
         勾選後這個訂閱依自己的結帳日出帳，不跟著工作區的統一結帳日；排程只會在該日產生它的帳單。
       </span>
+      <AccountFields label={f.account_label} email={f.account_email} set={set} disabled={busy} />
       <button className="btn btn--primary" onClick={save} disabled={busy}>儲存</button>
     </Modal>
+  );
+}
+function AccountFields({ label, email, set, disabled }: { label: string; email: string; set: (k: "account_label" | "account_email", v: string) => void; disabled: boolean }) {
+  return (
+    <>
+      <Field label="附卡標籤（選填）">
+        <span className="field__hint">{ACCOUNT_HINT}</span>
+        <input value={label} placeholder="例：帳號 2" onChange={(e) => set("account_label", e.target.value)} disabled={disabled} />
+      </Field>
+      <Field label="附卡信箱（選填）">
+        <input type="email" value={email} onChange={(e) => set("account_email", e.target.value)} disabled={disabled} />
+      </Field>
+    </>
   );
 }
 

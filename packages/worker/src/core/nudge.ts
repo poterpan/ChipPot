@@ -4,6 +4,7 @@ import {
   claimNotificationSlot, releaseSlot, releaseNotification, isBillingOpened,
   type Notifier, type NudgeKind, type OverduePerson,
 } from "./notify";
+import { SUB_PLAN_NAME_SQL } from "./db";
 
 export interface NudgeInput {
   workspaceId: number;
@@ -67,14 +68,14 @@ export async function sendMemberNudge(
   const marks = o.userIds.map(() => "?").join(",");
   const rows = (await env.DB.prepare(
     `SELECT u.id AS user_id, u.discord_id AS discord_id, u.display_name AS user_name,
-            pl.name AS plan_name, p.amount AS amount
+            ${SUB_PLAN_NAME_SQL} AS plan_name, p.amount AS amount
      FROM payments p
      JOIN subscriptions s ON s.id = p.subscription_id
      JOIN users u ON u.id = s.user_id
      JOIN plans pl ON pl.id = s.plan_id
      WHERE p.workspace_id = ? AND p.period = ? AND p.status IN ('pending','rejected')
        AND s.status = 'active' AND u.id IN (${marks})
-     ORDER BY u.id, pl.id`
+     ORDER BY u.id, pl.id, s.id`
   ).bind(o.workspaceId, o.period, ...o.userIds).all<Row>()).results;
 
   const byUser = new Map<number, OverduePerson>();

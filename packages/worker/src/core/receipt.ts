@@ -4,6 +4,7 @@ import {
   claimNotification, releaseNotification,
   type Notifier, type ReceiptKind, type ReceiptTarget,
 } from "./notify";
+import { SUB_PLAN_NAME_SQL } from "./db";
 
 export interface ReceiptRequest {
   workspaceId: number;
@@ -49,7 +50,7 @@ export async function announcePaymentReceipt(
   const marks = req.paymentIds.map(() => "?").join(",");
   const rows = (await env.DB.prepare(
     `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.period AS period, p.amount AS amount,
-            s.user_id AS user_id, u.display_name AS user_name, u.discord_id AS discord_id, pl.name AS plan_name
+            s.user_id AS user_id, u.display_name AS user_name, u.discord_id AS discord_id, ${SUB_PLAN_NAME_SQL} AS plan_name
      FROM payments p JOIN subscriptions s ON s.id = p.subscription_id
      JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
      WHERE p.workspace_id = ? AND p.id IN (${marks})

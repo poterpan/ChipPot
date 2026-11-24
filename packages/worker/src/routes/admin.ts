@@ -17,6 +17,7 @@ import { parseRosterCsv, importRoster } from "../core/import";
 import { sendOverdueForPeriod } from "../core/scheduled";
 import { renderTemplate } from "../core/templates";
 import { sendTestNotification } from "../core/payment-notify";
+import { SUB_PLAN_NAME_SQL } from "../core/db";
 
 // Error copy (#46 / §A.14): the admin SPA renders `data.error` straight into .error-banner, so
 // every message an admin can reach BY CLICKING answers in zh-TW. The ASCII ones left below are
@@ -519,7 +520,7 @@ async function deletePlan(_req: Request, env: Env, ctx: RouteCtx): Promise<Respo
 
 async function listSubscriptions(_req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const { results } = await env.DB.prepare(
-    `SELECT s.*, u.display_name AS user_name, pl.name AS plan_name,
+    `SELECT s.*, u.display_name AS user_name, ${SUB_PLAN_NAME_SQL} AS plan_name,
             (SELECT COUNT(*) FROM payments p WHERE p.subscription_id = s.id AND p.workspace_id = s.workspace_id) AS payment_count
      FROM subscriptions s JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
      WHERE s.workspace_id = ? ORDER BY s.id`
@@ -527,19 +528,29 @@ async function listSubscriptions(_req: Request, env: Env, ctx: RouteCtx): Promis
   return json({ subscriptions: results });
 }
 
+/** 附卡 fields (#58): an empty / whitespace-only value clears the field rather than storing "". */
+function blankToNull(v: string | null | undefined): string | null {
+  const t = typeof v === "string" ? v.trim() : "";
+  return t === "" ? null : t;
+}
+// The label is what makes a sub a 附卡: an email alone would hide the sub from roster import (whose
+// next TRUE then adds a second, double-billed sub) while Discord shows it as a bare duplicate line.
+const ACCOUNT_EMAIL_NEEDS_LABEL = "填了附卡信箱就要填附卡標籤（標籤用來在 Discord 明細上區分帳號）。";
+
 async function createSubscription(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
-  const b = await readJson<{ user_id?: number; plan_id?: number; start_date?: string; billing_day?: number; custom_cycle?: number }>(req);
+  const b = await readJson<{ user_id?: number; plan_id?: number; start_date?: string; billing_day?: number; custom_cycle?: number; account_label?: string | null; account_email?: string | null }>(req);
   if (!b?.user_id || !b.plan_id || !b.start_date) {
     return errorResponse(400, "user_id, plan_id, start_date are required");
   }
+  if (blankToNull(b.account_email) && !blankToNull(b.account_label)) return errorResponse(400, ACCOUNT_EMAIL_NEEDS_LABEL);
   const ws = wsId(ctx);
   const wsRow = await env.DB.prepare("SELECT billing_day FROM workspaces WHERE id = ?").bind(ws).first<{ billing_day: number }>();
   const billingDay = b.billing_day ?? wsRow?.billing_day ?? 5;
   const now = nowUtcIso();
   const res = await env.DB.prepare(
-    `INSERT INTO subscriptions (workspace_id, user_id, plan_id, start_date, billing_day, custom_cycle, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(ws, b.user_id, b.plan_id, b.start_date, billingDay, b.custom_cycle ?? 0, now, now).run();
+    `INSERT INTO subscriptions (workspace_id, user_id, plan_id, start_date, billing_day, custom_cycle, account_label, account_email, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(ws, b.user_id, b.plan_id, b.start_date, billingDay, b.custom_cycle ?? 0, blankToNull(b.account_label), blankToNull(b.account_email), now, now).run();
   const id = res.meta.last_row_id as number;
   const first = await ensureFirstPayment(env.DB, id); // spec §8: create first period payment now
   await writeAudit(env.DB, { workspaceId: ws, actor: actorOf(ctx), action: "subscription.create", entityType: "subscription", entityId: id, after: { ...b, first_payment_id: first.paymentId } });
@@ -548,16 +559,24 @@ async function createSubscription(req: Request, env: Env, ctx: RouteCtx): Promis
 
 async function updateSubscription(req: Request, env: Env, ctx: RouteCtx): Promise<Response> {
   const id = Number(ctx.params.id);
-  const before = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ?").bind(id).first();
+  const before = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ?").bind(id).first<{ account_label: string | null; account_email: string | null }>();
   if (!before) return errorResponse(404, "找不到這筆訂閱");
-  const b = await readJson<{ status?: string; start_date?: string; billing_day?: number; custom_cycle?: number }>(req) ?? {};
+  const raw = await readJson<{ status?: string; start_date?: string; billing_day?: number; custom_cycle?: number; account_label?: string | null; account_email?: string | null }>(req);
+  const b = raw && typeof raw === "object" ? raw : {};
   if (b.status && !["active", "paused", "cancelled"].includes(b.status)) {
     return errorResponse(400, "狀態無效。");
   }
+  const nextLabel = "account_label" in b ? blankToNull(b.account_label) : before.account_label;
+  const nextEmail = "account_email" in b ? blankToNull(b.account_email) : before.account_email;
+  if (nextEmail && !nextLabel) return errorResponse(400, ACCOUNT_EMAIL_NEEDS_LABEL);
   await env.DB.prepare(
     `UPDATE subscriptions SET status = COALESCE(?, status), start_date = COALESCE(?, start_date),
-       billing_day = COALESCE(?, billing_day), custom_cycle = COALESCE(?, custom_cycle), updated_at = ? WHERE id = ?`
-  ).bind(b.status ?? null, b.start_date ?? null, b.billing_day ?? null, b.custom_cycle ?? null, nowUtcIso(), id).run();
+       billing_day = COALESCE(?, billing_day), custom_cycle = COALESCE(?, custom_cycle),
+       account_label = CASE WHEN ? THEN ? ELSE account_label END,
+       account_email = CASE WHEN ? THEN ? ELSE account_email END, updated_at = ? WHERE id = ?`
+  ).bind(b.status ?? null, b.start_date ?? null, b.billing_day ?? null, b.custom_cycle ?? null,
+    "account_label" in b ? 1 : 0, blankToNull(b.account_label), "account_email" in b ? 1 : 0, blankToNull(b.account_email),
+    nowUtcIso(), id).run();
   const after = await env.DB.prepare("SELECT * FROM subscriptions WHERE id = ?").bind(id).first();
   await writeAudit(env.DB, { workspaceId: wsId(ctx), actor: actorOf(ctx), action: "subscription.update", entityType: "subscription", entityId: id, before, after });
   return json({ ok: true });
@@ -639,7 +658,7 @@ async function listPayments(_req: Request, env: Env, ctx: RouteCtx): Promise<Res
     binds.push(n);
   }
   const { results } = await env.DB.prepare(
-    `SELECT p.*, s.user_id AS user_id, u.display_name AS user_name, pl.name AS plan_name,
+    `SELECT p.*, s.user_id AS user_id, u.display_name AS user_name, ${SUB_PLAN_NAME_SQL} AS plan_name,
             ct.name AS channel_tag_name, dct.name AS declared_channel_tag_name
      FROM payments p
      JOIN subscriptions s ON s.id = p.subscription_id

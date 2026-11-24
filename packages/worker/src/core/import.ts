@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { nowUtcIso } from "./time";
 import { ensureFirstPayment } from "./billing";
+import { SUB_PLAN_NAME_SQL } from "./db";
 
 export interface RosterRow {
   name: string;
@@ -122,6 +123,8 @@ interface RowPlan {
  *       TRUE  + no sub          → add (new active sub + ensureFirstPayment)
  *       FALSE + active sub      → pause
  *       FALSE + anything else   → untouched
+ *     附卡 subscriptions (account_label / account_email set, #58) are excluded from every row
+ *     above: import never adds, skips on, reactivates or pauses them. They are managed in 後台.
  *     Plan columns that match no ACTIVE plan land in unmatched_plans (TRUE or FALSE alike);
  *     columns absent from the CSV header are never even considered.
  *  2. apply (skipped entirely when opts.dryRun): insert/update users, then insert/reactivate/pause
@@ -180,9 +183,12 @@ export async function importRoster(
     }
 
     // Every status, in one read: reading only 'active' subs is what let a TRUE cell insert a
-    // duplicate next to a paused/cancelled sub.
+    // duplicate next to a paused/cancelled sub. 附卡 subs (#58) are invisible here: the roster has
+    // one cell per plan, so it speaks only for the member's own sub — a FALSE must not pause the
+    // extra accounts they pay for, and an extra account must not satisfy a TRUE.
     const subs = rp.userId == null ? [] : (await env.DB.prepare(
-      "SELECT id, plan_id, status FROM subscriptions WHERE workspace_id = ? AND user_id = ? ORDER BY id"
+      `SELECT id, plan_id, status FROM subscriptions
+       WHERE workspace_id = ? AND user_id = ? AND account_label IS NULL AND account_email IS NULL ORDER BY id`
     ).bind(workspaceId, rp.userId).all<{ id: number; plan_id: number; status: string }>()).results;
     const byPlan = new Map<number, { id: number; status: string }[]>();
     for (const s of subs) {
@@ -288,7 +294,7 @@ async function loadAffectedBills(
   const marks = subIds.map(() => "?").join(",");
   const res = await env.DB.prepare(
     `SELECT p.id AS payment_id, p.subscription_id AS subscription_id, p.amount AS amount, p.status AS status,
-            u.display_name AS user_name, pl.name AS plan_name
+            u.display_name AS user_name, ${SUB_PLAN_NAME_SQL} AS plan_name
      FROM payments p JOIN subscriptions s ON s.id = p.subscription_id
      JOIN users u ON u.id = s.user_id JOIN plans pl ON pl.id = s.plan_id
      WHERE p.workspace_id = ? AND p.period = ? AND p.status IN ('pending','rejected')
